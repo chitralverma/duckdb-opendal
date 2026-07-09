@@ -93,3 +93,43 @@ query I
 SELECT count(*) FROM opendal_stat('s3://warehouse/f1.parquet');
 ----
 1
+
+# ── Secret-backed access (SCOPE-matched CREATE SECRET) ──────────────────────
+# These mirror the reads above but drive the S3 config from CREATE SECRET rather
+# than the environment. Two distinct scoped secrets prove SCOPE resolution.
+
+statement ok
+CREATE SECRET s3_warehouse (
+    TYPE s3, SCOPE 's3://warehouse',
+    key_id 'minioadmin', secret 'minioadmin',
+    region 'us-east-1', endpoint 'http://127.0.0.1:19100'
+);
+
+statement ok
+CREATE SECRET s3_vault (
+    TYPE s3, SCOPE 's3://vault',
+    key_id 'minioadmin', secret 'minioadmin',
+    region 'us-east-1', endpoint 'http://127.0.0.1:19100',
+    layers MAP{'retry.max_times':'3','timeout.seconds':'30'}
+);
+
+# The warehouse-scoped secret drives this read.
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/f1.parquet');
+----
+100
+
+# The vault-scoped secret (with layers) drives this read.
+query I
+SELECT count(*) FROM read_parquet('s3://vault/only.parquet');
+----
+42
+
+# Both buckets in one query — each URL resolves to its own scoped secret.
+query II rowsort
+SELECT 'warehouse' AS bucket, count(*) AS n FROM read_parquet('s3://warehouse/f1.parquet')
+UNION ALL
+SELECT 'vault', count(*) FROM read_parquet('s3://vault/only.parquet');
+----
+vault	42
+warehouse	100

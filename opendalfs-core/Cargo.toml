@@ -18,6 +18,10 @@ opendal = { version = "0.57.0", default-features = false, features = [
     # Registers service schemes so string-based `Operator::via_iter("<scheme>", ..)`
     # works. Without this, via_iter reports "scheme is not registered".
     "auto-register-services",
+    # Layers (Phase 3): configurable per operator via odop_operator_new.
+    "layers-retry",
+    "layers-timeout",
+    "layers-concurrent-limit",
     "services-memory",
     "services-fs",
     "services-s3",

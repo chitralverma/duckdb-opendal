@@ -97,7 +97,7 @@ static unique_ptr<GlobalTableFunctionState> LsInit(ClientContext &context,
 	if (!fs->ParsePublic(bind.url, scheme, auth, rel)) {
 		throw InvalidInputException("opendal: unsupported or invalid URL: " + bind.url);
 	}
-	OdopOperator *op = fs->OperatorForPublic(scheme, auth);
+	OdopOperator *op = fs->OperatorForPublic(scheme, auth, bind.url, &context);
 
 	if (bind.single) {
 		OdopMetadata meta = {};
@@ -251,7 +251,7 @@ static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context,
 	if (!fs->ParsePublic(bind.url, scheme, auth, rel)) {
 		throw InvalidInputException("opendal: unsupported or invalid URL: " + bind.url);
 	}
-	OdopOperator *op = fs->OperatorForPublic(scheme, auth);
+	OdopOperator *op = fs->OperatorForPublic(scheme, auth, bind.url, &context);
 
 	std::string dir = rel;
 	if (dir.empty() || dir.back() != '/') {

@@ -137,3 +137,55 @@ query I
 SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_fs_read.*');
 ----
 2
+
+# ── Phase 3: secret registration (no live backend needed) ───────────────────
+
+# A per-service secret type is registered (TYPE s3) with SCOPE + config.
+statement ok
+CREATE SECRET s3_convenience (
+    TYPE s3, SCOPE 's3://bucket-a',
+    key_id 'AKIA', secret 'shhh', region 'us-west-2', endpoint 'http://localhost:9000'
+);
+
+# The generic `config` MAP accepts arbitrary OpenDAL keys (no per-key allowlist).
+statement ok
+CREATE SECRET s3_generic (
+    TYPE s3, SCOPE 's3://bucket-b',
+    config MAP{'access_key_id':'k','secret_access_key':'s','enable_virtual_host_style':'false'},
+    layers MAP{'retry.max_times':'5','timeout.seconds':'60'}
+);
+
+# Both secrets are visible and correctly typed/scoped.
+query III
+SELECT name, type, scope FROM duckdb_secrets() WHERE name LIKE 's3_%' ORDER BY name;
+----
+s3_convenience	s3	['s3://bucket-a']
+s3_generic	s3	['s3://bucket-b']
+
+# The convenience params were normalized to OpenDAL config keys in the secret.
+query I
+SELECT secret_string LIKE '%access_key_id=AKIA%' AND secret_string LIKE '%secret_access_key=shhh%'
+FROM duckdb_secrets() WHERE name = 's3_convenience';
+----
+true
+
+# The generic config keys and layer options are stored (layers under layer.*).
+query I
+SELECT secret_string LIKE '%enable_virtual_host_style=false%'
+   AND secret_string LIKE '%layer.retry.max_times=5%'
+FROM duckdb_secrets() WHERE name = 's3_generic';
+----
+true
+
+# SCOPE matching resolves the right secret for a URL prefix.
+query I
+SELECT count(*) FROM which_secret('s3://bucket-a/data/x.parquet', 's3');
+----
+1
+
+# Unknown parameters are rejected (strict allowlist — this is why we use the
+# generic `config` MAP for arbitrary keys).
+statement error
+CREATE SECRET s3_bad (TYPE s3, SCOPE 's3://c', totally_unknown_param 'x');
+----
+Unknown parameter

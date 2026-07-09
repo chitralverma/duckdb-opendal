@@ -49,15 +49,18 @@ up() {
 		COPY (SELECT range AS id, range*3 AS d FROM range(200)) TO '${seed}/f2.parquet' (FORMAT parquet);
 		COPY (SELECT range AS id FROM range(50)) TO '${seed}/nested.parquet' (FORMAT parquet);
 		COPY (SELECT range AS id, 'x'||range AS s FROM range(75)) TO '${seed}/data.csv' (FORMAT csv, HEADER);
+		COPY (SELECT range AS id, 'B'||range AS tag FROM range(42)) TO '${seed}/only.parquet' (FORMAT parquet);
 	" >/dev/null
 
 	docker run --rm --network host -v "${seed}:/data" --entrypoint sh minio/mc -c "
 		mc alias set local ${ENDPOINT} ${USER} ${PASS} >/dev/null 2>&1
 		mc mb --ignore-existing local/${BUCKET} >/dev/null 2>&1
+		mc mb --ignore-existing local/vault >/dev/null 2>&1
 		mc cp /data/f1.parquet local/${BUCKET}/f1.parquet >/dev/null 2>&1
 		mc cp /data/f2.parquet local/${BUCKET}/f2.parquet >/dev/null 2>&1
 		mc cp /data/nested.parquet local/${BUCKET}/year=2024/nested.parquet >/dev/null 2>&1
 		mc cp /data/data.csv local/${BUCKET}/data.csv >/dev/null 2>&1
+		mc cp /data/only.parquet local/vault/only.parquet >/dev/null 2>&1
 	"
 	rm -rf "$seed"
 

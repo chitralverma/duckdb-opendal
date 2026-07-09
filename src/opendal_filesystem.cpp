@@ -2,6 +2,10 @@
 
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/timestamp.hpp"
+#include "duckdb/main/database.hpp"
+#include "duckdb/main/secret/secret.hpp"
+#include "duckdb/main/secret/secret_manager.hpp"
+#include "duckdb/catalog/catalog_transaction.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -122,6 +126,12 @@ static bool SchemeUsesBucket(const std::string &scheme) {
 	return scheme == "s3";
 }
 
+// Schemes that typically require credentials from a SCOPE-matched secret (or
+// env). Used to be optimistic about existence when no context is available.
+static bool SchemeNeedsSecret(const std::string &scheme) {
+	return scheme == "s3";
+}
+
 bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme,
                                  std::string &out_authority, std::string &out_path) {
 	auto pos = url.find("://");
@@ -195,7 +205,68 @@ bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_sch
 	return IsSupportedScheme(out_scheme);
 }
 
-OdopOperator *OpenDalFileSystem::OperatorFor(const std::string &scheme, const std::string &authority) {
+// Look up a SCOPE-matched secret for `url` of type `scheme`, appending its
+// config entries into `keys`/`vals` (OpenDAL config) and `lkeys`/`lvals`
+// (layer options, from "layer." prefixed entries). Convenience/config keys were
+// already normalized to OpenDAL keys at CREATE SECRET time. Returns true if a
+// secret was found and applied.
+static bool ApplySecret(optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db,
+                        const std::string &scheme, const std::string &url,
+                        std::vector<std::string> &keys, std::vector<std::string> &vals,
+                        std::vector<std::string> &lkeys, std::vector<std::string> &lvals) {
+	if (!context && !db) {
+		return false;
+	}
+	try {
+		SecretManager *sm = context ? &SecretManager::Get(*context) : &SecretManager::Get(*db);
+		CatalogTransaction txn = context ? CatalogTransaction::GetSystemCatalogTransaction(*context)
+		                                 : CatalogTransaction::GetSystemTransaction(*db);
+		auto match = sm->LookupSecret(txn, url, scheme);
+		if (!match.HasMatch()) {
+			return false;
+		}
+		const auto &base = *match.secret_entry->secret;
+		const auto &kv = dynamic_cast<const KeyValueSecret &>(base);
+		for (auto &entry : kv.secret_map) {
+			const std::string &k = entry.first;
+			if (k == "__scheme") {
+				continue;
+			}
+			std::string v = entry.second.ToString();
+			if (k.rfind("layer.", 0) == 0) {
+				lkeys.push_back(k.substr(6));
+				lvals.push_back(v);
+			} else {
+				keys.push_back(k);
+				vals.push_back(v);
+			}
+		}
+		return true;
+	} catch (...) {
+		return false;
+	}
+}
+
+OdopOperator *OpenDalFileSystem::OperatorFor(const std::string &scheme, const std::string &authority,
+                                             const std::string &url, optional_ptr<FileOpener> opener) {
+	auto context = FileOpener::TryGetClientContext(opener);
+	auto db = FileOpener::TryGetDatabase(opener);
+	return BuildOperator(scheme, authority, url, context, db);
+}
+
+OdopOperator *OpenDalFileSystem::OperatorForCtx(const std::string &scheme, const std::string &authority,
+                                                const std::string &url,
+                                                optional_ptr<ClientContext> context) {
+	optional_ptr<DatabaseInstance> db;
+	if (context) {
+		db = &DatabaseInstance::GetDatabase(*context);
+	}
+	return BuildOperator(scheme, authority, url, context, db);
+}
+
+OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const std::string &authority,
+                                               const std::string &url, optional_ptr<ClientContext> context,
+                                               optional_ptr<DatabaseInstance> db) {
 	std::string key = scheme + "://" + authority;
 	std::lock_guard<std::mutex> lk(mu_);
 	auto it = operators_.find(key);
@@ -203,40 +274,54 @@ OdopOperator *OpenDalFileSystem::OperatorFor(const std::string &scheme, const st
 		return it->second;
 	}
 
-	// Build config for the (scheme, authority). Credentials for object stores
-	// come from the environment for now; the secret system arrives in Phase 3.
 	std::vector<std::string> keys;
 	std::vector<std::string> vals;
+	std::vector<std::string> lkeys; // layer keys
+	std::vector<std::string> lvals; // layer values
+
 	if (scheme == "fs") {
 		keys.push_back("root");
 		vals.push_back("/");
 	} else if (scheme == "s3") {
 		keys.push_back("bucket");
 		vals.push_back(authority);
-		// region has a sensible default; endpoint/credentials come from env
-		// (AWS_*), which OpenDAL's S3 service loads unless disabled.
-		const char *region = std::getenv("AWS_REGION");
-		if (region && *region) {
-			keys.push_back("region");
-			vals.push_back(region);
-		}
-		const char *endpoint = std::getenv("AWS_ENDPOINT_URL");
-		if (endpoint && *endpoint) {
-			keys.push_back("endpoint");
-			vals.push_back(endpoint);
-		}
 	}
 
-	std::vector<const char *> key_ptrs;
-	std::vector<const char *> val_ptrs;
+	// Merge a SCOPE-matched secret's config (if any).
+	bool have_secret = ApplySecret(context, db, scheme, url, keys, vals, lkeys, lvals);
+
+	// Env fallback for object stores when no secret provided the credentials.
+	if (scheme == "s3" && !have_secret) {
+		auto add_env = [&](const char *env, const char *odal) {
+			const char *v = std::getenv(env);
+			if (v && *v) {
+				keys.push_back(odal);
+				vals.push_back(v);
+			}
+		};
+		add_env("AWS_REGION", "region");
+		add_env("AWS_ENDPOINT_URL", "endpoint");
+		add_env("AWS_ACCESS_KEY_ID", "access_key_id");
+		add_env("AWS_SECRET_ACCESS_KEY", "secret_access_key");
+		add_env("AWS_SESSION_TOKEN", "session_token");
+	}
+
+	std::vector<const char *> key_ptrs, val_ptrs, lkey_ptrs, lval_ptrs;
 	for (size_t i = 0; i < keys.size(); i++) {
 		key_ptrs.push_back(keys[i].c_str());
 		val_ptrs.push_back(vals[i].c_str());
 	}
+	for (size_t i = 0; i < lkeys.size(); i++) {
+		lkey_ptrs.push_back(lkeys[i].c_str());
+		lval_ptrs.push_back(lvals[i].c_str());
+	}
 
 	OdopError err = {};
-	OdopOperator *op = odop_operator_new(scheme.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
-	                                     val_ptrs.empty() ? nullptr : val_ptrs.data(), keys.size(), &err);
+	OdopOperator *op = odop_operator_new(
+	    scheme.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
+	    val_ptrs.empty() ? nullptr : val_ptrs.data(), keys.size(),
+	    lkey_ptrs.empty() ? nullptr : lkey_ptrs.data(), lval_ptrs.empty() ? nullptr : lval_ptrs.data(),
+	    lkeys.size(), &err);
 	if (!op) {
 		ThrowIfError(err, "opendal: failed to create operator for '" + key + "'");
 		throw IOException("opendal: null operator for '" + key + "'");
@@ -255,7 +340,7 @@ bool OpenDalFileSystem::CanHandleFile(const string &path) {
 }
 
 unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenFlags flags,
-                                                   optional_ptr<FileOpener>) {
+                                                   optional_ptr<FileOpener> opener) {
 	// Phase 1/2: read only.
 	if (flags.OpenForWriting()) {
 		throw IOException("opendal: write support not yet implemented");
@@ -265,7 +350,7 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	if (!ParseUrl(path, scheme, auth, rel)) {
 		throw IOException("opendal: unrecognized URL: " + path);
 	}
-	auto *op = OperatorFor(scheme, auth);
+	auto *op = OperatorFor(scheme, auth, path, opener);
 
 	// Stat first to get size + type.
 	OdopMetadata meta = {};
@@ -353,14 +438,14 @@ FileType OpenDalFileSystem::GetFileType(FileHandle &handle) {
 	return FileType::FILE_TYPE_REGULAR;
 }
 
-bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpener>) {
+bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
 	if (!ParseUrl(filename, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
 	OdopOperator *op;
 	try {
-		op = OperatorFor(scheme, auth);
+		op = OperatorFor(scheme, auth, filename, opener);
 	} catch (...) {
 		return false;
 	}
@@ -372,14 +457,14 @@ bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpen
 	return ok;
 }
 
-bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<FileOpener>) {
+bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
 	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
 	OdopOperator *op;
 	try {
-		op = OperatorFor(scheme, auth);
+		op = OperatorFor(scheme, auth, directory, opener);
 	} catch (...) {
 		return false;
 	}
@@ -398,14 +483,14 @@ void OpenDalFileSystem::Seek(FileHandle &handle, idx_t location) {
 // List immediate children of a directory. Callback receives (name, is_dir).
 bool OpenDalFileSystem::ListFiles(const string &directory,
                                   const std::function<void(const string &, bool)> &callback,
-                                  FileOpener *) {
+                                  FileOpener *opener) {
 	std::string scheme, auth, rel;
 	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
 	OdopOperator *op;
 	try {
-		op = OperatorFor(scheme, auth);
+		op = OperatorFor(scheme, auth, directory, opener);
 	} catch (...) {
 		return false;
 	}
@@ -461,7 +546,7 @@ bool OpenDalFileSystem::ListFiles(const string &directory,
 
 // Glob: expand a wildcard pattern into matching file URLs. Supports '*' and '?'
 // within a path segment and '**' for recursive descent.
-vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *) {
+vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *opener) {
 	vector<OpenFileInfo> results;
 	std::string scheme, auth, rel;
 	if (!ParseUrl(path, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
@@ -470,8 +555,15 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *) {
 
 	bool has_glob = path.find_first_of("*?[") != std::string::npos;
 	if (!has_glob) {
-		// No wildcards — return the path iff it exists as a file.
-		if (FileExists(path)) {
+		// No wildcards — return the path iff it exists as a file. If we have no
+		// opener context to resolve a SCOPE-matched secret (DuckDB sometimes
+		// globs a literal path during binding with a null opener), be optimistic
+		// and return the path: the subsequent context-aware OpenFile validates
+		// it (and surfaces a real error if it truly does not exist).
+		bool have_ctx = opener && FileOpener::TryGetClientContext(opener);
+		if (FileExists(path, opener)) {
+			results.emplace_back(path);
+		} else if (!have_ctx && SchemeNeedsSecret(scheme)) {
 			results.emplace_back(path);
 		}
 		return results;
@@ -479,7 +571,7 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *) {
 
 	OdopOperator *op;
 	try {
-		op = OperatorFor(scheme, auth);
+		op = OperatorFor(scheme, auth, path, opener);
 	} catch (...) {
 		return results;
 	}

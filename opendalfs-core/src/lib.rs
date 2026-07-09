@@ -12,6 +12,7 @@
 //!   - strings handed out are owned C strings, freed via `odop_string_free`.
 
 mod error;
+mod layers;
 mod lister;
 mod operator;
 mod reader;
@@ -90,7 +91,7 @@ mod tests {
         let scheme = CString::new("memory").unwrap();
         let mut err = OdopError::ok();
         let op = unsafe {
-            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0, &mut err)
+            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0, std::ptr::null(), std::ptr::null(), 0, &mut err)
         };
         assert!(!op.is_null(), "operator_new failed: code {}", err.code as i32);
 
@@ -132,7 +133,7 @@ mod tests {
         let scheme = CString::new("memory").unwrap();
         let mut err = OdopError::ok();
         let op = unsafe {
-            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0, &mut err)
+            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0, std::ptr::null(), std::ptr::null(), 0, &mut err)
         };
         assert!(!op.is_null());
 
@@ -176,6 +177,52 @@ mod tests {
         assert_eq!(files, 2);
 
         unsafe { odop_list_free(list) };
+        unsafe { odop_operator_free(op) };
+    }
+
+    #[test]
+    fn memory_operator_with_layers() {
+        // Build a memory operator with retry + timeout + concurrent-limit layers
+        // and confirm it still reads/writes (layers are transparent to callers).
+        let scheme = CString::new("memory").unwrap();
+        let lk: Vec<CString> = ["retry.max_times", "timeout.seconds", "concurrent_limit"]
+            .iter()
+            .map(|s| CString::new(*s).unwrap())
+            .collect();
+        let lv: Vec<CString> = ["3", "30", "8"].iter().map(|s| CString::new(*s).unwrap()).collect();
+        let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
+        let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
+
+        let mut err = OdopError::ok();
+        let op = unsafe {
+            odop_operator_new(
+                scheme.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                lk_ptrs.as_ptr(),
+                lv_ptrs.as_ptr(),
+                lk_ptrs.len(),
+                &mut err,
+            )
+        };
+        assert!(!op.is_null(), "layered operator_new failed: code {}", err.code as i32);
+
+        {
+            let inner = unsafe { &(*op).op };
+            crate::runtime::block_on(inner.write("layered.txt", b"ok".to_vec())).unwrap();
+        }
+        let path = CString::new("layered.txt").unwrap();
+        let mut meta = OdopMetadata {
+            content_length: 0,
+            last_modified_ms: 0,
+            is_dir: 9,
+        };
+        let mut serr = OdopError::ok();
+        unsafe { odop_stat(op, path.as_ptr(), &mut meta, &mut serr) };
+        assert_eq!(serr.code as i32, OdopErrorCode::Ok as i32);
+        assert_eq!(meta.content_length, 2);
+
         unsafe { odop_operator_free(op) };
     }
 }

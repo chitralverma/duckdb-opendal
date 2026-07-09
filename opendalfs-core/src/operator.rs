@@ -11,6 +11,7 @@ use std::ffi::{c_char, CStr};
 use opendal::Operator;
 
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::layers::apply_layers;
 
 /// Opaque handle wrapping an `opendal::Operator`.
 pub struct OdopOperator {
@@ -25,17 +26,19 @@ unsafe fn cstr<'a>(p: *const c_char) -> Option<&'a str> {
     CStr::from_ptr(p).to_str().ok()
 }
 
-/// Build an Operator for `scheme` configured by `len` key/value pairs.
+/// Build an Operator for `scheme` configured by `len` key/value pairs, then
+/// apply optional layers described by `layer_len` key/value pairs.
 ///
-/// `keys` and `values` are parallel arrays of C strings, each of length `len`.
+/// `keys`/`values` are the OpenDAL service config; `layer_keys`/`layer_values`
+/// configure layers (retry/timeout/concurrent-limit — see `layers.rs`).
 /// On success returns a non-null `*mut OdopOperator` and sets `*err` to Ok.
 /// On failure returns null and populates `*err`.
 ///
 /// # Safety
-/// - `scheme`, and each `keys[i]`/`values[i]`, must be valid NUL-terminated C
-///   strings for the duration of the call.
+/// - `scheme`, and each config/layer `keys[i]`/`values[i]`, must be valid
+///   NUL-terminated C strings for the duration of the call.
 /// - `keys`/`values` must each point to `len` valid pointers (or be null iff
-///   `len == 0`).
+///   `len == 0`); likewise `layer_keys`/`layer_values` and `layer_len`.
 /// - The returned handle must be freed exactly once with `odop_operator_free`.
 #[no_mangle]
 pub unsafe extern "C" fn odop_operator_new(
@@ -43,6 +46,9 @@ pub unsafe extern "C" fn odop_operator_new(
     keys: *const *const c_char,
     values: *const *const c_char,
     len: usize,
+    layer_keys: *const *const c_char,
+    layer_values: *const *const c_char,
+    layer_len: usize,
     err: *mut OdopError,
 ) -> *mut OdopOperator {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -55,35 +61,26 @@ pub unsafe extern "C" fn odop_operator_new(
         };
 
         // Collect the config map from the parallel arrays.
-        let mut cfg: Vec<(String, String)> = Vec::with_capacity(len);
-        if len > 0 {
-            if keys.is_null() || values.is_null() {
-                set_error(err, OdopErrorCode::InvalidInput, "keys/values null with len > 0");
+        let cfg = match collect_pairs(keys, values, len) {
+            Ok(v) => v,
+            Err(msg) => {
+                set_error(err, OdopErrorCode::InvalidInput, msg);
                 return std::ptr::null_mut();
             }
-            let key_slice = std::slice::from_raw_parts(keys, len);
-            let val_slice = std::slice::from_raw_parts(values, len);
-            for i in 0..len {
-                let k = match cstr(key_slice[i]) {
-                    Some(s) => s.to_owned(),
-                    None => {
-                        set_error(err, OdopErrorCode::InvalidInput, format!("config key #{i} invalid"));
-                        return std::ptr::null_mut();
-                    }
-                };
-                let v = match cstr(val_slice[i]) {
-                    Some(s) => s.to_owned(),
-                    None => {
-                        set_error(err, OdopErrorCode::InvalidInput, format!("config value for '{k}' invalid"));
-                        return std::ptr::null_mut();
-                    }
-                };
-                cfg.push((k, v));
+        };
+
+        // Collect layer options.
+        let layer_opts = match collect_pairs(layer_keys, layer_values, layer_len) {
+            Ok(v) => v,
+            Err(msg) => {
+                set_error(err, OdopErrorCode::InvalidInput, msg);
+                return std::ptr::null_mut();
             }
-        }
+        };
 
         match Operator::via_iter(scheme_str, cfg) {
             Ok(op) => {
+                let op = apply_layers(op, &layer_opts);
                 set_ok(err);
                 Box::into_raw(Box::new(OdopOperator { op }))
             }
@@ -101,6 +98,29 @@ pub unsafe extern "C" fn odop_operator_new(
             std::ptr::null_mut()
         }
     }
+}
+
+/// Collect `len` parallel (key, value) C-string pairs into owned Rust strings.
+unsafe fn collect_pairs(
+    keys: *const *const c_char,
+    values: *const *const c_char,
+    len: usize,
+) -> Result<Vec<(String, String)>, String> {
+    let mut out: Vec<(String, String)> = Vec::with_capacity(len);
+    if len == 0 {
+        return Ok(out);
+    }
+    if keys.is_null() || values.is_null() {
+        return Err("keys/values null with len > 0".to_string());
+    }
+    let key_slice = std::slice::from_raw_parts(keys, len);
+    let val_slice = std::slice::from_raw_parts(values, len);
+    for i in 0..len {
+        let k = cstr(key_slice[i]).ok_or_else(|| format!("key #{i} invalid"))?;
+        let v = cstr(val_slice[i]).ok_or_else(|| format!("value for '{k}' invalid"))?;
+        out.push((k.to_owned(), v.to_owned()));
+    }
+    Ok(out)
 }
 
 /// Free an operator handle. Safe to call with null (no-op).

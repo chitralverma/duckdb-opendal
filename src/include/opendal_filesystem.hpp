@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/common/file_opener.hpp"
 #include "duckdb/common/open_file_info.hpp"
 
 #include <memory>
@@ -87,9 +88,11 @@ public:
 	                                  const std::string &entry_path) {
 		return BuildUrl(scheme, authority, entry_path);
 	}
-	// Get (creating/caching) an operator for a (scheme, authority). Throws on failure.
-	OdopOperator *OperatorForPublic(const std::string &scheme, const std::string &authority) {
-		return OperatorFor(scheme, authority);
+	// Get (creating/caching) an operator for a (scheme, authority) using a
+	// ClientContext for secret lookup (table functions). Throws on failure.
+	OdopOperator *OperatorForPublic(const std::string &scheme, const std::string &authority,
+	                                const std::string &url, optional_ptr<ClientContext> context) {
+		return OperatorForCtx(scheme, authority, url, context);
 	}
 	static bool IsSupportedSchemePublic(const std::string &scheme);
 
@@ -107,8 +110,18 @@ private:
 	                            const std::string &entry_path);
 
 	// Get (creating + caching if needed) an operator handle for a (scheme,
-	// authority) pair. Throws IOException on failure.
-	OdopOperator *OperatorFor(const std::string &scheme, const std::string &authority);
+	// authority) pair. `url` is the full request URL (used for SCOPE-matched
+	// secret lookup); `opener`/`context` provide access to the SecretManager.
+	// Throws IOException on failure.
+	OdopOperator *OperatorFor(const std::string &scheme, const std::string &authority,
+	                          const std::string &url, optional_ptr<FileOpener> opener);
+	OdopOperator *OperatorForCtx(const std::string &scheme, const std::string &authority,
+	                             const std::string &url, optional_ptr<ClientContext> context);
+	// Shared operator construction: resolve secret + env config, apply layers,
+	// cache per scheme://authority.
+	OdopOperator *BuildOperator(const std::string &scheme, const std::string &authority,
+	                            const std::string &url, optional_ptr<ClientContext> context,
+	                            optional_ptr<DatabaseInstance> db);
 
 	std::unordered_map<std::string, OdopOperator *> operators_;
 	std::mutex mu_;
