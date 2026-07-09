@@ -14,17 +14,24 @@
 mod error;
 mod layers;
 mod lister;
+mod mutate;
 mod operator;
 mod reader;
 mod runtime;
 mod stat;
+mod writer;
 
 // Re-export the FFI surface so cbindgen picks it up from the crate root.
 pub use error::{OdopError, OdopErrorCode};
 pub use lister::{odop_list, odop_list_entry, odop_list_free, odop_list_len, OdopEntry, OdopEntryList};
+pub use mutate::{odop_create_dir, odop_remove, odop_rename};
 pub use operator::{odop_operator_free, odop_operator_new, OdopOperator};
 pub use reader::{odop_reader_free, odop_reader_open, odop_reader_read, OdopReader};
 pub use stat::{odop_exists, odop_stat, OdopMetadata};
+pub use writer::{
+    odop_writer_abort, odop_writer_close, odop_writer_free, odop_writer_open, odop_writer_write,
+    OdopWriter,
+};
 
 use std::ffi::{c_char, CString};
 use std::panic::catch_unwind;
@@ -177,6 +184,70 @@ mod tests {
         assert_eq!(files, 2);
 
         unsafe { odop_list_free(list) };
+        unsafe { odop_operator_free(op) };
+    }
+
+    #[test]
+    fn memory_writer_and_mutations() {
+        let scheme = CString::new("memory").unwrap();
+        let mut err = OdopError::ok();
+        let op = unsafe {
+            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0, std::ptr::null(), std::ptr::null(), 0, &mut err)
+        };
+        assert!(!op.is_null());
+
+        // Write "hello world" in two chunks through the streaming writer.
+        let path = CString::new("out/greeting.txt").unwrap();
+        let mut werr = OdopError::ok();
+        let w = unsafe { odop_writer_open(op, path.as_ptr(), &mut werr) };
+        assert!(!w.is_null(), "writer_open failed: {}", werr.code as i32);
+        let p1 = b"hello ";
+        let p2 = b"world";
+        assert_eq!(unsafe { odop_writer_write(w, p1.as_ptr(), p1.len() as u64, &mut werr) }, 0);
+        assert_eq!(unsafe { odop_writer_write(w, p2.as_ptr(), p2.len() as u64, &mut werr) }, 0);
+        assert_eq!(unsafe { odop_writer_close(w, &mut werr) }, 0);
+        unsafe { odop_writer_free(w) };
+
+        // Read it back and verify content + size.
+        let mut meta = OdopMetadata {
+            content_length: 0,
+            last_modified_ms: 0,
+            is_dir: 9,
+        };
+        let mut serr = OdopError::ok();
+        unsafe { odop_stat(op, path.as_ptr(), &mut meta, &mut serr) };
+        assert_eq!(serr.code as i32, OdopErrorCode::Ok as i32);
+        assert_eq!(meta.content_length, 11);
+
+        let r = unsafe { odop_reader_open(op, path.as_ptr(), &mut serr) };
+        assert!(!r.is_null());
+        let mut buf = vec![0u8; 11];
+        let n = unsafe { odop_reader_read(r, 0, 11, buf.as_mut_ptr(), &mut serr) };
+        assert_eq!(n, 11);
+        assert_eq!(&buf, b"hello world");
+        unsafe { odop_reader_free(r) };
+
+        // rename → if the backend supports it, the old path is gone and the new
+        // one exists. The memory service does not support server-side rename, so
+        // tolerate Unsupported here (the C++ layer falls back to copy+delete).
+        let dst = CString::new("out/renamed.txt").unwrap();
+        let mut merr = OdopError::ok();
+        let rc = unsafe { odop_rename(op, path.as_ptr(), dst.as_ptr(), &mut merr) };
+        if rc == 0 {
+            assert_eq!(unsafe { odop_exists(op, path.as_ptr(), &mut merr) }, 0);
+            assert_eq!(unsafe { odop_exists(op, dst.as_ptr(), &mut merr) }, 1);
+            // remove the renamed file.
+            assert_eq!(unsafe { odop_remove(op, dst.as_ptr(), 0, &mut merr) }, 0);
+            assert_eq!(unsafe { odop_exists(op, dst.as_ptr(), &mut merr) }, 0);
+        } else {
+            assert_eq!(merr.code as i32, OdopErrorCode::Unsupported as i32);
+            unsafe { odop_string_free(merr.message) };
+            // remove the original file instead.
+            let mut rerr = OdopError::ok();
+            assert_eq!(unsafe { odop_remove(op, path.as_ptr(), 0, &mut rerr) }, 0);
+            assert_eq!(unsafe { odop_exists(op, path.as_ptr(), &mut rerr) }, 0);
+        }
+
         unsafe { odop_operator_free(op) };
     }
 

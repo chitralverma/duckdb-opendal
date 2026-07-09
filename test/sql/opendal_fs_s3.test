@@ -133,3 +133,28 @@ SELECT 'vault', count(*) FROM read_parquet('s3://vault/only.parquet');
 ----
 vault	42
 warehouse	100
+
+# ── Write path over S3 (COPY TO) ────────────────────────────────────────────
+
+# COPY TO an S3 object via the streaming writer, then read it back.
+statement ok
+COPY (SELECT range AS id, range * 10 AS v FROM range(333))
+TO 's3://warehouse/written/out.parquet' (FORMAT parquet);
+
+query II
+SELECT count(*), sum(v) FROM read_parquet('s3://warehouse/written/out.parquet');
+----
+333	552780
+
+# Partitioned write to S3 creates one object per partition value.
+statement ok
+COPY (SELECT range AS id, range % 3 AS p FROM range(300))
+TO 's3://warehouse/pw' (FORMAT parquet, PARTITION_BY p, OVERWRITE_OR_IGNORE);
+
+query II
+SELECT p, count(*) FROM read_parquet('s3://warehouse/pw/**/*.parquet', hive_partitioning = true)
+GROUP BY p ORDER BY p;
+----
+0	100
+1	100
+2	100

@@ -48,6 +48,10 @@ public:
 	void Read(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) override;
 	int64_t Read(FileHandle &handle, void *buffer, int64_t nr_bytes) override;
 
+	void Write(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) override;
+	int64_t Write(FileHandle &handle, void *buffer, int64_t nr_bytes) override;
+	void FileSync(FileHandle &handle) override;
+
 	int64_t GetFileSize(FileHandle &handle) override;
 	timestamp_t GetLastModifiedTime(FileHandle &handle) override;
 	FileType GetFileType(FileHandle &handle) override;
@@ -57,6 +61,13 @@ public:
 
 	bool ListFiles(const string &directory, const std::function<void(const string &, bool)> &callback,
 	               FileOpener *opener = nullptr) override;
+
+	// ── Mutations ───────────────────────────────────────────────────────────
+	void CreateDirectory(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
+	void RemoveDirectory(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
+	void RemoveFile(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
+	void MoveFile(const string &source, const string &target,
+	              optional_ptr<FileOpener> opener = nullptr) override;
 
 	void Seek(FileHandle &handle, idx_t location) override;
 	idx_t SeekPosition(FileHandle &handle) override;
@@ -134,14 +145,22 @@ class OpenDalFileHandle : public FileHandle {
 public:
 	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags,
 	                  OdopReader *reader, int64_t file_size, int64_t last_modified_ms);
+	// Write-mode handle: wraps an OpenDAL writer.
+	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdopWriter *writer);
 	~OpenDalFileHandle() override;
 
 	void Close() override;
 
+	// Read state.
 	OdopReader *reader = nullptr;
 	int64_t file_size = 0;
 	int64_t position = 0;
 	int64_t last_modified_ms = -1;
+
+	// Write state (append-only streaming).
+	OdopWriter *writer = nullptr;
+	int64_t bytes_written = 0;
+	bool write_closed = false;
 };
 
 } // namespace duckdb
