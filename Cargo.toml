@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["opendalfs-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.75"
+
+[profile.release]
+# Abort would take down the DuckDB host process on panic; we catch panics at the
+# FFI boundary instead, so keep unwind here.
+panic = "unwind"
+lto = true
+codegen-units = 1
+opt-level = 3

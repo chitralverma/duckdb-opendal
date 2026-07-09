@@ -6,3 +6,12 @@ duckdb_unittest_tempdir/
 testext
 test/python/__pycache__/
 .Rhistory
+
+# cbindgen-generated FFI header
+src/include/rust.h
+
+# Rust build output
+target/
+
+# ccache / build caches
+.cache/

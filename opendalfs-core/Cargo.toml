@@ -1,0 +1,24 @@
+[package]
+name = "opendalfs-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "OpenDAL FFI core for the duckdb-opendal filesystem extension"
+
+[lib]
+# Static link into the DuckDB C++ extension (via Corrosion).
+crate-type = ["staticlib"]
+
+[dependencies]
+# Pinned per plan §2. Local dev enables only memory + fs services for now;
+# more services + layers are gated behind features and enabled incrementally.
+opendal = { version = "0.57.0", default-features = false, features = [
+    "executors-tokio",
+    "services-memory",
+    "services-fs",
+] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[build-dependencies]
+cbindgen = "0.29"
