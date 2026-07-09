@@ -54,6 +54,9 @@ public:
 	bool FileExists(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
 	bool DirectoryExists(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
 
+	bool ListFiles(const string &directory, const std::function<void(const string &, bool)> &callback,
+	               FileOpener *opener = nullptr) override;
+
 	void Seek(FileHandle &handle, idx_t location) override;
 	idx_t SeekPosition(FileHandle &handle) override;
 
@@ -74,14 +77,38 @@ public:
 		return "/";
 	}
 
-private:
-	// Split a "scheme://rest" URL into its scheme and the OpenDAL-relative path.
-	// Returns false if the URL has no recognized scheme.
-	static bool ParseUrl(const std::string &url, std::string &out_scheme, std::string &out_path);
+	// ── Helpers exposed for table functions (ls/stat/du) ────────────────────
+	// Parse a URL into scheme + authority + OpenDAL-relative path. Returns false
+	// if the URL has no supported scheme.
+	bool ParsePublic(const std::string &url, std::string &out_scheme, std::string &out_authority,
+	                 std::string &out_path);
+	// Rebuild a URL from scheme + authority + OpenDAL entry path.
+	static std::string BuildUrlPublic(const std::string &scheme, const std::string &authority,
+	                                  const std::string &entry_path) {
+		return BuildUrl(scheme, authority, entry_path);
+	}
+	// Get (creating/caching) an operator for a (scheme, authority). Throws on failure.
+	OdopOperator *OperatorForPublic(const std::string &scheme, const std::string &authority) {
+		return OperatorFor(scheme, authority);
+	}
+	static bool IsSupportedSchemePublic(const std::string &scheme);
 
-	// Get (creating + caching if needed) an operator handle for a scheme.
-	// Throws IOException on failure.
-	OdopOperator *OperatorForScheme(const std::string &scheme);
+private:
+	// Split a URL into scheme, authority (bucket/host — may be empty), and the
+	// OpenDAL-relative path. For object stores (s3), the authority is the bucket
+	// and the path is the object key; for fs/memory the authority is empty.
+	// Returns false if the URL has no recognized scheme.
+	static bool ParseUrl(const std::string &url, std::string &out_scheme, std::string &out_authority,
+	                     std::string &out_path);
+
+	// Rebuild a full "scheme://[authority/]path" URL from parts, inverting the
+	// fs absolutization so results round-trip back through OpenFile.
+	static std::string BuildUrl(const std::string &scheme, const std::string &authority,
+	                            const std::string &entry_path);
+
+	// Get (creating + caching if needed) an operator handle for a (scheme,
+	// authority) pair. Throws IOException on failure.
+	OdopOperator *OperatorFor(const std::string &scheme, const std::string &authority);
 
 	std::unordered_map<std::string, OdopOperator *> operators_;
 	std::mutex mu_;

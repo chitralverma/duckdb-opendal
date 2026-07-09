@@ -3,8 +3,39 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <unistd.h>
+
+// Portable glob wildcard match (POSIX fnmatch replacement, Windows-safe).
+// Supports '*' (any sequence) and '?' (any single char). Returns 0 on match.
+static int glob_match(const char *pattern, const char *name) {
+	while (*pattern && *name) {
+		if (*pattern == '*') {
+			while (*pattern == '*') {
+				++pattern;
+			}
+			if (!*pattern) {
+				return 0;
+			}
+			while (*name) {
+				if (glob_match(pattern, name++) == 0) {
+					return 0;
+				}
+			}
+			return 1;
+		}
+		if (*pattern != '?' && *pattern != *name) {
+			return 1;
+		}
+		++pattern;
+		++name;
+	}
+	while (*pattern == '*') {
+		++pattern;
+	}
+	return (*pattern || *name) ? 1 : 0;
+}
 
 namespace duckdb {
 
@@ -85,8 +116,14 @@ OpenDalFileSystem::~OpenDalFileSystem() {
 // scheme://rest  →  scheme + OpenDAL-relative path.
 // For fs:///tmp/x  → scheme="fs", path="/tmp/x".
 // For memory://foo → scheme="memory", path="foo".
+// Schemes whose authority component is a bucket (object stores), so the URL is
+// scheme://<bucket>/<key> and the bucket becomes operator config.
+static bool SchemeUsesBucket(const std::string &scheme) {
+	return scheme == "s3";
+}
+
 bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme,
-                                 std::string &out_path) {
+                                 std::string &out_authority, std::string &out_path) {
 	auto pos = url.find("://");
 	if (pos == std::string::npos) {
 		return false;
@@ -95,35 +132,99 @@ bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme
 	if (out_scheme.empty()) {
 		return false;
 	}
-	out_path = url.substr(pos + 3);
-	if (out_path.empty()) {
-		out_path = "/";
+	std::string rest = url.substr(pos + 3);
+	out_authority.clear();
+
+	if (SchemeUsesBucket(out_scheme)) {
+		// scheme://<bucket>/<key>
+		auto slash = rest.find('/');
+		if (slash == std::string::npos) {
+			out_authority = rest;
+			out_path = "/";
+		} else {
+			out_authority = rest.substr(0, slash);
+			out_path = rest.substr(slash); // keep leading slash → object key
+			if (out_path.empty()) {
+				out_path = "/";
+			}
+		}
+		return true;
 	}
-	// The `fs` operator uses root "/", so resolve relative paths against CWD.
+
+	// fs / memory: no authority; everything after :// is the path.
+	out_path = rest.empty() ? "/" : rest;
 	if (out_scheme == "fs") {
 		out_path = AbsolutizeFsPath(out_path);
 	}
 	return true;
 }
 
-// Schemes this Phase-1 build serves. (Expanded per-service in later phases.)
-static bool IsSupportedScheme(const std::string &scheme) {
-	return scheme == "fs" || scheme == "memory";
+// Rebuild a "scheme://[authority/]path" URL from an OpenDAL entry path. OpenDAL
+// returns fs entry paths relative to root "/" (without a leading slash), so for
+// `fs` we prepend "/". For bucket schemes we re-insert the authority (bucket).
+std::string OpenDalFileSystem::BuildUrl(const std::string &scheme, const std::string &authority,
+                                        const std::string &entry_path) {
+	std::string p = entry_path;
+	if (SchemeUsesBucket(scheme)) {
+		// entry paths are object keys relative to the bucket root (no leading /).
+		while (!p.empty() && p.front() == '/') {
+			p.erase(p.begin());
+		}
+		return scheme + "://" + authority + "/" + p;
+	}
+	if (scheme == "fs" && (p.empty() || p[0] != '/')) {
+		p = "/" + p;
+	}
+	return scheme + "://" + p;
 }
 
-OdopOperator *OpenDalFileSystem::OperatorForScheme(const std::string &scheme) {
+// Schemes this build serves. (Expanded per-service in later phases.)
+static bool IsSupportedScheme(const std::string &scheme) {
+	return scheme == "fs" || scheme == "memory" || scheme == "s3";
+}
+
+bool OpenDalFileSystem::IsSupportedSchemePublic(const std::string &scheme) {
+	return IsSupportedScheme(scheme);
+}
+
+bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_scheme,
+                                    std::string &out_authority, std::string &out_path) {
+	if (!ParseUrl(url, out_scheme, out_authority, out_path)) {
+		return false;
+	}
+	return IsSupportedScheme(out_scheme);
+}
+
+OdopOperator *OpenDalFileSystem::OperatorFor(const std::string &scheme, const std::string &authority) {
+	std::string key = scheme + "://" + authority;
 	std::lock_guard<std::mutex> lk(mu_);
-	auto it = operators_.find(scheme);
+	auto it = operators_.find(key);
 	if (it != operators_.end()) {
 		return it->second;
 	}
 
-	// Build config for the scheme. For `fs`, root="/" so absolute paths resolve.
+	// Build config for the (scheme, authority). Credentials for object stores
+	// come from the environment for now; the secret system arrives in Phase 3.
 	std::vector<std::string> keys;
 	std::vector<std::string> vals;
 	if (scheme == "fs") {
 		keys.push_back("root");
 		vals.push_back("/");
+	} else if (scheme == "s3") {
+		keys.push_back("bucket");
+		vals.push_back(authority);
+		// region has a sensible default; endpoint/credentials come from env
+		// (AWS_*), which OpenDAL's S3 service loads unless disabled.
+		const char *region = std::getenv("AWS_REGION");
+		if (region && *region) {
+			keys.push_back("region");
+			vals.push_back(region);
+		}
+		const char *endpoint = std::getenv("AWS_ENDPOINT_URL");
+		if (endpoint && *endpoint) {
+			keys.push_back("endpoint");
+			vals.push_back(endpoint);
+		}
 	}
 
 	std::vector<const char *> key_ptrs;
@@ -137,17 +238,17 @@ OdopOperator *OpenDalFileSystem::OperatorForScheme(const std::string &scheme) {
 	OdopOperator *op = odop_operator_new(scheme.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
 	                                     val_ptrs.empty() ? nullptr : val_ptrs.data(), keys.size(), &err);
 	if (!op) {
-		ThrowIfError(err, "opendal: failed to create operator for scheme '" + scheme + "'");
-		throw IOException("opendal: null operator for scheme '" + scheme + "'");
+		ThrowIfError(err, "opendal: failed to create operator for '" + key + "'");
+		throw IOException("opendal: null operator for '" + key + "'");
 	}
 	ClearError(err);
-	operators_[scheme] = op;
+	operators_[key] = op;
 	return op;
 }
 
 bool OpenDalFileSystem::CanHandleFile(const string &path) {
-	std::string scheme, rel;
-	if (!ParseUrl(path, scheme, rel)) {
+	std::string scheme, auth, rel;
+	if (!ParseUrl(path, scheme, auth, rel)) {
 		return false;
 	}
 	return IsSupportedScheme(scheme);
@@ -155,16 +256,16 @@ bool OpenDalFileSystem::CanHandleFile(const string &path) {
 
 unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenFlags flags,
                                                    optional_ptr<FileOpener>) {
-	// Phase 1: read only.
+	// Phase 1/2: read only.
 	if (flags.OpenForWriting()) {
-		throw IOException("opendal: write support not yet implemented (Phase 1 is read-only)");
+		throw IOException("opendal: write support not yet implemented");
 	}
 
-	std::string scheme, rel;
-	if (!ParseUrl(path, scheme, rel)) {
+	std::string scheme, auth, rel;
+	if (!ParseUrl(path, scheme, auth, rel)) {
 		throw IOException("opendal: unrecognized URL: " + path);
 	}
-	auto *op = OperatorForScheme(scheme);
+	auto *op = OperatorFor(scheme, auth);
 
 	// Stat first to get size + type.
 	OdopMetadata meta = {};
@@ -253,13 +354,13 @@ FileType OpenDalFileSystem::GetFileType(FileHandle &handle) {
 }
 
 bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpener>) {
-	std::string scheme, rel;
-	if (!ParseUrl(filename, scheme, rel) || !IsSupportedScheme(scheme)) {
+	std::string scheme, auth, rel;
+	if (!ParseUrl(filename, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
 	OdopOperator *op;
 	try {
-		op = OperatorForScheme(scheme);
+		op = OperatorFor(scheme, auth);
 	} catch (...) {
 		return false;
 	}
@@ -272,13 +373,13 @@ bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpen
 }
 
 bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<FileOpener>) {
-	std::string scheme, rel;
-	if (!ParseUrl(directory, scheme, rel) || !IsSupportedScheme(scheme)) {
+	std::string scheme, auth, rel;
+	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
 	OdopOperator *op;
 	try {
-		op = OperatorForScheme(scheme);
+		op = OperatorFor(scheme, auth);
 	} catch (...) {
 		return false;
 	}
@@ -294,24 +395,144 @@ void OpenDalFileSystem::Seek(FileHandle &handle, idx_t location) {
 	handle.Cast<OpenDalFileHandle>().position = (int64_t)location;
 }
 
-// Phase 1: resolve only exact paths (no wildcards). If the path has glob
-// characters we return empty (true globbing lands with the lister in Phase 2).
-// For a concrete path, return it iff it exists as a file.
+// List immediate children of a directory. Callback receives (name, is_dir).
+bool OpenDalFileSystem::ListFiles(const string &directory,
+                                  const std::function<void(const string &, bool)> &callback,
+                                  FileOpener *) {
+	std::string scheme, auth, rel;
+	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
+		return false;
+	}
+	OdopOperator *op;
+	try {
+		op = OperatorFor(scheme, auth);
+	} catch (...) {
+		return false;
+	}
+	// OpenDAL expects a trailing slash to list a directory's children.
+	std::string dir = rel;
+	if (dir.empty() || dir.back() != '/') {
+		dir += "/";
+	}
+
+	OdopError err = {};
+	OdopEntryList *list = odop_list(op, dir.c_str(), /*recursive=*/0, &err);
+	if (!list) {
+		ClearError(err);
+		return false;
+	}
+	ClearError(err);
+
+	std::string self_path = dir;
+	if (!self_path.empty() && self_path.back() == '/') {
+		self_path.pop_back();
+	}
+	while (!self_path.empty() && self_path.front() == '/') {
+		self_path.erase(self_path.begin());
+	}
+	size_t n = odop_list_len(list);
+	for (size_t i = 0; i < n; i++) {
+		OdopEntry ent = {};
+		if (!odop_list_entry(list, i, &ent)) {
+			continue;
+		}
+		std::string epath = ent.path ? std::string(ent.path) : std::string();
+		if (!epath.empty() && epath.back() == '/') {
+			epath.pop_back();
+		}
+		while (!epath.empty() && epath.front() == '/') {
+			epath.erase(epath.begin());
+		}
+		if (epath == self_path) {
+			continue; // the listed directory's own entry
+		}
+		std::string name = ent.name ? std::string(ent.name) : std::string();
+		if (!name.empty() && name.back() == '/') {
+			name.pop_back();
+		}
+		if (name.empty()) {
+			continue;
+		}
+		callback(name, ent.is_dir != 0);
+	}
+	odop_list_free(list);
+	return true;
+}
+
+// Glob: expand a wildcard pattern into matching file URLs. Supports '*' and '?'
+// within a path segment and '**' for recursive descent.
 vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *) {
 	vector<OpenFileInfo> results;
-	std::string scheme, rel;
-	if (!ParseUrl(path, scheme, rel) || !IsSupportedScheme(scheme)) {
+	std::string scheme, auth, rel;
+	if (!ParseUrl(path, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return results;
 	}
+
 	bool has_glob = path.find_first_of("*?[") != std::string::npos;
-	if (has_glob) {
-		// Not yet supported; surface as empty rather than throwing so callers
-		// that tolerate no-match behave sanely.
+	if (!has_glob) {
+		// No wildcards — return the path iff it exists as a file.
+		if (FileExists(path)) {
+			results.emplace_back(path);
+		}
 		return results;
 	}
-	if (FileExists(path)) {
-		results.emplace_back(path);
+
+	OdopOperator *op;
+	try {
+		op = OperatorFor(scheme, auth);
+	} catch (...) {
+		return results;
 	}
+
+	// Split `rel` into a static directory prefix (up to the last '/' before the
+	// first wildcard) and the pattern portion.
+	auto star = rel.find_first_of("*?[");
+	auto slash_before = rel.rfind('/', star);
+	std::string static_dir = (slash_before == std::string::npos) ? "" : rel.substr(0, slash_before);
+	std::string pattern = (slash_before == std::string::npos) ? rel : rel.substr(slash_before + 1);
+	bool recursive = pattern.find("**") != std::string::npos;
+
+	// Strip leading "**/" so the trailing pattern applies to the basename.
+	std::string file_pat = pattern;
+	while (file_pat.size() >= 3 && file_pat.compare(0, 3, "**/") == 0) {
+		file_pat = file_pat.substr(3);
+	}
+	if (file_pat.empty()) {
+		file_pat = "*";
+	}
+
+	std::string list_dir = static_dir;
+	if (list_dir.empty() || list_dir.back() != '/') {
+		list_dir += "/";
+	}
+
+	OdopError err = {};
+	OdopEntryList *list = odop_list(op, list_dir.c_str(), recursive ? 1 : 0, &err);
+	if (!list) {
+		ClearError(err);
+		return results;
+	}
+	ClearError(err);
+
+	size_t n = odop_list_len(list);
+	for (size_t i = 0; i < n; i++) {
+		OdopEntry ent = {};
+		if (!odop_list_entry(list, i, &ent) || ent.is_dir) {
+			continue;
+		}
+		std::string epath = ent.path ? std::string(ent.path) : std::string();
+		std::string ename = ent.name ? std::string(ent.name) : std::string();
+		if (glob_match(file_pat.c_str(), ename.c_str()) == 0) {
+			results.emplace_back(BuildUrl(scheme, auth, epath));
+		}
+	}
+	odop_list_free(list);
+
+	std::sort(results.begin(), results.end(),
+	          [](const OpenFileInfo &a, const OpenFileInfo &b) { return a.path < b.path; });
+	results.erase(std::unique(results.begin(), results.end(),
+	                          [](const OpenFileInfo &a, const OpenFileInfo &b) { return a.path == b.path; }),
+	              results.end());
 	return results;
 }
 
@@ -321,8 +542,8 @@ idx_t OpenDalFileSystem::SeekPosition(FileHandle &handle) {
 
 bool OpenDalFileSystem::OnDiskFile(FileHandle &handle) {
 	// Only the local `fs` scheme is on-disk; everything else is treated as remote.
-	std::string scheme, rel;
-	if (ParseUrl(handle.path, scheme, rel)) {
+	std::string scheme, auth, rel;
+	if (ParseUrl(handle.path, scheme, auth, rel)) {
 		return scheme == "fs";
 	}
 	return false;

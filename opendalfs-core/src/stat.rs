@@ -86,3 +86,47 @@ pub unsafe extern "C" fn odop_stat(
         set_error(err, OdopErrorCode::Panic, "panic in odop_stat");
     }
 }
+
+/// Check whether `path` exists. Returns 1 if it exists, 0 if not, -1 on error
+/// (with `*err` populated).
+///
+/// # Safety
+/// - `op` must be a live handle from `odop_operator_new`.
+/// - `path` must be a valid NUL-terminated C string.
+/// - `err` must be a valid, writable pointer.
+#[no_mangle]
+pub unsafe extern "C" fn odop_exists(
+    op: *const OdopOperator,
+    path: *const c_char,
+    err: *mut OdopError,
+) -> i8 {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if op.is_null() || path.is_null() {
+            set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
+            return -1i8;
+        }
+        let op = &(*op).op;
+        let path = match CStr::from_ptr(path).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_error(err, OdopErrorCode::InvalidInput, "path not UTF-8");
+                return -1;
+            }
+        };
+        match block_on(op.exists(path)) {
+            Ok(true) => {
+                set_ok(err);
+                1
+            }
+            Ok(false) => {
+                set_ok(err);
+                0
+            }
+            Err(e) => {
+                set_opendal_error(err, &e);
+                -1
+            }
+        }
+    }));
+    result.unwrap_or(-1)
+}

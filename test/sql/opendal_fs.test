@@ -58,3 +58,53 @@ query I
 SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_fs_read.parquet');
 ----
 1
+
+# ── Phase 2: listing / glob / table functions ───────────────────────────────
+
+# Build a small tree using a Hive-partitioned write, which creates the
+# subdirectories for us (native COPY does not create nested dirs on its own).
+statement ok
+COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
+TO '__TEST_DIR__/odtree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+# Recursive glob across all partitions: 60 rows total.
+query I
+SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/odtree/**/*.parquet');
+----
+60
+
+# Recursive glob restricted to one partition value.
+query I
+SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/odtree/part=0/*.parquet');
+----
+20
+
+# opendal_ls (non-recursive) on the tree lists the partition directories.
+query I
+SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/') WHERE type = 'directory';
+----
+3
+
+# opendal_ls (recursive) sees the leaf parquet files (one per partition).
+query I
+SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/', recursive := true) WHERE type = 'file';
+----
+3
+
+# opendal_stat returns exactly one row for a concrete file.
+query I
+SELECT count(*) FROM opendal_stat('fs://__TEST_DIR__/opendal_fs_read.parquet');
+----
+1
+
+# opendal_du rolls up sizes recursively across the partitions (3 groups, 60 files? no —
+# one file per partition dir, so 3 groups each with 1 file).
+query I
+SELECT count(*) FROM opendal_du('fs://__TEST_DIR__/odtree/');
+----
+3
+
+query I
+SELECT sum(file_count) FROM opendal_du('fs://__TEST_DIR__/odtree/');
+----
+3

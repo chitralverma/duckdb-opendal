@@ -12,6 +12,7 @@
 //!   - strings handed out are owned C strings, freed via `odop_string_free`.
 
 mod error;
+mod lister;
 mod operator;
 mod reader;
 mod runtime;
@@ -19,9 +20,10 @@ mod stat;
 
 // Re-export the FFI surface so cbindgen picks it up from the crate root.
 pub use error::{OdopError, OdopErrorCode};
+pub use lister::{odop_list, odop_list_entry, odop_list_free, odop_list_len, OdopEntry, OdopEntryList};
 pub use operator::{odop_operator_free, odop_operator_new, OdopOperator};
 pub use reader::{odop_reader_free, odop_reader_open, odop_reader_read, OdopReader};
-pub use stat::{odop_stat, OdopMetadata};
+pub use stat::{odop_exists, odop_stat, OdopMetadata};
 
 use std::ffi::{c_char, CString};
 use std::panic::catch_unwind;
@@ -124,5 +126,59 @@ mod tests {
         unsafe { odop_reader_free(reader) };
         unsafe { odop_operator_free(op) };
     }
+
+    #[test]
+    fn memory_list_and_exists() {
+        let scheme = CString::new("memory").unwrap();
+        let mut err = OdopError::ok();
+        let op = unsafe {
+            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0, &mut err)
+        };
+        assert!(!op.is_null());
+
+        // Seed a couple files under a/ .
+        {
+            let inner = unsafe { &(*op).op };
+            crate::runtime::block_on(inner.write("a/one.txt", b"11".to_vec())).unwrap();
+            crate::runtime::block_on(inner.write("a/two.txt", b"222".to_vec())).unwrap();
+        }
+
+        // exists
+        let p_one = CString::new("a/one.txt").unwrap();
+        let p_missing = CString::new("a/nope.txt").unwrap();
+        let mut e = OdopError::ok();
+        assert_eq!(unsafe { odop_exists(op, p_one.as_ptr(), &mut e) }, 1);
+        assert_eq!(unsafe { odop_exists(op, p_missing.as_ptr(), &mut e) }, 0);
+
+        // list a/ recursively
+        let dir = CString::new("a/").unwrap();
+        let mut lerr = OdopError::ok();
+        let list = unsafe { odop_list(op, dir.as_ptr(), 1, &mut lerr) };
+        assert!(!list.is_null());
+        let n = unsafe { odop_list_len(list) };
+        // Expect our two files (dir markers may or may not appear depending on backend).
+        let mut files = 0;
+        for i in 0..n {
+            let mut ent = OdopEntry {
+                path: std::ptr::null(),
+                name: std::ptr::null(),
+                content_length: 0,
+                last_modified_ms: 0,
+                is_dir: 0,
+            };
+            assert_eq!(unsafe { odop_list_entry(list, i, &mut ent) }, 1);
+            if ent.is_dir == 0 {
+                files += 1;
+                let name = unsafe { CStr::from_ptr(ent.name) }.to_str().unwrap();
+                assert!(name == "one.txt" || name == "two.txt");
+            }
+        }
+        assert_eq!(files, 2);
+
+        unsafe { odop_list_free(list) };
+        unsafe { odop_operator_free(op) };
+    }
 }
+
+
 
