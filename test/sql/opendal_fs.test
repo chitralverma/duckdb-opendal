@@ -1,5 +1,5 @@
 # name: test/sql/opendal_fs.test
-# description: test opendal_fs extension (Phase 0 — FFI link smoke test)
+# description: test opendal_fs extension (Phase 1 — FFI read path over fs://)
 # group: [sql]
 
 # Before we load the extension, this will fail
@@ -11,8 +11,50 @@ Catalog Error: Scalar Function with name opendal_fs_version does not exist!
 # Require statement will ensure this test is run with this extension loaded
 require opendal_fs
 
+# Parquet reader/writer used below.
+require parquet
+
 # The version string comes from the Rust core (opendalfs-core) across the FFI.
 query I
 SELECT opendal_fs_version() ILIKE 'opendalfs-core%opendal 0.57%';
 ----
 true
+
+# Write a Parquet file with the native filesystem, then read it back through
+# the OpenDAL fs:// scheme (Rust core, positioned/ranged reads).
+statement ok
+COPY (SELECT range AS id, range * 2 AS doubled, 'row_' || range AS label FROM range(1000))
+TO '__TEST_DIR__/opendal_fs_read.parquet' (FORMAT parquet);
+
+query IIII
+SELECT count(*), min(id), max(id), sum(doubled)
+FROM read_parquet('fs://__TEST_DIR__/opendal_fs_read.parquet');
+----
+1000	0	999	999000
+
+# Projection + predicate pushdown exercises column-chunk ranged reads.
+query II
+SELECT id, label
+FROM read_parquet('fs://__TEST_DIR__/opendal_fs_read.parquet')
+WHERE id BETWEEN 500 AND 502
+ORDER BY id;
+----
+500	row_500
+501	row_501
+502	row_502
+
+# CSV streaming path over fs://
+statement ok
+COPY (SELECT range AS id, 'v' || range AS v FROM range(500))
+TO '__TEST_DIR__/opendal_fs_read.csv' (FORMAT csv, HEADER);
+
+query II
+SELECT count(*), max(id) FROM read_csv('fs://__TEST_DIR__/opendal_fs_read.csv');
+----
+500	499
+
+# glob of a concrete existing path returns the one file
+query I
+SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_fs_read.parquet');
+----
+1

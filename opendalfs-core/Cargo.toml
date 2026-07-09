@@ -15,6 +15,9 @@ crate-type = ["staticlib"]
 # more services + layers are gated behind features and enabled incrementally.
 opendal = { version = "0.57.0", default-features = false, features = [
     "executors-tokio",
+    # Registers service schemes so string-based `Operator::via_iter("<scheme>", ..)`
+    # works. Without this, via_iter reports "scheme is not registered".
+    "auto-register-services",
     "services-memory",
     "services-fs",
 ] }

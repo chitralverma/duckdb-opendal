@@ -1,0 +1,83 @@
+//! FFI error type shared across the boundary.
+//!
+//! Every fallible FFI call reports failure through an out-param `OdopError`
+//! (a `#[repr(C)]` struct) rather than Rust's `Result`. `code == 0` means
+//! success; non-zero maps to an `OdopErrorCode`. The `message` is an owned C
+//! string that the caller must free with `odop_string_free` when non-null.
+
+use std::ffi::{c_char, CString};
+
+/// Error categories surfaced to the C++ side. Mirrors the subset of
+/// `opendal::ErrorKind` we care about; everything else collapses to `Other`.
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum OdopErrorCode {
+    Ok = 0,
+    NotFound = 1,
+    PermissionDenied = 2,
+    NotADirectory = 3,
+    IsADirectory = 4,
+    AlreadyExists = 5,
+    InvalidInput = 6,
+    Unsupported = 7,
+    Unexpected = 8,
+    /// A Rust panic was caught at the FFI boundary.
+    Panic = 98,
+    /// Anything not otherwise categorized.
+    Other = 99,
+}
+
+/// C-visible error out-param. Zero-initialized means success.
+///
+/// `message` is either null or an owned C string; free it with
+/// `odop_string_free`.
+#[repr(C)]
+pub struct OdopError {
+    pub code: OdopErrorCode,
+    pub message: *mut c_char,
+}
+
+impl OdopError {
+    /// A success value (no error).
+    pub fn ok() -> Self {
+        OdopError {
+            code: OdopErrorCode::Ok,
+            message: std::ptr::null_mut(),
+        }
+    }
+}
+
+/// Write an error into a caller-provided out-param pointer, if non-null.
+/// Any prior `message` in the slot is NOT freed (callers pass a fresh slot).
+pub(crate) unsafe fn set_error(out: *mut OdopError, code: OdopErrorCode, msg: impl Into<String>) {
+    if out.is_null() {
+        return;
+    }
+    let message = CString::new(msg.into())
+        .unwrap_or_else(|_| CString::new("<error message contained NUL>").unwrap())
+        .into_raw();
+    *out = OdopError { code, message };
+}
+
+/// Write a success value into the out-param, if non-null.
+pub(crate) unsafe fn set_ok(out: *mut OdopError) {
+    if out.is_null() {
+        return;
+    }
+    *out = OdopError::ok();
+}
+
+/// Map an `opendal::Error` to our error code + message and store it.
+pub(crate) unsafe fn set_opendal_error(out: *mut OdopError, err: &opendal::Error) {
+    use opendal::ErrorKind;
+    let code = match err.kind() {
+        ErrorKind::NotFound => OdopErrorCode::NotFound,
+        ErrorKind::PermissionDenied => OdopErrorCode::PermissionDenied,
+        ErrorKind::NotADirectory => OdopErrorCode::NotADirectory,
+        ErrorKind::IsADirectory => OdopErrorCode::IsADirectory,
+        ErrorKind::AlreadyExists => OdopErrorCode::AlreadyExists,
+        ErrorKind::ConfigInvalid | ErrorKind::Unsupported => OdopErrorCode::Unsupported,
+        _ => OdopErrorCode::Unexpected,
+    };
+    set_error(out, code, err.to_string());
+}
