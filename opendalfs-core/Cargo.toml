@@ -22,10 +22,15 @@ opendal = { version = "0.57.0", default-features = false, features = [
     "layers-retry",
     "layers-timeout",
     "layers-concurrent-limit",
+    # Foyer hybrid (memory + disk) cache layer (Phase 5), opt-in per secret.
+    "layers-foyer",
     "services-memory",
     "services-fs",
     "services-s3",
 ] }
+# foyer builder types for constructing the hybrid cache used by FoyerLayer.
+# Pinned to match opendal-layer-foyer's transitive foyer version.
+foyer = "0.22"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [build-dependencies]

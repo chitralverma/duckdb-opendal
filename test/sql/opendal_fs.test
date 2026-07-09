@@ -242,6 +242,21 @@ FROM duckdb_secrets() WHERE name = 's3_generic';
 ----
 true
 
+# Foyer cache options are accepted and stored as layer.* entries (Phase 5).
+statement ok
+CREATE SECRET s3_foyer (
+    TYPE s3, SCOPE 's3://bucket-cache',
+    key_id 'k', secret 's',
+    layers MAP{'foyer.enable':'true','foyer.memory_mb':'128'}
+);
+
+query I
+SELECT secret_string LIKE '%layer.foyer.enable=true%'
+   AND secret_string LIKE '%layer.foyer.memory_mb=128%'
+FROM duckdb_secrets() WHERE name = 's3_foyer';
+----
+true
+
 # SCOPE matching resolves the right secret for a URL prefix.
 query I
 SELECT count(*) FROM which_secret('s3://bucket-a/data/x.parquet', 's3');

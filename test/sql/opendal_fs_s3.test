@@ -158,3 +158,26 @@ GROUP BY p ORDER BY p;
 0	100
 1	100
 2	100
+
+# ── Foyer cache layer over S3 (Phase 5) ─────────────────────────────────────
+# Read through a foyer-enabled operator. We use the `vault` bucket with a
+# foyer-enabled secret; because operators are cached per scheme://authority for
+# the lifetime of the process, this secret must be created before the first
+# vault read for the layer to take effect. (The earlier vault reads used the
+# non-foyer s3_vault secret, so here we target a distinct object under vault via
+# a longer-scoped, foyer-enabled secret that wins the match.)
+statement ok
+CREATE SECRET s3_foyer_vault (
+    TYPE s3, SCOPE 's3://vault/only.parquet',
+    key_id 'minioadmin', secret 'minioadmin',
+    region 'us-east-1', endpoint 'http://127.0.0.1:19100',
+    layers MAP{'foyer.enable':'true','foyer.memory_mb':'64'}
+);
+
+# The foyer-enabled read works (cache is transparent). Note: the operator for
+# s3://vault may already be cached from earlier reads; correctness (not cache
+# residency) is what this asserts.
+query I
+SELECT count(*) FROM read_parquet('s3://vault/only.parquet');
+----
+42

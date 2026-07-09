@@ -296,6 +296,46 @@ mod tests {
 
         unsafe { odop_operator_free(op) };
     }
+
+    #[test]
+    fn memory_operator_with_foyer_cache() {
+        // Enable the foyer read cache layer and confirm reads still work
+        // (the cache is transparent to callers).
+        let scheme = CString::new("memory").unwrap();
+        let lk: Vec<CString> = ["foyer.enable", "foyer.memory_mb"]
+            .iter()
+            .map(|s| CString::new(*s).unwrap())
+            .collect();
+        let lv: Vec<CString> = ["true", "16"].iter().map(|s| CString::new(*s).unwrap()).collect();
+        let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
+        let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
+
+        let mut err = OdopError::ok();
+        let op = unsafe {
+            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0,
+                              lk_ptrs.as_ptr(), lv_ptrs.as_ptr(), lk_ptrs.len(), &mut err)
+        };
+        assert!(!op.is_null(), "foyer operator_new failed: code {}", err.code as i32);
+
+        {
+            let inner = unsafe { &(*op).op };
+            crate::runtime::block_on(inner.write("cached.txt", b"cache me".to_vec())).unwrap();
+        }
+        let path = CString::new("cached.txt").unwrap();
+        // Read twice — second read should be served from the cache.
+        for _ in 0..2 {
+            let mut serr = OdopError::ok();
+            let r = unsafe { odop_reader_open(op, path.as_ptr(), &mut serr) };
+            assert!(!r.is_null());
+            let mut buf = vec![0u8; 8];
+            let n = unsafe { odop_reader_read(r, 0, 8, buf.as_mut_ptr(), &mut serr) };
+            assert_eq!(n, 8);
+            assert_eq!(&buf, b"cache me");
+            unsafe { odop_reader_free(r) };
+        }
+
+        unsafe { odop_operator_free(op) };
+    }
 }
 
 

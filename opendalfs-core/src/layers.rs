@@ -10,6 +10,8 @@
 //!   timeout.seconds           u64     — per-operation timeout
 //!   timeout.io_seconds        u64     — per-IO-chunk timeout
 //!   concurrent_limit          usize   — max concurrent requests
+//!   foyer.enable              bool    — enable the foyer in-memory read cache
+//!   foyer.memory_mb           usize   — in-memory cache capacity (default 256)
 //!
 //! Unknown keys are ignored (forward-compatible). Applying no options returns
 //! the operator unchanged.
@@ -18,6 +20,8 @@ use std::time::Duration;
 
 use opendal::layers::{ConcurrentLimitLayer, RetryLayer, TimeoutLayer};
 use opendal::Operator;
+
+use crate::runtime::block_on;
 
 /// Apply layers described by `opts` (key → value) to `op`, returning the
 /// layered operator. Keys are parsed leniently; a malformed value for a key
@@ -73,5 +77,42 @@ pub(crate) fn apply_layers(mut op: Operator, opts: &[(String, String)]) -> Opera
         op = op.layer(ConcurrentLimitLayer::new(v));
     }
 
+    // ── Foyer hybrid read cache ──────────────────────────────────────────────
+    // Currently an in-memory tier (the common case). Disk-tier config is
+    // accepted but not yet wired (foyer 0.22 device-builder API); disk keys are
+    // reserved so enabling them later needs no UX change.
+    if matches!(get("foyer.enable"), Some("true" | "1")) {
+        let memory_mb = get("foyer.memory_mb").and_then(|s| s.parse::<usize>().ok()).unwrap_or(256);
+        match build_foyer(memory_mb) {
+            Ok(layer) => op = op.layer(layer),
+            Err(e) => {
+                // Caching is best-effort: log and continue without it rather than
+                // failing the whole operator.
+                eprintln!("[opendalfs] foyer cache disabled ({e})");
+            }
+        }
+    }
+
     op
+}
+
+/// Build a `FoyerLayer` backed by an in-memory hybrid cache of `memory_mb`
+/// megabytes. Runs the async foyer builder on the shared runtime.
+fn build_foyer(memory_mb: usize) -> Result<opendal::layers::FoyerLayer, String> {
+    use foyer::HybridCacheBuilder;
+
+    const MIB: usize = 1024 * 1024;
+    let mem_bytes = memory_mb.max(1) * MIB;
+
+    let cache = block_on(async move {
+        HybridCacheBuilder::new()
+            .memory(mem_bytes)
+            .with_shards(4)
+            .storage()
+            .build()
+            .await
+            .map_err(|e| format!("foyer memory build: {e}"))
+    })?;
+
+    Ok(opendal::layers::FoyerLayer::new(cache))
 }
