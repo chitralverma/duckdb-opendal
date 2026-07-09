@@ -1,0 +1,95 @@
+# name: test/sql/opendal_fs_s3.test
+# description: opendalfs over S3 (MinIO) — opt-in; requires a seeded MinIO
+# group: [sql]
+#
+# This test is skipped unless OPENDAL_S3_TEST is set. To run it locally:
+#   scripts/s3_test_seed.sh up      # start + seed MinIO, prints env to export
+#   <export the printed env vars>
+#   make test                       # or run this file directly via unittest
+#   scripts/s3_test_seed.sh down    # teardown
+#
+# Credentials/endpoint are read by the OpenDAL S3 service from the AWS_* env
+# vars (Phase 3 will replace these with CREATE SECRET). The fixtures live in the
+# `warehouse` bucket seeded by scripts/s3_test_seed.sh.
+
+require opendal_fs
+
+require parquet
+
+require-env OPENDAL_S3_TEST
+
+# Single object read.
+query II
+SELECT count(*), sum(d) FROM read_parquet('s3://warehouse/f1.parquet');
+----
+100	9900
+
+# Wildcard glob read at the bucket root (f1 + f2).
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/*.parquet');
+----
+300
+
+# Recursive glob read (adds the partitioned nested.parquet).
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/**/*.parquet');
+----
+350
+
+# DuckDB's built-in glob() over S3.
+query I
+SELECT count(*) FROM glob('s3://warehouse/*.parquet');
+----
+2
+
+# Recursive glob() over S3.
+query I
+SELECT count(*) FROM glob('s3://warehouse/**/*.parquet');
+----
+3
+
+# CSV over S3.
+query II
+SELECT count(*), max(id) FROM read_csv('s3://warehouse/data.csv');
+----
+75	74
+
+# Projection + predicate pushdown (ranged column reads).
+query II
+SELECT id, d FROM read_parquet('s3://warehouse/f2.parquet') WHERE id BETWEEN 100 AND 102 ORDER BY id;
+----
+100	300
+101	303
+102	306
+
+# Join across two S3 objects.
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/f1.parquet') a
+JOIN read_parquet('s3://warehouse/f2.parquet') b USING (id);
+----
+100
+
+# Hive partitioning: the year= value is extracted from the object key.
+query II
+SELECT any_value(id) >= 0 AS has_id, any_value(year) AS y
+FROM read_parquet('s3://warehouse/year=2024/nested.parquet', hive_partitioning = true);
+----
+true	2024
+
+# opendal_ls (recursive) over the bucket lists all objects.
+query I
+SELECT count(*) FROM opendal_ls('s3://warehouse/', recursive := true) WHERE type = 'file';
+----
+4
+
+# opendal_du rolls up per prefix: the root group plus the year=2024 prefix.
+query I
+SELECT count(*) FROM opendal_du('s3://warehouse/');
+----
+2
+
+# opendal_stat on a single S3 object returns exactly one row.
+query I
+SELECT count(*) FROM opendal_stat('s3://warehouse/f1.parquet');
+----
+1

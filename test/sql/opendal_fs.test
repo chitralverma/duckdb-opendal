@@ -108,3 +108,32 @@ query I
 SELECT sum(file_count) FROM opendal_du('fs://__TEST_DIR__/odtree/');
 ----
 3
+
+# ── DuckDB's built-in glob() table function routes through opendalfs ─────────
+
+# Exact path.
+query I
+SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_fs_read.parquet');
+----
+1
+
+# Wildcard across the partitioned tree (one leaf file per partition dir).
+query I
+SELECT count(*) FROM glob('fs://__TEST_DIR__/odtree/**/*.parquet');
+----
+3
+
+# glob() of a non-existent directory returns no rows (clean, no error).
+query I
+SELECT count(*) FROM glob('fs://__TEST_DIR__/does_not_exist_xyz/*.parquet');
+----
+0
+
+# Directories are not returned by glob (matches native glob semantics): a bare
+# '*' over the tree root matches only the partition directories' contents, not
+# the directories themselves — so globbing '*' at the CSV/parquet root yields
+# only files.
+query I
+SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_fs_read.*');
+----
+2
