@@ -336,6 +336,51 @@ mod tests {
 
         unsafe { odop_operator_free(op) };
     }
+
+    #[test]
+    fn memory_operator_with_foyer_disk_cache() {
+        // Enable the foyer on-disk (hybrid) cache and confirm reads work and the
+        // cache directory is populated.
+        let dir = tempfile::tempdir().unwrap();
+        let disk_path = dir.path().to_str().unwrap().to_string();
+
+        let scheme = CString::new("memory").unwrap();
+        let keys = ["foyer.enable", "foyer.memory_mb", "foyer.disk_path", "foyer.disk_mb", "foyer.block_mb"];
+        let vals = ["true", "16", disk_path.as_str(), "64", "1"];
+        let lk: Vec<CString> = keys.iter().map(|s| CString::new(*s).unwrap()).collect();
+        let lv: Vec<CString> = vals.iter().map(|s| CString::new(*s).unwrap()).collect();
+        let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
+        let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
+
+        let mut err = OdopError::ok();
+        let op = unsafe {
+            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0,
+                              lk_ptrs.as_ptr(), lv_ptrs.as_ptr(), lk_ptrs.len(), &mut err)
+        };
+        assert!(!op.is_null(), "foyer-disk operator_new failed: code {}", err.code as i32);
+
+        {
+            let inner = unsafe { &(*op).op };
+            crate::runtime::block_on(inner.write("disk_cached.txt", vec![7u8; 4096])).unwrap();
+        }
+        let path = CString::new("disk_cached.txt").unwrap();
+        for _ in 0..3 {
+            let mut serr = OdopError::ok();
+            let r = unsafe { odop_reader_open(op, path.as_ptr(), &mut serr) };
+            assert!(!r.is_null());
+            let mut buf = vec![0u8; 4096];
+            let n = unsafe { odop_reader_read(r, 0, 4096, buf.as_mut_ptr(), &mut serr) };
+            assert_eq!(n, 4096);
+            assert_eq!(buf[0], 7);
+            unsafe { odop_reader_free(r) };
+        }
+
+        unsafe { odop_operator_free(op) };
+
+        // The on-disk cache directory should contain foyer's data files.
+        let entries: Vec<_> = std::fs::read_dir(dir.path()).unwrap().filter_map(|e| e.ok()).collect();
+        assert!(!entries.is_empty(), "foyer disk cache dir is empty");
+    }
 }
 
 

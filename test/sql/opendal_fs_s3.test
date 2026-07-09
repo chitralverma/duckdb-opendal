@@ -181,3 +181,24 @@ query I
 SELECT count(*) FROM read_parquet('s3://vault/only.parquet');
 ----
 42
+
+# On-disk foyer cache configured via a secret also drives a working read. We
+# write a fresh object under warehouse and read it back through the foyer-disk
+# operator (the s3://warehouse operator is cached from earlier reads, so this
+# asserts correctness rather than disk residency; disk residency is covered by
+# the Rust unit test).
+statement ok
+CREATE SECRET s3_foyer_disk_wh (
+    TYPE s3, SCOPE 's3://warehouse/foyerdisk',
+    key_id 'minioadmin', secret 'minioadmin',
+    region 'us-east-1', endpoint 'http://127.0.0.1:19100',
+    layers MAP{'foyer.enable':'true','foyer.disk_path':'__TEST_DIR__/foyer_s3_cache','foyer.disk_mb':'64','foyer.block_mb':'1'}
+);
+
+statement ok
+COPY (SELECT range AS id FROM range(123)) TO 's3://warehouse/foyerdisk/f.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/foyerdisk/f.parquet');
+----
+123

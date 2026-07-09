@@ -10,8 +10,11 @@
 //!   timeout.seconds           u64     — per-operation timeout
 //!   timeout.io_seconds        u64     — per-IO-chunk timeout
 //!   concurrent_limit          usize   — max concurrent requests
-//!   foyer.enable              bool    — enable the foyer in-memory read cache
+//!   foyer.enable              bool    — enable the foyer hybrid read cache
 //!   foyer.memory_mb           usize   — in-memory cache capacity (default 256)
+//!   foyer.disk_path           string  — directory for the on-disk cache (opt)
+//!   foyer.disk_mb             usize   — on-disk cache capacity (default 1024)
+//!   foyer.block_mb            usize   — on-disk block size (default 4)
 //!
 //! Unknown keys are ignored (forward-compatible). Applying no options returns
 //! the operator unchanged.
@@ -78,12 +81,14 @@ pub(crate) fn apply_layers(mut op: Operator, opts: &[(String, String)]) -> Opera
     }
 
     // ── Foyer hybrid read cache ──────────────────────────────────────────────
-    // Currently an in-memory tier (the common case). Disk-tier config is
-    // accepted but not yet wired (foyer 0.22 device-builder API); disk keys are
-    // reserved so enabling them later needs no UX change.
+    // In-memory tier always; on-disk tier when `foyer.disk_path` is set (a
+    // persistent cache comparable to external caching extensions).
     if matches!(get("foyer.enable"), Some("true" | "1")) {
         let memory_mb = get("foyer.memory_mb").and_then(|s| s.parse::<usize>().ok()).unwrap_or(256);
-        match build_foyer(memory_mb) {
+        let disk_path = get("foyer.disk_path").map(|s| s.to_string());
+        let disk_mb = get("foyer.disk_mb").and_then(|s| s.parse::<usize>().ok()).unwrap_or(1024);
+        let block_mb = get("foyer.block_mb").and_then(|s| s.parse::<usize>().ok()).unwrap_or(4);
+        match build_foyer(memory_mb, disk_path, disk_mb, block_mb) {
             Ok(layer) => op = op.layer(layer),
             Err(e) => {
                 // Caching is best-effort: log and continue without it rather than
@@ -96,22 +101,46 @@ pub(crate) fn apply_layers(mut op: Operator, opts: &[(String, String)]) -> Opera
     op
 }
 
-/// Build a `FoyerLayer` backed by an in-memory hybrid cache of `memory_mb`
-/// megabytes. Runs the async foyer builder on the shared runtime.
-fn build_foyer(memory_mb: usize) -> Result<opendal::layers::FoyerLayer, String> {
-    use foyer::HybridCacheBuilder;
+/// Build a `FoyerLayer` with an in-memory tier of `memory_mb` MB and, when
+/// `disk_path` is set, an on-disk tier of `disk_mb` MB with `block_mb` blocks.
+/// Runs the async foyer builder on the shared runtime.
+fn build_foyer(
+    memory_mb: usize,
+    disk_path: Option<String>,
+    disk_mb: usize,
+    block_mb: usize,
+) -> Result<opendal::layers::FoyerLayer, String> {
+    // `DeviceBuilder` brings `FsDeviceBuilder::build()` into scope.
+    use foyer::{
+        BlockEngineConfig, DeviceBuilder, FsDeviceBuilder, HybridCacheBuilder, PsyncIoEngineConfig,
+    };
 
     const MIB: usize = 1024 * 1024;
     let mem_bytes = memory_mb.max(1) * MIB;
 
     let cache = block_on(async move {
-        HybridCacheBuilder::new()
-            .memory(mem_bytes)
-            .with_shards(4)
-            .storage()
-            .build()
-            .await
-            .map_err(|e| format!("foyer memory build: {e}"))
+        let mem = HybridCacheBuilder::new().memory(mem_bytes).with_shards(4);
+        match disk_path {
+            Some(dir) => {
+                std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {dir}: {e}"))?;
+                let device = FsDeviceBuilder::new(&dir)
+                    .with_capacity(disk_mb.max(1) * MIB)
+                    .build()
+                    .map_err(|e| format!("foyer device ({dir}): {e}"))?;
+                mem.storage()
+                    .with_io_engine_config(PsyncIoEngineConfig::new())
+                    .with_engine_config(
+                        BlockEngineConfig::new(device).with_block_size(block_mb.max(1) * MIB),
+                    )
+                    .build()
+                    .await
+                    .map_err(|e| format!("foyer hybrid build: {e}"))
+            }
+            None => {
+                // Memory-only cache.
+                mem.storage().build().await.map_err(|e| format!("foyer memory build: {e}"))
+            }
+        }
     })?;
 
     Ok(opendal::layers::FoyerLayer::new(cache))

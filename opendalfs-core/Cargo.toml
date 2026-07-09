@@ -35,3 +35,6 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [build-dependencies]
 cbindgen = "0.29"
+
+[dev-dependencies]
+tempfile = "3"

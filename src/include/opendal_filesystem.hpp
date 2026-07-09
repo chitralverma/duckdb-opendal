@@ -82,6 +82,18 @@ public:
 	}
 	bool OnDiskFile(FileHandle &handle) override;
 
+	// When a URL's scheme is in the user-configured override list
+	// (`opendal_override_native_filesystems`), report the filesystem as
+	// "manually set" so DuckDB's VFS picks us over a native/core extension
+	// (e.g. httpfs's s3://) for that scheme. Selective per scheme, so native
+	// handlers still serve schemes not in the list.
+	bool IsManuallySet() override;
+
+	// Configure the set of schemes for which opendal_fs overrides native
+	// filesystems. `csv` is a comma-separated list (e.g. "s3,gcs"); empty
+	// disables all overrides. Thread-safe; process-global.
+	static void SetOverrideSchemes(const std::string &csv);
+
 	string GetName() const override {
 		return "OpenDalFileSystem";
 	}

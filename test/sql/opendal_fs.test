@@ -257,6 +257,48 @@ FROM duckdb_secrets() WHERE name = 's3_foyer';
 ----
 true
 
+# Foyer on-disk cache options are accepted and stored (Phase 5 hardening).
+statement ok
+CREATE SECRET s3_foyer_disk (
+    TYPE s3, SCOPE 's3://bucket-disk',
+    key_id 'k', secret 's',
+    layers MAP{'foyer.enable':'true','foyer.disk_path':'/tmp/odfs_cache','foyer.disk_mb':'512'}
+);
+
+query I
+SELECT secret_string LIKE '%layer.foyer.disk_path=/tmp/odfs_cache%'
+   AND secret_string LIKE '%layer.foyer.disk_mb=512%'
+FROM duckdb_secrets() WHERE name = 's3_foyer_disk';
+----
+true
+
+# ── Native-filesystem override setting (Phase 5 hardening) ───────────────────
+
+# The setting exists and defaults to empty (no override).
+query I
+SELECT current_setting('opendal_override_native_filesystems') = '';
+----
+true
+
+# It accepts a comma-separated scheme list.
+statement ok
+SET opendal_override_native_filesystems = 's3,gcs';
+
+query I
+SELECT current_setting('opendal_override_native_filesystems');
+----
+s3,gcs
+
+# Reads through opendal_fs still work with the override set.
+query I
+SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/w_out.parquet');
+----
+1000
+
+# Reset the override.
+statement ok
+SET opendal_override_native_filesystems = '';
+
 # SCOPE matching resolves the right secret for a URL prefix.
 query I
 SELECT count(*) FROM which_secret('s3://bucket-a/data/x.parquet', 's3');

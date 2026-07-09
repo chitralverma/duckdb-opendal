@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstring>
 #include <unistd.h>
+#include <unordered_set>
 
 // Portable glob wildcard match (POSIX fnmatch replacement, Windows-safe).
 // Supports '*' (any sequence) and '?' (any single char). Returns 0 on match.
@@ -42,6 +43,43 @@ static int glob_match(const char *pattern, const char *name) {
 }
 
 namespace duckdb {
+
+// ── Native-filesystem override (opendal_override_native_filesystems) ─────────
+// A process-global set of schemes for which opendal_fs should win DuckDB's VFS
+// dispatch over a native/core extension (e.g. httpfs's s3://). Populated by the
+// `opendal_override_native_filesystems` setting.
+//
+// DuckDB's VFS dispatch calls CanHandleFile(path) and, on the same thread and
+// immediately after, IsManuallySet(). We stash the just-matched scheme in a
+// thread_local so IsManuallySet() can answer per-scheme without a path arg.
+static std::mutex g_override_mu;
+static std::unordered_set<std::string> g_override_schemes;
+static thread_local std::string t_last_scheme;
+
+static bool SchemeIsOverridden(const std::string &scheme) {
+	std::lock_guard<std::mutex> lk(g_override_mu);
+	return g_override_schemes.find(scheme) != g_override_schemes.end();
+}
+
+void OpenDalFileSystem::SetOverrideSchemes(const std::string &csv) {
+	std::unordered_set<std::string> set;
+	std::string cur;
+	for (char c : csv) {
+		if (c == ',' || c == ' ' || c == '\t') {
+			if (!cur.empty()) {
+				set.insert(cur);
+				cur.clear();
+			}
+		} else {
+			cur.push_back(c);
+		}
+	}
+	if (!cur.empty()) {
+		set.insert(cur);
+	}
+	std::lock_guard<std::mutex> lk(g_override_mu);
+	g_override_schemes = std::move(set);
+}
 
 // Resolve a possibly-relative `fs` path to an absolute one against the current
 // working directory. OpenDAL's fs operator is configured with root "/", so it
@@ -363,7 +401,17 @@ bool OpenDalFileSystem::CanHandleFile(const string &path) {
 	if (!ParseUrl(path, scheme, auth, rel)) {
 		return false;
 	}
-	return IsSupportedScheme(scheme);
+	if (!IsSupportedScheme(scheme)) {
+		return false;
+	}
+	// Record the matched scheme for IsManuallySet() (called next, same thread).
+	t_last_scheme = scheme;
+	return true;
+}
+
+bool OpenDalFileSystem::IsManuallySet() {
+	// Win dispatch only for schemes the user put in the override list.
+	return SchemeIsOverridden(t_last_scheme);
 }
 
 unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenFlags flags,

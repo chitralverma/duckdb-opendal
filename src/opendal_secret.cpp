@@ -72,12 +72,19 @@ static unique_ptr<BaseSecret> CreateOpenDalSecret(ClientContext &, CreateSecretI
 
 // Register a generic secret function + type for one service scheme.
 static void RegisterOneService(ExtensionLoader &loader, const std::string &scheme) {
-	// Secret type.
+	// Secret type. Guard against collision: a native/core extension (e.g.
+	// httpfs) may already register a secret type with the same name (e.g. "s3").
+	// RegisterSecretType throws if the type already exists, so ignore that.
 	SecretType type;
 	type.name = scheme;
 	type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
 	type.default_provider = "config";
-	loader.RegisterSecretType(type);
+	try {
+		loader.RegisterSecretType(type);
+	} catch (...) {
+		// Type already registered by another extension — fine; we still register
+		// our create function below with REPLACE_ON_CONFLICT.
+	}
 
 	// Create function.
 	CreateSecretFunction fn;
