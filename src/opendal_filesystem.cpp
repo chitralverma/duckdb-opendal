@@ -182,69 +182,78 @@ OpenDalFileSystem::~OpenDalFileSystem() {
 	operators_.clear();
 }
 
-// scheme://rest  →  scheme + OpenDAL-relative path.
-// For fs:///tmp/x  → scheme="fs", path="/tmp/x".
-// For memory://foo → scheme="memory", path="foo".
-// Whether a scheme's authority component carries a name (bucket/container/…)
-// rather than being part of the path — i.e. the URL is scheme://<name>/<key>.
-// This governs only how *we* split the URL into (authority, per-call path);
-// mapping that authority to the right service config key (bucket, container, …)
-// is handled inside OpenDAL by from_uri. fs/memory keep everything after :// as
-// the path. Extend this set as authority-style services are enabled/tested.
-static bool SchemeUsesBucket(const std::string &scheme) {
-	return scheme == "s3";
+// Whether a scheme is "path-style": the whole component after :// is a path and
+// there is no authority (local/embedded backends like fs, memory). All other
+// schemes are "authority-style" — the authority carries a name (bucket for s3,
+// container for azblob, …) that OpenDAL's from_uri maps to the right config key.
+//
+// This distinction is irreducible and mirrors OpenDAL itself: a service's
+// from_uri either consumes the authority (s3 → bucket) or ignores it and reads
+// the path as root (fs). We only need it to decide how to split the URL and
+// whether a SCOPE-matched secret applies; the config mapping is OpenDAL's job.
+// Extend this set as path-style schemes are enabled.
+static bool SchemeIsPathStyle(const std::string &scheme) {
+	return scheme == "fs" || scheme == "memory";
 }
 
-// Schemes that typically require credentials from a SCOPE-matched secret (or
-// env). Used to be optimistic about existence when no context is available.
+// Authority-style schemes carry credentials via a SCOPE-matched secret (or env);
+// path-style local schemes (fs/memory) need none.
 static bool SchemeNeedsSecret(const std::string &scheme) {
-	return scheme == "s3";
+	return !SchemeIsPathStyle(scheme);
 }
 
 bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme,
                                  std::string &out_authority, std::string &out_path) {
-	auto pos = url.find("://");
-	if (pos == std::string::npos) {
+	// Parse with OpenDAL's canonical OperatorUri (via FFI) so scheme/authority
+	// extraction matches how from_uri builds operators — no hand-rolled split.
+	OdopUriParts parts = {};
+	OdopError err = {};
+	OdopParsedUri *handle = odop_parse_uri(url.c_str(), &parts, &err);
+	if (!handle) {
+		ClearError(err);
 		return false;
 	}
-	out_scheme = url.substr(0, pos);
+	out_scheme = parts.scheme ? std::string(parts.scheme) : std::string();
+	std::string root = parts.root ? std::string(parts.root) : std::string();
+	std::string authority = parts.authority ? std::string(parts.authority) : std::string();
+	bool has_authority = parts.has_authority != 0;
+	odop_parsed_uri_free(handle);
+
 	if (out_scheme.empty()) {
 		return false;
 	}
-	std::string rest = url.substr(pos + 3);
+
 	out_authority.clear();
 
-	if (SchemeUsesBucket(out_scheme)) {
-		// scheme://<bucket>/<key>
-		auto slash = rest.find('/');
-		if (slash == std::string::npos) {
-			out_authority = rest;
-			out_path = "/";
-		} else {
-			out_authority = rest.substr(0, slash);
-			out_path = rest.substr(slash); // keep leading slash → object key
-			if (out_path.empty()) {
-				out_path = "/";
-			}
+	if (SchemeIsPathStyle(out_scheme)) {
+		// fs / memory: no authority. OperatorUri may misread a relative first
+		// segment (e.g. fs://__TEST_DIR__/x) as an authority, so reconstruct the
+		// path from the raw URL instead of trusting the parsed split.
+		auto pos = url.find("://");
+		std::string rest = pos == std::string::npos ? url : url.substr(pos + 3);
+		out_path = rest.empty() ? "/" : rest;
+		if (out_scheme == "fs") {
+			out_path = AbsolutizeFsPath(out_path);
 		}
 		return true;
 	}
 
-	// fs / memory: no authority; everything after :// is the path.
-	out_path = rest.empty() ? "/" : rest;
-	if (out_scheme == "fs") {
-		out_path = AbsolutizeFsPath(out_path);
-	}
+	// Authority-style (object stores): the authority is the bucket/container;
+	// the object key is the root. Keep a leading slash on the key (OpenDAL
+	// normalizes it) to preserve the existing per-call path contract.
+	out_authority = authority;
+	(void)has_authority;
+	out_path = root.empty() ? "/" : ("/" + root);
 	return true;
 }
 
 // Rebuild a "scheme://[authority/]path" URL from an OpenDAL entry path. OpenDAL
 // returns fs entry paths relative to root "/" (without a leading slash), so for
-// `fs` we prepend "/". For bucket schemes we re-insert the authority (bucket).
+// `fs` we prepend "/". For authority-style schemes we re-insert the authority.
 std::string OpenDalFileSystem::BuildUrl(const std::string &scheme, const std::string &authority,
                                         const std::string &entry_path) {
 	std::string p = entry_path;
-	if (SchemeUsesBucket(scheme)) {
+	if (!SchemeIsPathStyle(scheme)) {
 		// entry paths are object keys relative to the bucket root (no leading /).
 		while (!p.empty() && p.front() == '/') {
 			p.erase(p.begin());

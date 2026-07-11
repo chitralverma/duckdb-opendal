@@ -89,12 +89,9 @@ pub unsafe extern "C" fn odop_operator_new(
             }
         };
 
-        // Extract the scheme for capability error messages (before "://").
-        let scheme = uri_str
-            .split_once("://")
-            .map(|(s, _)| s)
-            .unwrap_or(uri_str)
-            .to_owned();
+        // Extract the scheme for capability error messages via OpenDAL's
+        // canonical URI parser (no hand-rolled string splitting).
+        let scheme = crate::uri::scheme_of(uri_str);
 
         match Operator::from_uri((uri_str, cfg)) {
             Ok(op) => {

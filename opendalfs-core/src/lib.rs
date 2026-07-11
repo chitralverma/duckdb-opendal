@@ -20,6 +20,7 @@ mod operator;
 mod reader;
 mod runtime;
 mod stat;
+mod uri;
 mod writer;
 
 // Re-export the FFI surface so cbindgen picks it up from the crate root.
@@ -33,6 +34,7 @@ pub use mutate::{odop_create_dir, odop_remove, odop_rename};
 pub use operator::{odop_operator_free, odop_operator_new, OdopOperator};
 pub use reader::{odop_reader_free, odop_reader_open, odop_reader_read, OdopReader};
 pub use stat::{odop_exists, odop_stat, OdopMetadata};
+pub use uri::{odop_parse_uri, odop_parsed_uri_free, OdopParsedUri, OdopUriParts};
 pub use writer::{
     odop_writer_abort, odop_writer_close, odop_writer_free, odop_writer_open, odop_writer_write,
     OdopWriter,
@@ -349,6 +351,48 @@ mod tests {
         }
 
         unsafe { odop_operator_free(op) };
+    }
+
+    #[test]
+    fn parse_uri_authority_and_path() {
+        // odop_parse_uri delegates to OpenDAL's OperatorUri: authority-style
+        // schemes expose the bucket as authority + key as root; path-style URIs
+        // (fs) expose no authority.
+        let check = |uri: &str| {
+            let c = CString::new(uri).unwrap();
+            let mut parts = OdopUriParts {
+                scheme: std::ptr::null(),
+                authority: std::ptr::null(),
+                root: std::ptr::null(),
+                has_authority: 0,
+                has_root: 0,
+            };
+            let mut err = OdopError::ok();
+            let h = unsafe { odop_parse_uri(c.as_ptr(), &mut parts, &mut err) };
+            assert!(!h.is_null(), "parse failed for {uri}");
+            let s = unsafe { CStr::from_ptr(parts.scheme) }.to_str().unwrap().to_owned();
+            let a = if parts.has_authority != 0 {
+                Some(unsafe { CStr::from_ptr(parts.authority) }.to_str().unwrap().to_owned())
+            } else {
+                None
+            };
+            let r = if parts.has_root != 0 {
+                Some(unsafe { CStr::from_ptr(parts.root) }.to_str().unwrap().to_owned())
+            } else {
+                None
+            };
+            unsafe { odop_parsed_uri_free(h) };
+            (s, a, r)
+        };
+
+        let (s, a, r) = check("s3://bucket/key/a.parquet");
+        assert_eq!(s, "s3");
+        assert_eq!(a.as_deref(), Some("bucket"));
+        assert_eq!(r.as_deref(), Some("key/a.parquet"));
+
+        let (s, a, _r) = check("fs:///tmp/x.parquet");
+        assert_eq!(s, "fs");
+        assert_eq!(a, None); // path-style: no authority
     }
 
     #[test]
