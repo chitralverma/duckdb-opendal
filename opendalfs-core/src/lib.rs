@@ -32,7 +32,7 @@ pub use error::{OdopError, OdopErrorCode};
 pub use lister::{
     odop_list, odop_list_entry, odop_list_free, odop_list_len, OdopEntry, OdopEntryList,
 };
-pub use mutate::{odop_create_dir, odop_remove, odop_rename};
+pub use mutate::{odop_copy, odop_create_dir, odop_remove, odop_rename};
 pub use operator::{odop_operator_free, odop_operator_new, OdopOperator};
 pub use reader::{odop_reader_free, odop_reader_open, odop_reader_read, OdopReader};
 pub use stat::{odop_exists, odop_stat, OdopMetadata};
@@ -568,6 +568,7 @@ mod tests {
         assert_eq!(caps.get("write"), Some(&true));
         assert_eq!(caps.get("list"), Some(&true));
         assert_eq!(caps.get("rename"), Some(&false));
+        assert_eq!(caps.get("copy"), Some(&false));
 
         // rename must fail-fast with Unsupported + a clear message, without
         // touching the backend.
@@ -583,6 +584,60 @@ mod tests {
             "unexpected msg: {msg}"
         );
         unsafe { odop_string_free(merr.message) };
+
+        // copy likewise fail-fasts on memory (no copy capability).
+        let mut cerr = OdopError::ok();
+        let rc = unsafe { odop_copy(op, from.as_ptr(), to.as_ptr(), &mut cerr) };
+        assert_eq!(rc, -1);
+        assert_eq!(cerr.code as i32, OdopErrorCode::Unsupported as i32);
+        unsafe { odop_string_free(cerr.message) };
+
+        unsafe { odop_operator_free(op) };
+    }
+
+    #[test]
+    fn fs_copy_succeeds() {
+        // The fs service supports copy; exercise the odop_copy FFI end to end
+        // (this is the branch the C++ MoveFile copy+delete fallback uses when a
+        // service lacks server-side rename, e.g. s3).
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        let uri = CString::new("fs://").unwrap();
+        let keys = [CString::new("root").unwrap()];
+        let vals = [CString::new(root).unwrap()];
+        let k_ptrs: Vec<*const c_char> = keys.iter().map(|c| c.as_ptr()).collect();
+        let v_ptrs: Vec<*const c_char> = vals.iter().map(|c| c.as_ptr()).collect();
+        let mut err = OdopError::ok();
+        let op = unsafe {
+            odop_operator_new(
+                uri.as_ptr(),
+                k_ptrs.as_ptr(),
+                v_ptrs.as_ptr(),
+                k_ptrs.len(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                &mut err,
+            )
+        };
+        assert!(!op.is_null(), "fs operator_new failed: {}", err.code as i32);
+
+        // Seed a file, copy it, verify both exist with the same content.
+        {
+            let inner = unsafe { &(*op).op };
+            crate::runtime::block_on(inner.write("src.txt", b"copy me".to_vec())).unwrap();
+        }
+        let from = CString::new("src.txt").unwrap();
+        let to = CString::new("dst.txt").unwrap();
+        let mut cerr = OdopError::ok();
+        assert_eq!(
+            unsafe { odop_copy(op, from.as_ptr(), to.as_ptr(), &mut cerr) },
+            0
+        );
+
+        let mut e = OdopError::ok();
+        assert_eq!(unsafe { odop_exists(op, from.as_ptr(), &mut e) }, 1);
+        assert_eq!(unsafe { odop_exists(op, to.as_ptr(), &mut e) }, 1);
 
         unsafe { odop_operator_free(op) };
     }

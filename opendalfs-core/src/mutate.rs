@@ -100,6 +100,36 @@ pub unsafe extern "C" fn odop_rename(
     })
 }
 
+/// Copy `from` to `to` within the same operator. Returns 0 on success, -1 on
+/// error. Guarded on the `copy` capability. Used by the C++ `MoveFile`
+/// copy+delete fallback when a service lacks server-side `rename` (e.g. s3).
+///
+/// # Safety
+/// - `op` must be a live handle from `odop_operator_new`.
+/// - `from`/`to` must be valid NUL-terminated C strings.
+#[no_mangle]
+pub unsafe extern "C" fn odop_copy(
+    op: *const OdopOperator,
+    from: *const c_char,
+    to: *const c_char,
+    err: *mut OdopError,
+) -> i32 {
+    run(op, err, |o| {
+        let f = match cstr(from) {
+            Some(s) => s,
+            None => return Err(MutErr::Invalid("from is null or not UTF-8".into())),
+        };
+        let t = match cstr(to) {
+            Some(s) => s,
+            None => return Err(MutErr::Invalid("to is null or not UTF-8".into())),
+        };
+        guard(&o.scheme, full(o).copy, "copy")?;
+        block_on(o.op.copy(f, t))
+            .map(|_meta| ())
+            .map_err(MutErr::Opendal)
+    })
+}
+
 // ── shared plumbing ──────────────────────────────────────────────────────────
 
 /// A mutation error: either an OpenDAL error or an input-validation message.

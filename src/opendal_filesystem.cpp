@@ -124,6 +124,30 @@ static void ClearError(OdopError &err) {
 	}
 }
 
+// Whether `op` reports support for capability `name` (e.g. "rename", "copy",
+// "delete"). Reads the operator's capability list once; returns false on any
+// error. Names match OpenDAL's Capability field names.
+static bool OperatorSupports(OdopOperator *op, const char *name) {
+	OdopError err = {};
+	OdopCapabilityList *caps = odop_capabilities(op, &err);
+	if (!caps) {
+		ClearError(err);
+		return false;
+	}
+	ClearError(err);
+	bool supported = false;
+	size_t n = odop_capabilities_len(caps);
+	for (size_t i = 0; i < n; i++) {
+		OdopCapability cap = {};
+		if (odop_capabilities_entry(caps, i, &cap) && cap.name && std::strcmp(cap.name, name) == 0) {
+			supported = cap.supported != 0;
+			break;
+		}
+	}
+	odop_capabilities_free(caps);
+	return supported;
+}
+
 // ─── OpenDalFileHandle ───────────────────────────────────────────────────────
 OpenDalFileHandle::OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdopReader *reader_,
                                      int64_t file_size_, int64_t last_modified_ms_)
@@ -852,12 +876,38 @@ void OpenDalFileSystem::MoveFile(const string &source, const string &target, opt
 		throw IOException("opendal: move across schemes/buckets is not supported (" + source + " -> " + target + ")");
 	}
 	auto *op = OperatorFor(s_scheme, s_auth, source, opener);
-	OdopError err = {};
-	if (odop_rename(op, s_rel.c_str(), t_rel.c_str(), &err) != 0) {
-		ThrowIfError(err, "opendal move: " + source + " -> " + target);
-		throw IOException("opendal move failed: " + source + " -> " + target);
+
+	// Prefer server-side rename. If the service lacks it (e.g. s3 has no
+	// rename but does have copy), fall back to copy+delete — a non-atomic move.
+	// If neither is available, surface a clear error.
+	if (OperatorSupports(op, "rename")) {
+		OdopError err = {};
+		if (odop_rename(op, s_rel.c_str(), t_rel.c_str(), &err) != 0) {
+			ThrowIfError(err, "opendal move: " + source + " -> " + target);
+			throw IOException("opendal move failed: " + source + " -> " + target);
+		}
+		ClearError(err);
+		return;
 	}
-	ClearError(err);
+
+	if (OperatorSupports(op, "copy")) {
+		OdopError cerr = {};
+		if (odop_copy(op, s_rel.c_str(), t_rel.c_str(), &cerr) != 0) {
+			ThrowIfError(cerr, "opendal move (copy): " + source + " -> " + target);
+			throw IOException("opendal move failed (copy): " + source + " -> " + target);
+		}
+		ClearError(cerr);
+		OdopError derr = {};
+		if (odop_remove(op, s_rel.c_str(), /*recursive=*/0, &derr) != 0) {
+			ThrowIfError(derr, "opendal move (delete source after copy): " + source);
+			throw IOException("opendal move failed (delete source after copy): " + source);
+		}
+		ClearError(derr);
+		return;
+	}
+
+	throw IOException("opendal: service '" + s_scheme + "' supports neither rename nor copy; cannot move " + source +
+	                  " -> " + target);
 }
 
 } // namespace duckdb
