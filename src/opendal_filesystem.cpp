@@ -342,10 +342,14 @@ OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const 
                                                const std::string &url, optional_ptr<ClientContext> context,
                                                optional_ptr<DatabaseInstance> db) {
 	std::string key = scheme + "://" + authority;
-	std::lock_guard<std::mutex> lk(mu_);
-	auto it = operators_.find(key);
-	if (it != operators_.end()) {
-		return it->second;
+
+	// Fast path: return a cached operator without blocking other schemes.
+	{
+		std::lock_guard<std::mutex> lk(mu_);
+		auto it = operators_.find(key);
+		if (it != operators_.end()) {
+			return it->second;
+		}
 	}
 
 	// The operator URI: scheme://authority (no path). OpenDAL's per-service
@@ -398,6 +402,9 @@ OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const 
 		lval_ptrs.push_back(lvals[i].c_str());
 	}
 
+	// Build the operator OUTSIDE the lock: odop_operator_new may do DNS/network
+	// work, and holding mu_ across it would serialize operator creation for
+	// unrelated schemes/buckets.
 	OdopError err = {};
 	OdopOperator *op = odop_operator_new(
 	    uri.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
@@ -409,7 +416,15 @@ OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const 
 		throw IOException("opendal: null operator for '" + key + "'");
 	}
 	ClearError(err);
-	operators_[key] = op;
+
+	// Publish under the lock. If another thread built the same key concurrently,
+	// keep the first one and free ours (last-writer-loses, avoids a leak).
+	std::lock_guard<std::mutex> lk(mu_);
+	auto [it, inserted] = operators_.emplace(key, op);
+	if (!inserted) {
+		odop_operator_free(op);
+		return it->second;
+	}
 	return op;
 }
 
