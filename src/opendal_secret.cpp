@@ -17,9 +17,8 @@ struct ConvenienceParam {
 	const char *odal;  // OpenDAL config key
 };
 static const ConvenienceParam kConvenience[] = {
-    {"key_id", "access_key_id"},      {"secret", "secret_access_key"},
-    {"session_token", "session_token"}, {"region", "region"},
-    {"endpoint", "endpoint"},
+    {"key_id", "access_key_id"}, {"secret", "secret_access_key"}, {"session_token", "session_token"},
+    {"region", "region"},        {"endpoint", "endpoint"},
 };
 
 // The single, generic CREATE SECRET builder shared by every OpenDAL service
@@ -100,8 +99,8 @@ static void RegisterOneService(ExtensionLoader &loader, const std::string &schem
 		fn.named_parameters[cp.param] = LogicalType::VARCHAR;
 	}
 
-	loader.GetDatabaseInstance().GetSecretManager().RegisterSecretFunction(
-	    std::move(fn), OnCreateConflict::REPLACE_ON_CONFLICT);
+	loader.GetDatabaseInstance().GetSecretManager().RegisterSecretFunction(std::move(fn),
+	                                                                       OnCreateConflict::REPLACE_ON_CONFLICT);
 }
 
 void RegisterOpenDalSecrets(ExtensionLoader &loader) {

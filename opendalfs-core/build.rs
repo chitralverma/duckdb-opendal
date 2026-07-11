@@ -44,11 +44,9 @@ fn main() {
     // report it programmatically instead of a hardcoded string. opendal exposes
     // no public VERSION const. We read the declared dependency version (an exact
     // pin, per plan §2), not Cargo.lock, to keep it simple and dependency-light.
-    let opendal_version = read_manifest_dep_version(
-        &PathBuf::from(&crate_dir).join("Cargo.toml"),
-        "opendal",
-    )
-    .unwrap_or_else(|| "unknown".to_string());
+    let opendal_version =
+        read_manifest_dep_version(&PathBuf::from(&crate_dir).join("Cargo.toml"), "opendal")
+            .unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=OPENDAL_VERSION={opendal_version}");
     println!("cargo:rerun-if-changed=Cargo.toml");
 
@@ -69,7 +67,10 @@ fn read_manifest_dep_version(manifest_path: &std::path::Path, name: &str) -> Opt
     let dep = doc.get("dependencies")?.get(name)?;
     match dep {
         toml::Value::String(s) => Some(s.clone()),
-        toml::Value::Table(t) => t.get("version").and_then(|v| v.as_str()).map(str::to_string),
+        toml::Value::Table(t) => t
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         _ => None,
     }
 }

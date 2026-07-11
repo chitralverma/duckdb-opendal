@@ -73,7 +73,7 @@ struct LsGlobalState : public GlobalTableFunctionState {
 static void DefineLsColumns(vector<LogicalType> &types, vector<string> &names) {
 	names = {"path", "name", "type", "size", "size_pretty", "modified"};
 	types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
-	         LogicalType::BIGINT, LogicalType::VARCHAR, LogicalType::TIMESTAMP};
+	         LogicalType::BIGINT,  LogicalType::VARCHAR, LogicalType::TIMESTAMP};
 }
 
 // We stash the filesystem pointer in the TableFunction's function_info.
@@ -83,8 +83,7 @@ struct OpenDalTableInfo : public TableFunctionInfo {
 	OpenDalFileSystem *fs;
 };
 
-static unique_ptr<GlobalTableFunctionState> LsInit(ClientContext &context,
-                                                   TableFunctionInitInput &input) {
+static unique_ptr<GlobalTableFunctionState> LsInit(ClientContext &context, TableFunctionInitInput &input) {
 	auto &bind = input.bind_data->Cast<LsBindData>();
 	auto state = make_uniq<LsGlobalState>();
 
@@ -177,8 +176,7 @@ static unique_ptr<GlobalTableFunctionState> LsInit(ClientContext &context,
 	}
 	odop_list_free(list);
 
-	std::sort(state->rows.begin(), state->rows.end(),
-	          [](const FsRow &a, const FsRow &b) { return a.url < b.url; });
+	std::sort(state->rows.begin(), state->rows.end(), [](const FsRow &a, const FsRow &b) { return a.url < b.url; });
 	return std::move(state);
 }
 
@@ -229,8 +227,7 @@ struct DuGlobalState : public GlobalTableFunctionState {
 	idx_t offset = 0;
 };
 
-static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context,
-                                                   TableFunctionInitInput &input) {
+static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context, TableFunctionInitInput &input) {
 	auto &bind = input.bind_data->Cast<DuBindData>();
 	auto state = make_uniq<DuGlobalState>();
 	auto *fs = bind.fs;

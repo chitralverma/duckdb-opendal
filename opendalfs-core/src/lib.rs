@@ -29,7 +29,9 @@ pub use capability::{
     OdopCapability, OdopCapabilityList,
 };
 pub use error::{OdopError, OdopErrorCode};
-pub use lister::{odop_list, odop_list_entry, odop_list_free, odop_list_len, OdopEntry, OdopEntryList};
+pub use lister::{
+    odop_list, odop_list_entry, odop_list_free, odop_list_len, OdopEntry, OdopEntryList,
+};
 pub use mutate::{odop_create_dir, odop_remove, odop_rename};
 pub use operator::{odop_operator_free, odop_operator_new, OdopOperator};
 pub use reader::{odop_reader_free, odop_reader_open, odop_reader_read, OdopReader};
@@ -102,7 +104,10 @@ mod tests {
         // The opendal version is resolved from Cargo.lock at build time, not
         // hardcoded; check it is present and non-empty.
         assert!(s.contains("opendal "));
-        assert!(!s.contains("opendal unknown"), "opendal version unresolved: {s}");
+        assert!(
+            !s.contains("opendal unknown"),
+            "opendal version unresolved: {s}"
+        );
         unsafe { odop_string_free(p) };
     }
 
@@ -113,9 +118,22 @@ mod tests {
         let scheme = CString::new("memory").unwrap();
         let mut err = OdopError::ok();
         let op = unsafe {
-            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0, std::ptr::null(), std::ptr::null(), 0, &mut err)
+            odop_operator_new(
+                scheme.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                &mut err,
+            )
         };
-        assert!(!op.is_null(), "operator_new failed: code {}", err.code as i32);
+        assert!(
+            !op.is_null(),
+            "operator_new failed: code {}",
+            err.code as i32
+        );
 
         // Seed a value using the underlying operator directly.
         let payload = b"hello opendal fs".to_vec();
@@ -155,7 +173,16 @@ mod tests {
         let scheme = CString::new("memory").unwrap();
         let mut err = OdopError::ok();
         let op = unsafe {
-            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0, std::ptr::null(), std::ptr::null(), 0, &mut err)
+            odop_operator_new(
+                scheme.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                &mut err,
+            )
         };
         assert!(!op.is_null());
 
@@ -207,7 +234,16 @@ mod tests {
         let scheme = CString::new("memory").unwrap();
         let mut err = OdopError::ok();
         let op = unsafe {
-            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0, std::ptr::null(), std::ptr::null(), 0, &mut err)
+            odop_operator_new(
+                scheme.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                &mut err,
+            )
         };
         assert!(!op.is_null());
 
@@ -218,8 +254,14 @@ mod tests {
         assert!(!w.is_null(), "writer_open failed: {}", werr.code as i32);
         let p1 = b"hello ";
         let p2 = b"world";
-        assert_eq!(unsafe { odop_writer_write(w, p1.as_ptr(), p1.len() as u64, &mut werr) }, 0);
-        assert_eq!(unsafe { odop_writer_write(w, p2.as_ptr(), p2.len() as u64, &mut werr) }, 0);
+        assert_eq!(
+            unsafe { odop_writer_write(w, p1.as_ptr(), p1.len() as u64, &mut werr) },
+            0
+        );
+        assert_eq!(
+            unsafe { odop_writer_write(w, p2.as_ptr(), p2.len() as u64, &mut werr) },
+            0
+        );
         assert_eq!(unsafe { odop_writer_close(w, &mut werr) }, 0);
         unsafe { odop_writer_free(w) };
 
@@ -275,7 +317,10 @@ mod tests {
             .iter()
             .map(|s| CString::new(*s).unwrap())
             .collect();
-        let lv: Vec<CString> = ["3", "30", "8"].iter().map(|s| CString::new(*s).unwrap()).collect();
+        let lv: Vec<CString> = ["3", "30", "8"]
+            .iter()
+            .map(|s| CString::new(*s).unwrap())
+            .collect();
         let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
         let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
 
@@ -292,7 +337,11 @@ mod tests {
                 &mut err,
             )
         };
-        assert!(!op.is_null(), "layered operator_new failed: code {}", err.code as i32);
+        assert!(
+            !op.is_null(),
+            "layered operator_new failed: code {}",
+            err.code as i32
+        );
 
         {
             let inner = unsafe { &(*op).op };
@@ -321,16 +370,31 @@ mod tests {
             .iter()
             .map(|s| CString::new(*s).unwrap())
             .collect();
-        let lv: Vec<CString> = ["true", "16"].iter().map(|s| CString::new(*s).unwrap()).collect();
+        let lv: Vec<CString> = ["true", "16"]
+            .iter()
+            .map(|s| CString::new(*s).unwrap())
+            .collect();
         let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
         let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
 
         let mut err = OdopError::ok();
         let op = unsafe {
-            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0,
-                              lk_ptrs.as_ptr(), lv_ptrs.as_ptr(), lk_ptrs.len(), &mut err)
+            odop_operator_new(
+                scheme.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                lk_ptrs.as_ptr(),
+                lv_ptrs.as_ptr(),
+                lk_ptrs.len(),
+                &mut err,
+            )
         };
-        assert!(!op.is_null(), "foyer operator_new failed: code {}", err.code as i32);
+        assert!(
+            !op.is_null(),
+            "foyer operator_new failed: code {}",
+            err.code as i32
+        );
 
         {
             let inner = unsafe { &(*op).op };
@@ -371,10 +435,22 @@ mod tests {
 
         let mut err = OdopError::ok();
         let op = unsafe {
-            odop_operator_new(uri.as_ptr(), k_ptrs.as_ptr(), v_ptrs.as_ptr(), k_ptrs.len(),
-                              std::ptr::null(), std::ptr::null(), 0, &mut err)
+            odop_operator_new(
+                uri.as_ptr(),
+                k_ptrs.as_ptr(),
+                v_ptrs.as_ptr(),
+                k_ptrs.len(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                &mut err,
+            )
         };
-        assert!(!op.is_null(), "s3 from_uri operator_new failed: code {}", err.code as i32);
+        assert!(
+            !op.is_null(),
+            "s3 from_uri operator_new failed: code {}",
+            err.code as i32
+        );
         // The operator's name should be the bucket parsed from the authority.
         let name = unsafe { (*op).op.info().name().to_string() };
         assert_eq!(name, "my-bucket");
@@ -390,7 +466,13 @@ mod tests {
         let disk_path = dir.path().to_str().unwrap().to_string();
 
         let scheme = CString::new("memory").unwrap();
-        let keys = ["foyer.enable", "foyer.memory_mb", "foyer.disk_path", "foyer.disk_mb", "foyer.block_mb"];
+        let keys = [
+            "foyer.enable",
+            "foyer.memory_mb",
+            "foyer.disk_path",
+            "foyer.disk_mb",
+            "foyer.block_mb",
+        ];
         let vals = ["true", "16", disk_path.as_str(), "64", "1"];
         let lk: Vec<CString> = keys.iter().map(|s| CString::new(*s).unwrap()).collect();
         let lv: Vec<CString> = vals.iter().map(|s| CString::new(*s).unwrap()).collect();
@@ -399,10 +481,22 @@ mod tests {
 
         let mut err = OdopError::ok();
         let op = unsafe {
-            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0,
-                              lk_ptrs.as_ptr(), lv_ptrs.as_ptr(), lk_ptrs.len(), &mut err)
+            odop_operator_new(
+                scheme.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                lk_ptrs.as_ptr(),
+                lv_ptrs.as_ptr(),
+                lk_ptrs.len(),
+                &mut err,
+            )
         };
-        assert!(!op.is_null(), "foyer-disk operator_new failed: code {}", err.code as i32);
+        assert!(
+            !op.is_null(),
+            "foyer-disk operator_new failed: code {}",
+            err.code as i32
+        );
 
         {
             let inner = unsafe { &(*op).op };
@@ -423,7 +517,10 @@ mod tests {
         unsafe { odop_operator_free(op) };
 
         // The on-disk cache directory should contain foyer's data files.
-        let entries: Vec<_> = std::fs::read_dir(dir.path()).unwrap().filter_map(|e| e.ok()).collect();
+        let entries: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
         assert!(!entries.is_empty(), "foyer disk cache dir is empty");
     }
 
@@ -434,8 +531,16 @@ mod tests {
         let scheme = CString::new("memory").unwrap();
         let mut err = OdopError::ok();
         let op = unsafe {
-            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0,
-                              std::ptr::null(), std::ptr::null(), 0, &mut err)
+            odop_operator_new(
+                scheme.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                &mut err,
+            )
         };
         assert!(!op.is_null());
 
@@ -447,9 +552,15 @@ mod tests {
         assert!(n > 0);
         let mut caps = std::collections::HashMap::new();
         for i in 0..n {
-            let mut ent = OdopCapability { name: std::ptr::null(), supported: 0 };
+            let mut ent = OdopCapability {
+                name: std::ptr::null(),
+                supported: 0,
+            };
             assert_eq!(unsafe { odop_capabilities_entry(list, i, &mut ent) }, 1);
-            let name = unsafe { CStr::from_ptr(ent.name) }.to_str().unwrap().to_owned();
+            let name = unsafe { CStr::from_ptr(ent.name) }
+                .to_str()
+                .unwrap()
+                .to_owned();
             caps.insert(name, ent.supported == 1);
         }
         unsafe { odop_capabilities_free(list) };
@@ -467,12 +578,12 @@ mod tests {
         assert_eq!(rc, -1);
         assert_eq!(merr.code as i32, OdopErrorCode::Unsupported as i32);
         let msg = unsafe { CStr::from_ptr(merr.message) }.to_str().unwrap();
-        assert!(msg.contains("memory") && msg.contains("rename"), "unexpected msg: {msg}");
+        assert!(
+            msg.contains("memory") && msg.contains("rename"),
+            "unexpected msg: {msg}"
+        );
         unsafe { odop_string_free(merr.message) };
 
         unsafe { odop_operator_free(op) };
     }
 }
-
-
-

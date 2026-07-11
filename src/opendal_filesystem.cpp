@@ -125,14 +125,12 @@ static void ClearError(OdopError &err) {
 }
 
 // ─── OpenDalFileHandle ───────────────────────────────────────────────────────
-OpenDalFileHandle::OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags,
-                                     OdopReader *reader_, int64_t file_size_, int64_t last_modified_ms_)
-    : FileHandle(fs, path, flags), reader(reader_), file_size(file_size_),
-      last_modified_ms(last_modified_ms_) {
+OpenDalFileHandle::OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdopReader *reader_,
+                                     int64_t file_size_, int64_t last_modified_ms_)
+    : FileHandle(fs, path, flags), reader(reader_), file_size(file_size_), last_modified_ms(last_modified_ms_) {
 }
 
-OpenDalFileHandle::OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags,
-                                     OdopWriter *writer_)
+OpenDalFileHandle::OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdopWriter *writer_)
     : FileHandle(fs, path, flags), writer(writer_) {
 }
 
@@ -202,8 +200,8 @@ static bool SchemeNeedsSecret(const std::string &scheme) {
 	return !SchemeIsPathStyle(scheme);
 }
 
-bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme,
-                                 std::string &out_authority, std::string &out_path) {
+bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme, std::string &out_authority,
+                                 std::string &out_path) {
 	// Lightweight local split — this is a hot path (called per FS op), so we do
 	// not round-trip through the FFI/OperatorUri here. The canonical OpenDAL
 	// parse happens once, operator-side, at construction (see odop_operator_new).
@@ -271,8 +269,8 @@ static bool IsSupportedScheme(const std::string &scheme) {
 	return scheme == "fs" || scheme == "memory" || scheme == "s3";
 }
 
-bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_scheme,
-                                    std::string &out_authority, std::string &out_path) {
+bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_scheme, std::string &out_authority,
+                                    std::string &out_path) {
 	if (!ParseUrl(url, out_scheme, out_authority, out_path)) {
 		return false;
 	}
@@ -285,9 +283,9 @@ bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_sch
 // already normalized to OpenDAL keys at CREATE SECRET time. Returns true if a
 // secret was found and applied.
 static bool ApplySecret(optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db,
-                        const std::string &scheme, const std::string &url,
-                        std::vector<std::string> &keys, std::vector<std::string> &vals,
-                        std::vector<std::string> &lkeys, std::vector<std::string> &lvals) {
+                        const std::string &scheme, const std::string &url, std::vector<std::string> &keys,
+                        std::vector<std::string> &vals, std::vector<std::string> &lkeys,
+                        std::vector<std::string> &lvals) {
 	if (!context && !db) {
 		return false;
 	}
@@ -329,8 +327,7 @@ OdopOperator *OpenDalFileSystem::OperatorFor(const std::string &scheme, const st
 }
 
 OdopOperator *OpenDalFileSystem::OperatorForCtx(const std::string &scheme, const std::string &authority,
-                                                const std::string &url,
-                                                optional_ptr<ClientContext> context) {
+                                                const std::string &url, optional_ptr<ClientContext> context) {
 	optional_ptr<DatabaseInstance> db;
 	if (context) {
 		db = &DatabaseInstance::GetDatabase(*context);
@@ -406,11 +403,10 @@ OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const 
 	// work, and holding mu_ across it would serialize operator creation for
 	// unrelated schemes/buckets.
 	OdopError err = {};
-	OdopOperator *op = odop_operator_new(
-	    uri.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
-	    val_ptrs.empty() ? nullptr : val_ptrs.data(), keys.size(),
-	    lkey_ptrs.empty() ? nullptr : lkey_ptrs.data(), lval_ptrs.empty() ? nullptr : lval_ptrs.data(),
-	    lkeys.size(), &err);
+	OdopOperator *op = odop_operator_new(uri.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
+	                                     val_ptrs.empty() ? nullptr : val_ptrs.data(), keys.size(),
+	                                     lkey_ptrs.empty() ? nullptr : lkey_ptrs.data(),
+	                                     lval_ptrs.empty() ? nullptr : lval_ptrs.data(), lkeys.size(), &err);
 	if (!op) {
 		ThrowIfError(err, "opendal: failed to create operator for '" + key + "'");
 		throw IOException("opendal: null operator for '" + key + "'");
@@ -537,8 +533,8 @@ void OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes,
 		throw IOException("opendal: read on closed handle: " + h.path);
 	}
 	OdopError err = {};
-	int64_t n = odop_reader_read(h.reader, (uint64_t)location, (uint64_t)nr_bytes,
-	                             static_cast<uint8_t *>(buffer), &err);
+	int64_t n =
+	    odop_reader_read(h.reader, (uint64_t)location, (uint64_t)nr_bytes, static_cast<uint8_t *>(buffer), &err);
 	if (n < 0) {
 		ThrowIfError(err, "opendal read: " + h.path);
 		throw IOException("opendal read failed: " + h.path);
@@ -546,9 +542,8 @@ void OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes,
 	ClearError(err);
 	// DuckDB's positioned Read must fill the whole buffer; a short read here is an error.
 	if (n != nr_bytes) {
-		throw IOException("opendal read: short read at offset " + std::to_string((int64_t)location) +
-		                  " (" + std::to_string(n) + " of " + std::to_string(nr_bytes) + " bytes) for " +
-		                  h.path);
+		throw IOException("opendal read: short read at offset " + std::to_string((int64_t)location) + " (" +
+		                  std::to_string(n) + " of " + std::to_string(nr_bytes) + " bytes) for " + h.path);
 	}
 	h.position = (int64_t)location + n;
 }
@@ -566,8 +561,8 @@ int64_t OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_byt
 	int64_t to_read = nr_bytes < remaining ? nr_bytes : remaining;
 
 	OdopError err = {};
-	int64_t n = odop_reader_read(h.reader, (uint64_t)h.position, (uint64_t)to_read,
-	                             static_cast<uint8_t *>(buffer), &err);
+	int64_t n =
+	    odop_reader_read(h.reader, (uint64_t)h.position, (uint64_t)to_read, static_cast<uint8_t *>(buffer), &err);
 	if (n < 0) {
 		ThrowIfError(err, "opendal read: " + h.path);
 		throw IOException("opendal read failed: " + h.path);
@@ -638,8 +633,7 @@ void OpenDalFileSystem::Seek(FileHandle &handle, idx_t location) {
 }
 
 // List immediate children of a directory. Callback receives (name, is_dir).
-bool OpenDalFileSystem::ListFiles(const string &directory,
-                                  const std::function<void(const string &, bool)> &callback,
+bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<void(const string &, bool)> &callback,
                                   FileOpener *opener) {
 	std::string scheme, auth, rel;
 	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
@@ -846,8 +840,7 @@ void OpenDalFileSystem::RemoveDirectory(const string &directory, optional_ptr<Fi
 	ClearError(err);
 }
 
-void OpenDalFileSystem::MoveFile(const string &source, const string &target,
-                                 optional_ptr<FileOpener> opener) {
+void OpenDalFileSystem::MoveFile(const string &source, const string &target, optional_ptr<FileOpener> opener) {
 	std::string s_scheme, s_auth, s_rel, t_scheme, t_auth, t_rel;
 	if (!ParseUrl(source, s_scheme, s_auth, s_rel) || !IsSupportedScheme(s_scheme)) {
 		throw IOException("opendal: unsupported or invalid source URL: " + source);
@@ -856,8 +849,7 @@ void OpenDalFileSystem::MoveFile(const string &source, const string &target,
 		throw IOException("opendal: unsupported or invalid target URL: " + target);
 	}
 	if (s_scheme != t_scheme || s_auth != t_auth) {
-		throw IOException("opendal: move across schemes/buckets is not supported (" + source + " -> " +
-		                  target + ")");
+		throw IOException("opendal: move across schemes/buckets is not supported (" + source + " -> " + target + ")");
 	}
 	auto *op = OperatorFor(s_scheme, s_auth, source, opener);
 	OdopError err = {};

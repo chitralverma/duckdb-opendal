@@ -104,12 +104,21 @@ pub unsafe extern "C" fn odop_list(
         let path = match cstr(path) {
             Some(s) => s,
             None => {
-                set_error(err, OdopErrorCode::InvalidInput, "path is null or not UTF-8");
+                set_error(
+                    err,
+                    OdopErrorCode::InvalidInput,
+                    "path is null or not UTF-8",
+                );
                 return std::ptr::null_mut();
             }
         };
 
-        match block_on(odop.op.list_with(path).recursive(recursive != 0).into_future()) {
+        match block_on(
+            odop.op
+                .list_with(path)
+                .recursive(recursive != 0)
+                .into_future(),
+        ) {
             Ok(entries) => {
                 set_ok(err);
                 Box::into_raw(Box::new(OdopEntryList {

@@ -44,7 +44,11 @@ pub unsafe extern "C" fn odop_reader_open(
         let path = match cstr(path) {
             Some(s) => s,
             None => {
-                set_error(err, OdopErrorCode::InvalidInput, "path is null or not UTF-8");
+                set_error(
+                    err,
+                    OdopErrorCode::InvalidInput,
+                    "path is null or not UTF-8",
+                );
                 return std::ptr::null_mut();
             }
         };

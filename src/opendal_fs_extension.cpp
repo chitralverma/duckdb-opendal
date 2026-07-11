@@ -55,8 +55,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	db.GetFileSystem().RegisterSubSystem(std::move(fs_uptr));
 
 	// opendal_fs_version() — returns the linked opendalfs-core / OpenDAL version.
-	auto version_fn =
-	    ScalarFunction("opendal_fs_version", {}, LogicalType::VARCHAR, OpendalFsVersionScalarFun);
+	auto version_fn = ScalarFunction("opendal_fs_version", {}, LogicalType::VARCHAR, OpendalFsVersionScalarFun);
 	loader.RegisterFunction(version_fn);
 
 	// Table functions: opendal_ls(), opendal_stat(), opendal_du().

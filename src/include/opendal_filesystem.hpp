@@ -65,8 +65,7 @@ public:
 	void CreateDirectory(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
 	void RemoveDirectory(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
 	void RemoveFile(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
-	void MoveFile(const string &source, const string &target,
-	              optional_ptr<FileOpener> opener = nullptr) override;
+	void MoveFile(const string &source, const string &target, optional_ptr<FileOpener> opener = nullptr) override;
 
 	void Seek(FileHandle &handle, idx_t location) override;
 	idx_t SeekPosition(FileHandle &handle) override;
@@ -110,8 +109,8 @@ public:
 	}
 	// Get (creating/caching) an operator for a (scheme, authority) using a
 	// ClientContext for secret lookup (table functions). Throws on failure.
-	OdopOperator *OperatorForPublic(const std::string &scheme, const std::string &authority,
-	                                const std::string &url, optional_ptr<ClientContext> context) {
+	OdopOperator *OperatorForPublic(const std::string &scheme, const std::string &authority, const std::string &url,
+	                                optional_ptr<ClientContext> context) {
 		return OperatorForCtx(scheme, authority, url, context);
 	}
 
@@ -125,22 +124,20 @@ private:
 
 	// Rebuild a full "scheme://[authority/]path" URL from parts, inverting the
 	// fs absolutization so results round-trip back through OpenFile.
-	static std::string BuildUrl(const std::string &scheme, const std::string &authority,
-	                            const std::string &entry_path);
+	static std::string BuildUrl(const std::string &scheme, const std::string &authority, const std::string &entry_path);
 
 	// Get (creating + caching if needed) an operator handle for a (scheme,
 	// authority) pair. `url` is the full request URL (used for SCOPE-matched
 	// secret lookup); `opener`/`context` provide access to the SecretManager.
 	// Throws IOException on failure.
-	OdopOperator *OperatorFor(const std::string &scheme, const std::string &authority,
-	                          const std::string &url, optional_ptr<FileOpener> opener);
-	OdopOperator *OperatorForCtx(const std::string &scheme, const std::string &authority,
-	                             const std::string &url, optional_ptr<ClientContext> context);
+	OdopOperator *OperatorFor(const std::string &scheme, const std::string &authority, const std::string &url,
+	                          optional_ptr<FileOpener> opener);
+	OdopOperator *OperatorForCtx(const std::string &scheme, const std::string &authority, const std::string &url,
+	                             optional_ptr<ClientContext> context);
 	// Shared operator construction: resolve secret + env config, apply layers,
 	// cache per scheme://authority.
-	OdopOperator *BuildOperator(const std::string &scheme, const std::string &authority,
-	                            const std::string &url, optional_ptr<ClientContext> context,
-	                            optional_ptr<DatabaseInstance> db);
+	OdopOperator *BuildOperator(const std::string &scheme, const std::string &authority, const std::string &url,
+	                            optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db);
 
 	std::unordered_map<std::string, OdopOperator *> operators_;
 	std::mutex mu_;
@@ -151,8 +148,8 @@ private:
 // ─────────────────────────────────────────────────────────────────────────────
 class OpenDalFileHandle : public FileHandle {
 public:
-	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags,
-	                  OdopReader *reader, int64_t file_size, int64_t last_modified_ms);
+	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdopReader *reader,
+	                  int64_t file_size, int64_t last_modified_ms);
 	// Write-mode handle: wraps an OpenDAL writer.
 	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdopWriter *writer);
 	~OpenDalFileHandle() override;

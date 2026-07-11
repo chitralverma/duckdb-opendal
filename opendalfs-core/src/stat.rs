@@ -64,7 +64,11 @@ pub unsafe extern "C" fn odop_stat(
         let path = match cstr(path) {
             Some(s) => s,
             None => {
-                set_error(err, OdopErrorCode::InvalidInput, "path is null or not UTF-8");
+                set_error(
+                    err,
+                    OdopErrorCode::InvalidInput,
+                    "path is null or not UTF-8",
+                );
                 return;
             }
         };
@@ -115,7 +119,11 @@ pub unsafe extern "C" fn odop_exists(
         let path = match cstr(path) {
             Some(s) => s,
             None => {
-                set_error(err, OdopErrorCode::InvalidInput, "path is null or not UTF-8");
+                set_error(
+                    err,
+                    OdopErrorCode::InvalidInput,
+                    "path is null or not UTF-8",
+                );
                 return -1;
             }
         };

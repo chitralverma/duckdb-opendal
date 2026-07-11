@@ -32,7 +32,9 @@ use crate::runtime::block_on;
 pub(crate) fn apply_layers(mut op: Operator, opts: &[(String, String)]) -> Operator {
     // Collect into a small lookup for convenience.
     let get = |name: &str| -> Option<&str> {
-        opts.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        opts.iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     };
 
     // ── Retry ────────────────────────────────────────────────────────────────
@@ -84,10 +86,16 @@ pub(crate) fn apply_layers(mut op: Operator, opts: &[(String, String)]) -> Opera
     // In-memory tier always; on-disk tier when `foyer.disk_path` is set (a
     // persistent cache comparable to external caching extensions).
     if matches!(get("foyer.enable"), Some("true" | "1")) {
-        let memory_mb = get("foyer.memory_mb").and_then(|s| s.parse::<usize>().ok()).unwrap_or(256);
+        let memory_mb = get("foyer.memory_mb")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(256);
         let disk_path = get("foyer.disk_path").map(|s| s.to_string());
-        let disk_mb = get("foyer.disk_mb").and_then(|s| s.parse::<usize>().ok()).unwrap_or(1024);
-        let block_mb = get("foyer.block_mb").and_then(|s| s.parse::<usize>().ok()).unwrap_or(4);
+        let disk_mb = get("foyer.disk_mb")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(1024);
+        let block_mb = get("foyer.block_mb")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(4);
         match build_foyer(memory_mb, disk_path, disk_mb, block_mb) {
             Ok(layer) => op = op.layer(layer),
             Err(e) => {
@@ -138,7 +146,10 @@ fn build_foyer(
             }
             None => {
                 // Memory-only cache.
-                mem.storage().build().await.map_err(|e| format!("foyer memory build: {e}"))
+                mem.storage()
+                    .build()
+                    .await
+                    .map_err(|e| format!("foyer memory build: {e}"))
             }
         }
     })?;
