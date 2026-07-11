@@ -5,6 +5,7 @@
 
 use std::ffi::{c_char, CStr};
 
+use crate::capability::{full, require};
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
 use crate::operator::OdopOperator;
 use crate::runtime::block_on;
@@ -54,7 +55,12 @@ pub unsafe extern "C" fn odop_stat(
             set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
             return;
         }
-        let op = &(*op).op;
+        let odop = &*op;
+        if let Err((code, msg)) = require(&odop.scheme, full(odop).stat, "stat") {
+            set_error(err, code, msg);
+            return;
+        }
+        let op = &odop.op;
         let path = match CStr::from_ptr(path).to_str() {
             Ok(s) => s,
             Err(_) => {
@@ -105,7 +111,12 @@ pub unsafe extern "C" fn odop_exists(
             set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
             return -1i8;
         }
-        let op = &(*op).op;
+        let odop = &*op;
+        if let Err((code, msg)) = require(&odop.scheme, full(odop).stat, "stat") {
+            set_error(err, code, msg);
+            return -1;
+        }
+        let op = &odop.op;
         let path = match CStr::from_ptr(path).to_str() {
             Ok(s) => s,
             Err(_) => {

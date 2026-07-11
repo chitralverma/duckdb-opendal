@@ -11,6 +11,7 @@
 //!   - errors are reported via the out-param `OdopError` (see `error.rs`);
 //!   - strings handed out are owned C strings, freed via `odop_string_free`.
 
+mod capability;
 mod error;
 mod layers;
 mod lister;
@@ -22,6 +23,10 @@ mod stat;
 mod writer;
 
 // Re-export the FFI surface so cbindgen picks it up from the crate root.
+pub use capability::{
+    odop_capabilities, odop_capabilities_entry, odop_capabilities_free, odop_capabilities_len,
+    OdopCapability, OdopCapabilityList,
+};
 pub use error::{OdopError, OdopErrorCode};
 pub use lister::{odop_list, odop_list_entry, odop_list_free, odop_list_len, OdopEntry, OdopEntryList};
 pub use mutate::{odop_create_dir, odop_remove, odop_rename};
@@ -380,6 +385,52 @@ mod tests {
         // The on-disk cache directory should contain foyer's data files.
         let entries: Vec<_> = std::fs::read_dir(dir.path()).unwrap().filter_map(|e| e.ok()).collect();
         assert!(!entries.is_empty(), "foyer disk cache dir is empty");
+    }
+
+    #[test]
+    fn capability_list_and_rename_guard() {
+        // memory supports read/write/list but NOT server-side rename, so the
+        // capability list must reflect that and the rename guard must fail-fast.
+        let scheme = CString::new("memory").unwrap();
+        let mut err = OdopError::ok();
+        let op = unsafe {
+            odop_operator_new(scheme.as_ptr(), std::ptr::null(), std::ptr::null(), 0,
+                              std::ptr::null(), std::ptr::null(), 0, &mut err)
+        };
+        assert!(!op.is_null());
+
+        // Capability list: collect into a name→supported map.
+        let mut cerr = OdopError::ok();
+        let list = unsafe { odop_capabilities(op, &mut cerr) };
+        assert!(!list.is_null());
+        let n = unsafe { odop_capabilities_len(list) };
+        assert!(n > 0);
+        let mut caps = std::collections::HashMap::new();
+        for i in 0..n {
+            let mut ent = OdopCapability { name: std::ptr::null(), supported: 0 };
+            assert_eq!(unsafe { odop_capabilities_entry(list, i, &mut ent) }, 1);
+            let name = unsafe { CStr::from_ptr(ent.name) }.to_str().unwrap().to_owned();
+            caps.insert(name, ent.supported == 1);
+        }
+        unsafe { odop_capabilities_free(list) };
+        assert_eq!(caps.get("read"), Some(&true));
+        assert_eq!(caps.get("write"), Some(&true));
+        assert_eq!(caps.get("list"), Some(&true));
+        assert_eq!(caps.get("rename"), Some(&false));
+
+        // rename must fail-fast with Unsupported + a clear message, without
+        // touching the backend.
+        let from = CString::new("a.txt").unwrap();
+        let to = CString::new("b.txt").unwrap();
+        let mut merr = OdopError::ok();
+        let rc = unsafe { odop_rename(op, from.as_ptr(), to.as_ptr(), &mut merr) };
+        assert_eq!(rc, -1);
+        assert_eq!(merr.code as i32, OdopErrorCode::Unsupported as i32);
+        let msg = unsafe { CStr::from_ptr(merr.message) }.to_str().unwrap();
+        assert!(msg.contains("memory") && msg.contains("rename"), "unexpected msg: {msg}");
+        unsafe { odop_string_free(merr.message) };
+
+        unsafe { odop_operator_free(op) };
     }
 }
 

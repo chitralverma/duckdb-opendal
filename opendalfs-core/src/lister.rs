@@ -14,6 +14,7 @@ use std::future::IntoFuture;
 
 use opendal::Entry;
 
+use crate::capability::{full, require};
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
 use crate::operator::OdopOperator;
 use crate::runtime::block_on;
@@ -92,7 +93,14 @@ pub unsafe extern "C" fn odop_list(
             set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
             return std::ptr::null_mut();
         }
-        let op = &(*op).op;
+        let odop = &*op;
+        if let Err((code, msg)) = require(&odop.scheme, full(odop).list, "list") {
+            set_error(err, code, msg);
+            return std::ptr::null_mut();
+        }
+        // NB: recursion is provided by OpenDAL's raw layer even when a backend
+        // does not advertise `list_with_recursive`, so we guard only `list`.
+        let op = &odop.op;
         let path = match CStr::from_ptr(path).to_str() {
             Ok(s) => s,
             Err(_) => {

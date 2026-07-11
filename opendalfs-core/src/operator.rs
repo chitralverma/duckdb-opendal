@@ -16,6 +16,9 @@ use crate::layers::apply_layers;
 /// Opaque handle wrapping an `opendal::Operator`.
 pub struct OdopOperator {
     pub(crate) op: Operator,
+    /// The scheme this operator was built for (e.g. "s3"). Used to produce
+    /// clear "service '<scheme>' does not support <op>" capability errors.
+    pub(crate) scheme: String,
 }
 
 /// Read a `*const c_char` into a Rust `&str`, returning None on null/invalid UTF-8.
@@ -82,7 +85,10 @@ pub unsafe extern "C" fn odop_operator_new(
             Ok(op) => {
                 let op = apply_layers(op, &layer_opts);
                 set_ok(err);
-                Box::into_raw(Box::new(OdopOperator { op }))
+                Box::into_raw(Box::new(OdopOperator {
+                    op,
+                    scheme: scheme_str.to_owned(),
+                }))
             }
             Err(e) => {
                 set_opendal_error(err, &e);

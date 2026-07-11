@@ -9,6 +9,7 @@ use std::ffi::{c_char, CStr};
 
 use opendal::Writer;
 
+use crate::capability::{full, require};
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
 use crate::operator::OdopOperator;
 use crate::runtime::block_on;
@@ -37,7 +38,12 @@ pub unsafe extern "C" fn odop_writer_open(
             set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
             return std::ptr::null_mut();
         }
-        let op = &(*op).op;
+        let odop = &*op;
+        if let Err((code, msg)) = require(&odop.scheme, full(odop).write, "write") {
+            set_error(err, code, msg);
+            return std::ptr::null_mut();
+        }
+        let op = &odop.op;
         let path = match CStr::from_ptr(path).to_str() {
             Ok(s) => s,
             Err(_) => {
