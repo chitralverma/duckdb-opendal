@@ -2,6 +2,7 @@
 
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/timestamp.hpp"
+#include "duckdb/logging/file_system_logger.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/secret/secret.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
@@ -163,6 +164,9 @@ OpenDalFileHandle::~OpenDalFileHandle() {
 }
 
 void OpenDalFileHandle::Close() {
+	if (reader || writer) {
+		DUCKDB_LOG_FILE_SYSTEM_CLOSE((*this));
+	}
 	if (reader) {
 		odop_reader_free(reader);
 		reader = nullptr;
@@ -440,10 +444,10 @@ OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const 
 	// Publish under the lock. If another thread built the same key concurrently,
 	// keep the first one and free ours (last-writer-loses, avoids a leak).
 	std::lock_guard<std::mutex> lk(mu_);
-	auto [it, inserted] = operators_.emplace(key, op);
-	if (!inserted) {
+	auto res = operators_.emplace(key, op);
+	if (!res.second) {
 		odop_operator_free(op);
-		return it->second;
+		return res.first->second;
 	}
 	return op;
 }
@@ -484,7 +488,12 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 			throw IOException("opendal: null writer for " + path);
 		}
 		ClearError(werr);
-		return make_uniq<OpenDalFileHandle>(*this, path, flags, writer);
+		auto handle = make_uniq<OpenDalFileHandle>(*this, path, flags, writer);
+		if (opener) {
+			handle->TryAddLogger(*opener);
+		}
+		DUCKDB_LOG_FILE_SYSTEM_OPEN((*handle));
+		return std::move(handle);
 	}
 
 	// Read mode: stat first to get size + type.
@@ -504,8 +513,13 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	}
 	ClearError(rerr);
 
-	return make_uniq<OpenDalFileHandle>(*this, path, flags, reader, (int64_t)meta.content_length,
-	                                    meta.last_modified_ms);
+	auto handle =
+	    make_uniq<OpenDalFileHandle>(*this, path, flags, reader, (int64_t)meta.content_length, meta.last_modified_ms);
+	if (opener) {
+		handle->TryAddLogger(*opener);
+	}
+	DUCKDB_LOG_FILE_SYSTEM_OPEN((*handle));
+	return std::move(handle);
 }
 
 // ─── Write (streaming, append-only) ─────────────────────────────────────────
@@ -527,6 +541,7 @@ void OpenDalFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes
 		throw IOException("opendal write failed: " + h.path);
 	}
 	ClearError(err);
+	DUCKDB_LOG_FILE_SYSTEM_WRITE(h, nr_bytes, (idx_t)h.bytes_written);
 	h.bytes_written += nr_bytes;
 }
 
@@ -569,6 +584,7 @@ void OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes,
 		throw IOException("opendal read: short read at offset " + std::to_string((int64_t)location) + " (" +
 		                  std::to_string(n) + " of " + std::to_string(nr_bytes) + " bytes) for " + h.path);
 	}
+	DUCKDB_LOG_FILE_SYSTEM_READ(h, n, (idx_t)location);
 	h.position = (int64_t)location + n;
 }
 
@@ -592,6 +608,7 @@ int64_t OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_byt
 		throw IOException("opendal read failed: " + h.path);
 	}
 	ClearError(err);
+	DUCKDB_LOG_FILE_SYSTEM_READ(h, n, (idx_t)h.position);
 	h.position += n;
 	return n;
 }
