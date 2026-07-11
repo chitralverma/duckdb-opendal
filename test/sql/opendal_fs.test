@@ -4,9 +4,9 @@
 
 # Before we load the extension, this will fail
 statement error
-SELECT opendal_fs_version();
+SELECT opendal_version();
 ----
-Catalog Error: Scalar Function with name opendal_fs_version does not exist!
+Catalog Error: Scalar Function with name opendal_version does not exist!
 
 # Require statement will ensure this test is run with this extension loaded
 require opendal_fs
@@ -18,7 +18,7 @@ require parquet
 # The OpenDAL version is resolved from Cargo.lock at build time (not hardcoded),
 # so assert only the shape, not a specific version.
 query I
-SELECT opendal_fs_version() ILIKE 'opendalfs-core%(opendal %)%';
+SELECT opendal_version() ILIKE 'opendalfs-core%(opendal %)%';
 ----
 true
 

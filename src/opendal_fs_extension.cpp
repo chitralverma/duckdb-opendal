@@ -57,12 +57,12 @@ static void SetIoWriteChunk(ClientContext &, SetScope, Value &v) {
 	PushGlobalIoOptions();
 }
 
-// opendal_fs_version() -> VARCHAR
+// opendal_version() -> VARCHAR
 // Returns the linked opendalfs-core crate version and the resolved OpenDAL
 // library version (the latter is not exposed by DuckDB's built-in
 // extension_version, which reports this extension's own version). The OpenDAL
 // version is resolved from Cargo.lock at build time — see opendalfs-core/build.rs.
-inline void OpendalFsVersionScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
+inline void OpendalVersionScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
 	char *raw = od_version();
 	std::string version = raw ? std::string(raw) : std::string("<unavailable>");
 	if (raw) {
@@ -87,8 +87,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto *fs_ptr = fs_uptr.get();
 	db.GetFileSystem().RegisterSubSystem(std::move(fs_uptr));
 
-	// opendal_fs_version() — returns the linked opendalfs-core / OpenDAL version.
-	auto version_fn = ScalarFunction("opendal_fs_version", {}, LogicalType::VARCHAR, OpendalFsVersionScalarFun);
+	// opendal_version() — returns the linked opendalfs-core / OpenDAL version.
+	auto version_fn = ScalarFunction("opendal_version", {}, LogicalType::VARCHAR, OpendalVersionScalarFun);
 	loader.RegisterFunction(version_fn);
 
 	// Table functions: opendal_ls(), opendal_stat(), opendal_du().
