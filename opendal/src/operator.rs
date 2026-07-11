@@ -10,7 +10,9 @@
 //! Reader/stat/etc. borrow the operator, so it must outlive all handles derived
 //! from it.
 
+use std::collections::HashSet;
 use std::ffi::c_char;
+use std::sync::{Mutex, OnceLock};
 
 use opendal::{Operator, OperatorUri};
 
@@ -155,42 +157,42 @@ pub unsafe extern "C" fn od_operator_free(op: *mut OdOperator) {
     free_handle(op);
 }
 
+/// Cache of schemes already confirmed registered in OpenDAL's operator
+/// registry. The registered set is fixed for the process. Only positives are
+/// cached; probing an unregistered scheme is a cheap in-memory registry miss.
+static REGISTERED_SCHEMES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+/// Whether `scheme` is compiled into this build (registered in the registry).
+///
+/// `Operator::via_iter(scheme, [])` resolves the scheme through the registry
+/// with no config and no I/O. `ErrorKind::Unsupported` ("scheme is not
+/// registered") ⇒ not compiled; `Ok` or any other error ⇒ registered.
+fn scheme_is_registered(scheme: &str) -> bool {
+    let cache = REGISTERED_SCHEMES.get_or_init(|| Mutex::new(HashSet::new()));
+    if cache.lock().unwrap().contains(scheme) {
+        return true;
+    }
+    let registered = match Operator::via_iter(scheme, []) {
+        Ok(_) => true,
+        Err(e) => e.kind() != opendal::ErrorKind::Unsupported,
+    };
+    if registered {
+        cache.lock().unwrap().insert(scheme.to_owned());
+    }
+    registered
+}
+
 /// Whether `scheme` is a service compiled into this build (i.e. registered in
 /// OpenDAL's operator registry), so we don't hardcode the supported set.
-///
-/// Probes `Operator::via_iter(scheme, [])`: OpenDAL resolves the scheme through
-/// the registry with no config, without I/O. `ErrorKind::Unsupported` ("scheme
-/// is not registered") means the service was not compiled in; `Ok` or any other
-/// error (e.g. a missing-config error) means it IS registered. Results are
-/// cached — the registered set is fixed for the process. Returns 1/0.
-///
-/// Requires `od_init()` to have populated the registry first.
+/// Cached; requires `od_init()` to have populated the registry first. Returns 1/0.
 ///
 /// # Safety
 /// `scheme` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn od_scheme_supported(scheme: *const c_char) -> u8 {
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-    use std::sync::OnceLock;
-
-    static CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let s = match cstr(scheme) {
-            Some(s) => s,
-            None => return 0u8,
-        };
-        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Some(&hit) = cache.lock().unwrap().get(s) {
-            return hit as u8;
-        }
-        let supported = match Operator::via_iter(s, []) {
-            Ok(_) => true,
-            Err(e) => e.kind() != opendal::ErrorKind::Unsupported,
-        };
-        cache.lock().unwrap().insert(s.to_owned(), supported);
-        supported as u8
-    }));
-    result.unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match cstr(scheme) {
+        Some(s) => scheme_is_registered(s) as u8,
+        None => 0,
+    }))
+    .unwrap_or(0)
 }
