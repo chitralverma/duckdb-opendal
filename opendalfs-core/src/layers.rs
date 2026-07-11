@@ -1,5 +1,5 @@
 //! Optional OpenDAL layers applied to an Operator, configured via string
-//! key/value options passed across the FFI (see `odop_operator_new`).
+//! key/value options passed across the FFI (see `od_operator_new`).
 //!
 //! Recognized keys (all optional):
 //!   retry.max_times           usize   — max retry attempts

@@ -109,7 +109,7 @@ public:
 	}
 	// Get (creating/caching) an operator for a (scheme, authority) using a
 	// ClientContext for secret lookup (table functions). Throws on failure.
-	OdopOperator *OperatorForPublic(const std::string &scheme, const std::string &authority, const std::string &url,
+	OdOperator *OperatorForPublic(const std::string &scheme, const std::string &authority, const std::string &url,
 	                                optional_ptr<ClientContext> context) {
 		return OperatorForCtx(scheme, authority, url, context);
 	}
@@ -130,16 +130,16 @@ private:
 	// authority) pair. `url` is the full request URL (used for SCOPE-matched
 	// secret lookup); `opener`/`context` provide access to the SecretManager.
 	// Throws IOException on failure.
-	OdopOperator *OperatorFor(const std::string &scheme, const std::string &authority, const std::string &url,
+	OdOperator *OperatorFor(const std::string &scheme, const std::string &authority, const std::string &url,
 	                          optional_ptr<FileOpener> opener);
-	OdopOperator *OperatorForCtx(const std::string &scheme, const std::string &authority, const std::string &url,
+	OdOperator *OperatorForCtx(const std::string &scheme, const std::string &authority, const std::string &url,
 	                             optional_ptr<ClientContext> context);
 	// Shared operator construction: resolve secret + env config, apply layers,
 	// cache per scheme://authority.
-	OdopOperator *BuildOperator(const std::string &scheme, const std::string &authority, const std::string &url,
+	OdOperator *BuildOperator(const std::string &scheme, const std::string &authority, const std::string &url,
 	                            optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db);
 
-	std::unordered_map<std::string, OdopOperator *> operators_;
+	std::unordered_map<std::string, OdOperator *> operators_;
 	std::mutex mu_;
 };
 
@@ -148,22 +148,22 @@ private:
 // ─────────────────────────────────────────────────────────────────────────────
 class OpenDalFileHandle : public FileHandle {
 public:
-	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdopReader *reader,
+	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdReader *reader,
 	                  int64_t file_size, int64_t last_modified_ms);
 	// Write-mode handle: wraps an OpenDAL writer.
-	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdopWriter *writer);
+	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdWriter *writer);
 	~OpenDalFileHandle() override;
 
 	void Close() override;
 
 	// Read state.
-	OdopReader *reader = nullptr;
+	OdReader *reader = nullptr;
 	int64_t file_size = 0;
 	int64_t position = 0;
 	int64_t last_modified_ms = -1;
 
 	// Write state (append-only streaming).
-	OdopWriter *writer = nullptr;
+	OdWriter *writer = nullptr;
 	int64_t bytes_written = 0;
 	bool write_closed = false;
 };

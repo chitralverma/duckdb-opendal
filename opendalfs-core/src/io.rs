@@ -1,6 +1,6 @@
 //! Reader/writer I/O tuning options (concurrent + chunk), configurable per
 //! operator (via the secret `layers` map, reserved `io.*` keys) and globally
-//! (across all operators, via `odop_set_global_io_options`).
+//! (across all operators, via `od_set_global_io_options`).
 //!
 //! These map onto OpenDAL's `reader_with(...).concurrent(n).chunk(sz)` and
 //! `writer_with(...).concurrent(n).chunk(sz)` builders (see the OpenDAL
@@ -69,7 +69,7 @@ impl IoOptions {
 }
 
 /// Process-global I/O option defaults, applied to every operator unless it sets
-/// its own values. Written via `odop_set_global_io_options`.
+/// its own values. Written via `od_set_global_io_options`.
 static GLOBAL_IO: RwLock<IoOptions> = RwLock::new(IoOptions {
     read: DirOptions {
         concurrent: 0,
@@ -91,7 +91,7 @@ pub(crate) fn global() -> IoOptions {
 /// # Safety
 /// Plain scalar FFI; always safe. Panic-guarded by the caller.
 #[no_mangle]
-pub unsafe extern "C" fn odop_set_global_io_options(
+pub unsafe extern "C" fn od_set_global_io_options(
     read_concurrent: usize,
     read_chunk: usize,
     write_concurrent: usize,

@@ -4,9 +4,9 @@ use std::ffi::c_char;
 use std::future::IntoFuture;
 
 use crate::capability::require;
-use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::error::{set_error, set_ok, set_opendal_error, OdError, OdErrorCode};
 use crate::ffi::cstr;
-use crate::operator::OdopOperator;
+use crate::operator::OdOperator;
 use crate::runtime::block_on;
 
 /// Adapt a capability `require` check into a `MutErr::Unsupported`.
@@ -18,13 +18,13 @@ fn guard(scheme: &str, supported: bool, op_name: &str) -> Result<(), MutErr> {
 /// with '/'. Returns 0 on success, -1 on error.
 ///
 /// # Safety
-/// - `op` must be a live handle from `odop_operator_new`.
+/// - `op` must be a live handle from `od_operator_new`.
 /// - `path` must be a valid NUL-terminated C string.
 #[no_mangle]
-pub unsafe extern "C" fn odop_create_dir(
-    op: *const OdopOperator,
+pub unsafe extern "C" fn od_create_dir(
+    op: *const OdOperator,
     path: *const c_char,
-    err: *mut OdopError,
+    err: *mut OdError,
 ) -> i32 {
     run(op, err, |o| {
         let p = match cstr(path) {
@@ -46,14 +46,14 @@ pub unsafe extern "C" fn odop_create_dir(
 /// -1 on error.
 ///
 /// # Safety
-/// - `op` must be a live handle from `odop_operator_new`.
+/// - `op` must be a live handle from `od_operator_new`.
 /// - `path` must be a valid NUL-terminated C string.
 #[no_mangle]
-pub unsafe extern "C" fn odop_remove(
-    op: *const OdopOperator,
+pub unsafe extern "C" fn od_remove(
+    op: *const OdOperator,
     path: *const c_char,
     recursive: u8,
-    err: *mut OdopError,
+    err: *mut OdError,
 ) -> i32 {
     run(op, err, |o| {
         let p = match cstr(path) {
@@ -77,14 +77,14 @@ pub unsafe extern "C" fn odop_remove(
 /// -1 on error. Not all services support server-side rename.
 ///
 /// # Safety
-/// - `op` must be a live handle from `odop_operator_new`.
+/// - `op` must be a live handle from `od_operator_new`.
 /// - `from`/`to` must be valid NUL-terminated C strings.
 #[no_mangle]
-pub unsafe extern "C" fn odop_rename(
-    op: *const OdopOperator,
+pub unsafe extern "C" fn od_rename(
+    op: *const OdOperator,
     from: *const c_char,
     to: *const c_char,
-    err: *mut OdopError,
+    err: *mut OdError,
 ) -> i32 {
     run(op, err, |o| {
         let f = match cstr(from) {
@@ -105,14 +105,14 @@ pub unsafe extern "C" fn odop_rename(
 /// copy+delete fallback when a service lacks server-side `rename` (e.g. s3).
 ///
 /// # Safety
-/// - `op` must be a live handle from `odop_operator_new`.
+/// - `op` must be a live handle from `od_operator_new`.
 /// - `from`/`to` must be valid NUL-terminated C strings.
 #[no_mangle]
-pub unsafe extern "C" fn odop_copy(
-    op: *const OdopOperator,
+pub unsafe extern "C" fn od_copy(
+    op: *const OdOperator,
     from: *const c_char,
     to: *const c_char,
-    err: *mut OdopError,
+    err: *mut OdError,
 ) -> i32 {
     run(op, err, |o| {
         let f = match cstr(from) {
@@ -148,13 +148,13 @@ impl From<opendal::Error> for MutErr {
 
 /// Run a fallible operation against the operator, translating the result into
 /// the FFI return code + error out-param, with panic protection.
-unsafe fn run<F>(op: *const OdopOperator, err: *mut OdopError, f: F) -> i32
+unsafe fn run<F>(op: *const OdOperator, err: *mut OdError, f: F) -> i32
 where
-    F: FnOnce(&OdopOperator) -> Result<(), MutErr>,
+    F: FnOnce(&OdOperator) -> Result<(), MutErr>,
 {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if op.is_null() {
-            set_error(err, OdopErrorCode::InvalidInput, "null operator");
+            set_error(err, OdErrorCode::InvalidInput, "null operator");
             return -1i32;
         }
         let o = &*op;
@@ -168,17 +168,17 @@ where
                 -1
             }
             Err(MutErr::Invalid(msg)) => {
-                set_error(err, OdopErrorCode::InvalidInput, msg);
+                set_error(err, OdErrorCode::InvalidInput, msg);
                 -1
             }
             Err(MutErr::Unsupported(msg)) => {
-                set_error(err, OdopErrorCode::Unsupported, msg);
+                set_error(err, OdErrorCode::Unsupported, msg);
                 -1
             }
         }
     }));
     result.unwrap_or_else(|_| {
-        set_error(err, OdopErrorCode::Panic, "panic in mutation");
+        set_error(err, OdErrorCode::Panic, "panic in mutation");
         -1
     })
 }

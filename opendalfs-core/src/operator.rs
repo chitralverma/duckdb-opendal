@@ -1,12 +1,12 @@
 //! Operator lifecycle across the FFI boundary.
 //!
-//! `odop_operator_new` builds an `opendal::Operator` from a **URI**
+//! `od_operator_new` builds an `opendal::Operator` from a **URI**
 //! (`scheme://authority`) plus a flat key/value config array. It delegates to
 //! `Operator::from_uri`, so OpenDAL's per-service URI parsing decides how the
 //! authority maps to config (e.g. s3 authority → `bucket`, azblob → `container`,
 //! fs/memory → no authority). The extra key/value pairs are OpenDAL config
 //! (from a SCOPE-matched secret) and **override** anything parsed from the URI.
-//! The handle is opaque to C++; free it with `odop_operator_free`.
+//! The handle is opaque to C++; free it with `od_operator_free`.
 //! Reader/stat/etc. borrow the operator, so it must outlive all handles derived
 //! from it.
 
@@ -14,12 +14,12 @@ use std::ffi::c_char;
 
 use opendal::{Operator, OperatorUri};
 
-use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::error::{set_error, set_ok, set_opendal_error, OdError, OdErrorCode};
 use crate::ffi::{cstr, ffi_guard, free_handle};
 use crate::layers::apply_layers;
 
 /// Opaque handle wrapping an `opendal::Operator`.
-pub struct OdopOperator {
+pub struct OdOperator {
     pub(crate) op: Operator,
     /// The scheme this operator was built for (e.g. "s3"). Used to produce
     /// clear "service '<scheme>' does not support <op>" capability errors.
@@ -43,7 +43,7 @@ pub struct OdopOperator {
 /// SCOPE-matched secret) that override URI-parsed values.
 /// `layer_keys`/`layer_values` configure layers (retry/timeout/… — see
 /// `layers.rs`).
-/// On success returns a non-null `*mut OdopOperator` and sets `*err` to Ok.
+/// On success returns a non-null `*mut OdOperator` and sets `*err` to Ok.
 /// On failure returns null and populates `*err`.
 ///
 /// # Safety
@@ -51,9 +51,9 @@ pub struct OdopOperator {
 ///   NUL-terminated C strings for the duration of the call.
 /// - `keys`/`values` must each point to `len` valid pointers (or be null iff
 ///   `len == 0`); likewise `layer_keys`/`layer_values` and `layer_len`.
-/// - The returned handle must be freed exactly once with `odop_operator_free`.
+/// - The returned handle must be freed exactly once with `od_operator_free`.
 #[no_mangle]
-pub unsafe extern "C" fn odop_operator_new(
+pub unsafe extern "C" fn od_operator_new(
     uri: *const c_char,
     keys: *const *const c_char,
     values: *const *const c_char,
@@ -61,13 +61,13 @@ pub unsafe extern "C" fn odop_operator_new(
     layer_keys: *const *const c_char,
     layer_values: *const *const c_char,
     layer_len: usize,
-    err: *mut OdopError,
-) -> *mut OdopOperator {
-    ffi_guard!(err, std::ptr::null_mut(), "odop_operator_new", {
+    err: *mut OdError,
+) -> *mut OdOperator {
+    ffi_guard!(err, std::ptr::null_mut(), "od_operator_new", {
         let uri_str = match cstr(uri) {
             Some(s) => s,
             None => {
-                set_error(err, OdopErrorCode::InvalidInput, "uri is null or not UTF-8");
+                set_error(err, OdErrorCode::InvalidInput, "uri is null or not UTF-8");
                 return std::ptr::null_mut();
             }
         };
@@ -76,14 +76,14 @@ pub unsafe extern "C" fn odop_operator_new(
         let cfg = match collect_pairs(keys, values, len) {
             Ok(v) => v,
             Err(msg) => {
-                set_error(err, OdopErrorCode::InvalidInput, msg);
+                set_error(err, OdErrorCode::InvalidInput, msg);
                 return std::ptr::null_mut();
             }
         };
         let layer_opts = match collect_pairs(layer_keys, layer_values, layer_len) {
             Ok(v) => v,
             Err(msg) => {
-                set_error(err, OdopErrorCode::InvalidInput, msg);
+                set_error(err, OdErrorCode::InvalidInput, msg);
                 return std::ptr::null_mut();
             }
         };
@@ -107,7 +107,7 @@ pub unsafe extern "C" fn odop_operator_new(
                 let op = apply_layers(op, &layer_opts);
                 let cap = op.info().capability();
                 set_ok(err);
-                Box::into_raw(Box::new(OdopOperator {
+                Box::into_raw(Box::new(OdOperator {
                     op,
                     scheme,
                     io,
@@ -148,9 +148,9 @@ unsafe fn collect_pairs(
 /// Free an operator handle. Safe to call with null (no-op).
 ///
 /// # Safety
-/// `op` must be null or a handle from `odop_operator_new`, not already freed,
+/// `op` must be null or a handle from `od_operator_new`, not already freed,
 /// with no live Reader/Lister/etc. still borrowing it.
 #[no_mangle]
-pub unsafe extern "C" fn odop_operator_free(op: *mut OdopOperator) {
+pub unsafe extern "C" fn od_operator_free(op: *mut OdOperator) {
     free_handle(op);
 }

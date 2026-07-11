@@ -42,15 +42,15 @@ struct FsRow {
 	int64_t modified_ms;
 };
 
-// Free an OdopError message if set.
-static void ClearErr(OdopError &err) {
+// Free an OdError message if set.
+static void ClearErr(OdError &err) {
 	if (err.message) {
-		odop_string_free(err.message);
+		od_string_free(err.message);
 		err.message = nullptr;
 	}
 }
 
-static std::string ErrText(OdopError &err) {
+static std::string ErrText(OdError &err) {
 	std::string m = err.message ? std::string(err.message) : std::string("unknown error");
 	ClearErr(err);
 	return m;
@@ -96,13 +96,13 @@ static unique_ptr<GlobalTableFunctionState> LsInit(ClientContext &context, Table
 	if (!fs->ParsePublic(bind.url, scheme, auth, rel)) {
 		throw InvalidInputException("opendal: unsupported or invalid URL: " + bind.url);
 	}
-	OdopOperator *op = fs->OperatorForPublic(scheme, auth, bind.url, &context);
+	OdOperator *op = fs->OperatorForPublic(scheme, auth, bind.url, &context);
 
 	if (bind.single) {
-		OdopMetadata meta = {};
-		OdopError err = {};
-		odop_stat(op, rel.c_str(), &meta, &err);
-		if (err.code != OdopErrorCode::Ok) {
+		OdMetadata meta = {};
+		OdError err = {};
+		od_stat(op, rel.c_str(), &meta, &err);
+		if (err.code != OdErrorCode::Ok) {
 			throw IOException("opendal stat: " + bind.url + ": " + ErrText(err));
 		}
 		ClearErr(err);
@@ -127,8 +127,8 @@ static unique_ptr<GlobalTableFunctionState> LsInit(ClientContext &context, Table
 	if (dir.empty() || dir.back() != '/') {
 		dir += "/";
 	}
-	OdopError err = {};
-	OdopEntryList *list = odop_list(op, dir.c_str(), bind.recursive ? 1 : 0, &err);
+	OdError err = {};
+	OdEntryList *list = od_list(op, dir.c_str(), bind.recursive ? 1 : 0, &err);
 	if (!list) {
 		throw IOException("opendal ls: " + bind.url + ": " + ErrText(err));
 	}
@@ -142,10 +142,10 @@ static unique_ptr<GlobalTableFunctionState> LsInit(ClientContext &context, Table
 	while (!self_path.empty() && self_path.front() == '/') {
 		self_path.erase(self_path.begin());
 	}
-	size_t n = odop_list_len(list);
+	size_t n = od_list_len(list);
 	for (size_t i = 0; i < n; i++) {
-		OdopEntry ent = {};
-		if (!odop_list_entry(list, i, &ent)) {
+		OdEntry ent = {};
+		if (!od_list_entry(list, i, &ent)) {
 			continue;
 		}
 		std::string epath = ent.path ? std::string(ent.path) : std::string();
@@ -174,7 +174,7 @@ static unique_ptr<GlobalTableFunctionState> LsInit(ClientContext &context, Table
 		row.modified_ms = ent.last_modified_ms;
 		state->rows.push_back(std::move(row));
 	}
-	odop_list_free(list);
+	od_list_free(list);
 
 	std::sort(state->rows.begin(), state->rows.end(), [](const FsRow &a, const FsRow &b) { return a.url < b.url; });
 	return std::move(state);
@@ -239,14 +239,14 @@ static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context, Table
 	if (!fs->ParsePublic(bind.url, scheme, auth, rel)) {
 		throw InvalidInputException("opendal: unsupported or invalid URL: " + bind.url);
 	}
-	OdopOperator *op = fs->OperatorForPublic(scheme, auth, bind.url, &context);
+	OdOperator *op = fs->OperatorForPublic(scheme, auth, bind.url, &context);
 
 	std::string dir = rel;
 	if (dir.empty() || dir.back() != '/') {
 		dir += "/";
 	}
-	OdopError err = {};
-	OdopEntryList *list = odop_list(op, dir.c_str(), /*recursive=*/1, &err);
+	OdError err = {};
+	OdEntryList *list = od_list(op, dir.c_str(), /*recursive=*/1, &err);
 	if (!list) {
 		throw IOException("opendal du: " + bind.url + ": " + ErrText(err));
 	}
@@ -254,10 +254,10 @@ static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context, Table
 
 	// Roll up sizes per immediate parent directory.
 	std::map<std::string, std::pair<int64_t, int64_t>> rollup; // dir -> (count, size)
-	size_t n = odop_list_len(list);
+	size_t n = od_list_len(list);
 	for (size_t i = 0; i < n; i++) {
-		OdopEntry ent = {};
-		if (!odop_list_entry(list, i, &ent) || ent.is_dir) {
+		OdEntry ent = {};
+		if (!od_list_entry(list, i, &ent) || ent.is_dir) {
 			continue;
 		}
 		std::string epath = ent.path ? std::string(ent.path) : std::string();
@@ -267,7 +267,7 @@ static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context, Table
 		agg.first += 1;
 		agg.second += (int64_t)ent.content_length;
 	}
-	odop_list_free(list);
+	od_list_free(list);
 
 	for (auto &kv : rollup) {
 		DuRow row;

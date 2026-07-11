@@ -38,7 +38,7 @@ static uint64_t g_io_write_concurrent = 0;
 static uint64_t g_io_write_chunk = 0;
 
 static void PushGlobalIoOptions() {
-	odop_set_global_io_options(g_io_read_concurrent, g_io_read_chunk, g_io_write_concurrent, g_io_write_chunk);
+	od_set_global_io_options(g_io_read_concurrent, g_io_read_chunk, g_io_write_concurrent, g_io_write_chunk);
 }
 static void SetIoReadConcurrent(ClientContext &, SetScope, Value &v) {
 	g_io_read_concurrent = v.IsNull() ? 0 : (uint64_t)v.GetValue<int64_t>();
@@ -63,10 +63,10 @@ static void SetIoWriteChunk(ClientContext &, SetScope, Value &v) {
 // extension_version, which reports this extension's own version). The OpenDAL
 // version is resolved from Cargo.lock at build time — see opendalfs-core/build.rs.
 inline void OpendalFsVersionScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
-	char *raw = odop_version();
+	char *raw = od_version();
 	std::string version = raw ? std::string(raw) : std::string("<unavailable>");
 	if (raw) {
-		odop_string_free(raw); // ownership crossed the boundary; free it here
+		od_string_free(raw); // ownership crossed the boundary; free it here
 	}
 	result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	result.SetValue(0, Value(version));
@@ -78,7 +78,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// One-time init of the Rust core: populate OpenDAL's service registry and
 	// install the rustls (ring) crypto provider + reqwest HTTP transport. Must
 	// run before any operator is built (idempotent).
-	odop_init();
+	od_init();
 
 	// Register the OpenDAL filesystem as a DuckDB subsystem. From here, any URL
 	// with a supported OpenDAL scheme (fs://, memory://, …) is served through

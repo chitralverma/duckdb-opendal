@@ -1,8 +1,8 @@
 //! Directory listing across the FFI boundary.
 //!
-//! `odop_list` materializes the entries under a path into an opaque
-//! `OdopEntryList`. The C++ side reads entries by index and frees the list with
-//! `odop_list_free`. OpenDAL's `list_with(path).recursive(..)` already collects
+//! `od_list` materializes the entries under a path into an opaque
+//! `OdEntryList`. The C++ side reads entries by index and frees the list with
+//! `od_list_free`. OpenDAL's `list_with(path).recursive(..)` already collects
 //! into a `Vec<Entry>`, so a materialized list is the simplest correct FFI for
 //! `ls` / `du` / glob. (A streaming cursor can be added later if huge directory
 //! listings need it.)
@@ -15,9 +15,9 @@ use std::future::IntoFuture;
 use opendal::Entry;
 
 use crate::capability::require;
-use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::error::{set_error, set_ok, set_opendal_error, OdError, OdErrorCode};
 use crate::ffi::{cstr, ffi_guard, free_handle};
-use crate::operator::OdopOperator;
+use crate::operator::OdOperator;
 use crate::runtime::block_on;
 
 /// Opaque, index-addressable list of entries.
@@ -27,17 +27,17 @@ use crate::runtime::block_on;
 /// first time an entry is requested. The cache lives in an `UnsafeCell` because
 /// entry access takes `&self` at the FFI layer; access is single-threaded per
 /// call (one DuckDB worker owns the list handle at a time).
-pub struct OdopEntryList {
+pub struct OdEntryList {
     entries: Vec<Entry>,
     strings: UnsafeCell<HashMap<usize, (CString, CString)>>,
 }
 
-/// One entry's metadata, returned by value from `odop_list_entry`.
+/// One entry's metadata, returned by value from `od_list_entry`.
 ///
-/// `path` and `name` are borrowed pointers into the `OdopEntryList` and are
+/// `path` and `name` are borrowed pointers into the `OdEntryList` and are
 /// valid only until the list is freed. The C++ side must copy them out.
 #[repr(C)]
-pub struct OdopEntry {
+pub struct OdEntry {
     /// Full path of the entry (relative to the operator root), NUL-terminated.
     /// Borrowed from the list; do NOT free.
     pub path: *const c_char,
@@ -48,9 +48,9 @@ pub struct OdopEntry {
     pub is_dir: u8,
 }
 
-impl OdopEntry {
+impl OdEntry {
     fn empty() -> Self {
-        OdopEntry {
+        OdEntry {
             path: std::ptr::null(),
             name: std::ptr::null(),
             content_length: 0,
@@ -61,7 +61,7 @@ impl OdopEntry {
 }
 
 /// Build (once) and return borrowed C-string pointers for entry `index`.
-unsafe fn cached_ptrs(list: &OdopEntryList, index: usize) -> (*const c_char, *const c_char) {
+unsafe fn cached_ptrs(list: &OdEntryList, index: usize) -> (*const c_char, *const c_char) {
     let cache = &mut *list.strings.get();
     let (p, n) = cache.entry(index).or_insert_with(|| {
         let e = &list.entries[index];
@@ -76,22 +76,22 @@ unsafe fn cached_ptrs(list: &OdopEntryList, index: usize) -> (*const c_char, *co
 /// List entries under `path`. When `recursive` is non-zero, descends into
 /// subdirectories.
 ///
-/// On success returns a non-null `*mut OdopEntryList` and sets `*err` to Ok.
+/// On success returns a non-null `*mut OdEntryList` and sets `*err` to Ok.
 ///
 /// # Safety
-/// - `op` must be a live handle from `odop_operator_new`.
+/// - `op` must be a live handle from `od_operator_new`.
 /// - `path` must be a valid NUL-terminated C string.
-/// - The returned handle must be freed once with `odop_list_free`.
+/// - The returned handle must be freed once with `od_list_free`.
 #[no_mangle]
-pub unsafe extern "C" fn odop_list(
-    op: *const OdopOperator,
+pub unsafe extern "C" fn od_list(
+    op: *const OdOperator,
     path: *const c_char,
     recursive: u8,
-    err: *mut OdopError,
-) -> *mut OdopEntryList {
-    ffi_guard!(err, std::ptr::null_mut(), "odop_list", {
+    err: *mut OdError,
+) -> *mut OdEntryList {
+    ffi_guard!(err, std::ptr::null_mut(), "od_list", {
         if op.is_null() || path.is_null() {
-            set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
+            set_error(err, OdErrorCode::InvalidInput, "null operator or path");
             return std::ptr::null_mut();
         }
         let odop = &*op;
@@ -104,11 +104,7 @@ pub unsafe extern "C" fn odop_list(
         let path = match cstr(path) {
             Some(s) => s,
             None => {
-                set_error(
-                    err,
-                    OdopErrorCode::InvalidInput,
-                    "path is null or not UTF-8",
-                );
+                set_error(err, OdErrorCode::InvalidInput, "path is null or not UTF-8");
                 return std::ptr::null_mut();
             }
         };
@@ -121,7 +117,7 @@ pub unsafe extern "C" fn odop_list(
         ) {
             Ok(entries) => {
                 set_ok(err);
-                Box::into_raw(Box::new(OdopEntryList {
+                Box::into_raw(Box::new(OdEntryList {
                     entries,
                     strings: UnsafeCell::new(HashMap::new()),
                 }))
@@ -137,9 +133,9 @@ pub unsafe extern "C" fn odop_list(
 /// Number of entries in the list. Returns 0 if `list` is null.
 ///
 /// # Safety
-/// `list` must be null or a live handle from `odop_list`.
+/// `list` must be null or a live handle from `od_list`.
 #[no_mangle]
-pub unsafe extern "C" fn odop_list_len(list: *const OdopEntryList) -> usize {
+pub unsafe extern "C" fn od_list_len(list: *const OdEntryList) -> usize {
     if list.is_null() {
         return 0;
     }
@@ -147,22 +143,22 @@ pub unsafe extern "C" fn odop_list_len(list: *const OdopEntryList) -> usize {
 }
 
 /// Fetch entry `index` into `out`. `path`/`name` in `out` borrow the list and
-/// are valid until `odop_list_free`. Returns 1 on success, 0 if out of range.
+/// are valid until `od_list_free`. Returns 1 on success, 0 if out of range.
 ///
 /// # Safety
-/// - `list` must be a live handle from `odop_list`.
+/// - `list` must be a live handle from `od_list`.
 /// - `out` must be a valid, writable pointer.
 /// - The returned `path`/`name` pointers must not be used after the list is
 ///   freed, and must not be freed themselves.
 #[no_mangle]
-pub unsafe extern "C" fn odop_list_entry(
-    list: *const OdopEntryList,
+pub unsafe extern "C" fn od_list_entry(
+    list: *const OdEntryList,
     index: usize,
-    out: *mut OdopEntry,
+    out: *mut OdEntry,
 ) -> u8 {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if !out.is_null() {
-            *out = OdopEntry::empty();
+            *out = OdEntry::empty();
         }
         if list.is_null() || out.is_null() {
             return 0u8;
@@ -177,7 +173,7 @@ pub unsafe extern "C" fn odop_list_entry(
             .last_modified()
             .map(|t| t.into_inner().as_millisecond())
             .unwrap_or(-1);
-        *out = OdopEntry {
+        *out = OdEntry {
             path: path_ptr,
             name: name_ptr,
             content_length: meta.content_length(),
@@ -192,9 +188,9 @@ pub unsafe extern "C" fn odop_list_entry(
 /// Free an entry list. Safe to call with null (no-op).
 ///
 /// # Safety
-/// `list` must be null or a handle from `odop_list`, not already freed, with no
+/// `list` must be null or a handle from `od_list`, not already freed, with no
 /// borrowed `path`/`name` pointers still in use.
 #[no_mangle]
-pub unsafe extern "C" fn odop_list_free(list: *mut OdopEntryList) {
+pub unsafe extern "C" fn od_list_free(list: *mut OdEntryList) {
     free_handle(list);
 }

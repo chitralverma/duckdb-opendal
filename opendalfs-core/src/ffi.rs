@@ -1,13 +1,13 @@
 //! Shared FFI plumbing: panic guarding, handle freeing, and C-string decoding.
 //!
 //! Every `extern "C"` entry must catch panics (unwinding across the C ABI is
-//! UB) and convert them into an `OdopError`. Rather than repeat that boilerplate
+//! UB) and convert them into an `OdError`. Rather than repeat that boilerplate
 //! in every function, entries wrap their body in [`ffi_guard!`], and opaque
 //! handles are released through [`free_handle`].
 
 use std::ffi::{c_char, CStr};
 
-use crate::error::{set_error, OdopError, OdopErrorCode};
+use crate::error::{set_error, OdError, OdErrorCode};
 
 /// Decode a `*const c_char` into `&str`, or `None` on null / invalid UTF-8.
 ///
@@ -37,12 +37,12 @@ pub(crate) unsafe fn free_handle<T>(p: *mut T) {
 }
 
 /// Run an FFI entry body under `catch_unwind`, converting a panic into an
-/// `OdopError` (code `Panic`) written to `$err` and returning `$fallback`.
+/// `OdError` (code `Panic`) written to `$err` and returning `$fallback`.
 ///
 /// Usage:
 /// ```ignore
-/// ffi_guard!(err, std::ptr::null_mut(), "odop_reader_open", {
-///     // body returning *mut OdopReader
+/// ffi_guard!(err, std::ptr::null_mut(), "od_reader_open", {
+///     // body returning *mut OdReader
 /// })
 /// ```
 macro_rules! ffi_guard {
@@ -61,6 +61,6 @@ macro_rules! ffi_guard {
 pub(crate) use ffi_guard;
 
 /// Write a panic error into the out-param (helper for the `ffi_guard!` macro).
-pub(crate) unsafe fn set_panic(err: *mut OdopError, msg: &str) {
-    set_error(err, OdopErrorCode::Panic, msg);
+pub(crate) unsafe fn set_panic(err: *mut OdError, msg: &str) {
+    set_error(err, OdErrorCode::Panic, msg);
 }

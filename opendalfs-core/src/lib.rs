@@ -8,8 +8,8 @@
 //!   - every `extern "C"` entry wraps its body in `catch_unwind` (panic across
 //!     the C ABI is UB);
 //!   - every allocation that crosses the boundary has a matching `*_free`;
-//!   - errors are reported via the out-param `OdopError` (see `error.rs`);
-//!   - strings handed out are owned C strings, freed via `odop_string_free`.
+//!   - errors are reported via the out-param `OdError` (see `error.rs`);
+//!   - strings handed out are owned C strings, freed via `od_string_free`.
 
 mod capability;
 mod error;
@@ -26,21 +26,18 @@ mod writer;
 
 // Re-export the FFI surface so cbindgen picks it up from the crate root.
 pub use capability::{
-    odop_capabilities, odop_capabilities_entry, odop_capabilities_free, odop_capabilities_len,
-    OdopCapability, OdopCapabilityList,
+    od_capabilities, od_capabilities_entry, od_capabilities_free, od_capabilities_len,
+    OdCapability, OdCapabilityList,
 };
-pub use error::{OdopError, OdopErrorCode};
-pub use io::odop_set_global_io_options;
-pub use lister::{
-    odop_list, odop_list_entry, odop_list_free, odop_list_len, OdopEntry, OdopEntryList,
-};
-pub use mutate::{odop_copy, odop_create_dir, odop_remove, odop_rename};
-pub use operator::{odop_operator_free, odop_operator_new, OdopOperator};
-pub use reader::{odop_reader_free, odop_reader_open, odop_reader_read, OdopReader};
-pub use stat::{odop_exists, odop_stat, OdopMetadata};
+pub use error::{OdError, OdErrorCode};
+pub use io::od_set_global_io_options;
+pub use lister::{od_list, od_list_entry, od_list_free, od_list_len, OdEntry, OdEntryList};
+pub use mutate::{od_copy, od_create_dir, od_remove, od_rename};
+pub use operator::{od_operator_free, od_operator_new, OdOperator};
+pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
+pub use stat::{od_exists, od_stat, OdMetadata};
 pub use writer::{
-    odop_writer_abort, odop_writer_close, odop_writer_free, odop_writer_open, odop_writer_write,
-    OdopWriter,
+    od_writer_abort, od_writer_close, od_writer_free, od_writer_open, od_writer_write, OdWriter,
 };
 
 use std::ffi::{c_char, CString};
@@ -62,7 +59,7 @@ const OPENDAL_VERSION: &str = env!("OPENDAL_VERSION");
 /// `ring` crypto provider + reqwest HTTP transport (the `rustls-no-provider`
 /// feature auto-installs neither). Idempotent (guarded by a `Once`).
 #[no_mangle]
-pub extern "C" fn odop_init() {
+pub extern "C" fn od_init() {
     use std::sync::Once;
     static INIT: Once = Once::new();
     let _ = catch_unwind(|| {
@@ -78,15 +75,15 @@ pub extern "C" fn odop_init() {
 }
 
 /// Return a heap-allocated C string describing the opendalfs-core + OpenDAL
-/// versions. Caller owns the pointer and MUST free it with `odop_string_free`.
+/// versions. Caller owns the pointer and MUST free it with `od_string_free`.
 ///
 /// Returns null on allocation failure or panic.
 ///
 /// # Safety
-/// The returned pointer must be freed exactly once via `odop_string_free` and
+/// The returned pointer must be freed exactly once via `od_string_free` and
 /// not used afterwards.
 #[no_mangle]
-pub extern "C" fn odop_version() -> *mut c_char {
+pub extern "C" fn od_version() -> *mut c_char {
     catch_unwind(|| {
         let s = format!("opendalfs-core {OPENDALFS_CORE_VERSION} (opendal {OPENDAL_VERSION})");
         match CString::new(s) {
@@ -97,8 +94,8 @@ pub extern "C" fn odop_version() -> *mut c_char {
     .unwrap_or(std::ptr::null_mut())
 }
 
-/// Free a C string previously returned by this library (e.g. `odop_version`,
-/// or an `OdopError::message`).
+/// Free a C string previously returned by this library (e.g. `od_version`,
+/// or an `OdError::message`).
 ///
 /// Safe to call with null (no-op).
 ///
@@ -106,7 +103,7 @@ pub extern "C" fn odop_version() -> *mut c_char {
 /// `ptr` must be either null or a pointer previously returned by this library
 /// and not already freed.
 #[no_mangle]
-pub unsafe extern "C" fn odop_string_free(ptr: *mut c_char) {
+pub unsafe extern "C" fn od_string_free(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }
@@ -122,7 +119,7 @@ mod tests {
 
     #[test]
     fn version_roundtrip() {
-        let p = odop_version();
+        let p = od_version();
         assert!(!p.is_null());
         let s = unsafe { CStr::from_ptr(p) }.to_str().unwrap().to_owned();
         assert!(s.contains("opendalfs-core"));
@@ -133,7 +130,7 @@ mod tests {
             !s.contains("opendal unknown"),
             "opendal version unresolved: {s}"
         );
-        unsafe { odop_string_free(p) };
+        unsafe { od_string_free(p) };
     }
 
     #[test]
@@ -141,9 +138,9 @@ mod tests {
         // Build a memory operator, write via the async API on the runtime, then
         // exercise the FFI stat + reader paths end to end.
         let scheme = CString::new("memory").unwrap();
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 scheme.as_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
@@ -169,36 +166,36 @@ mod tests {
 
         // stat
         let path = CString::new("greeting.txt").unwrap();
-        let mut meta = OdopMetadata {
+        let mut meta = OdMetadata {
             content_length: 0,
             last_modified_ms: 0,
             is_dir: 9,
         };
-        let mut serr = OdopError::ok();
-        unsafe { odop_stat(op, path.as_ptr(), &mut meta, &mut serr) };
-        assert_eq!(serr.code as i32, OdopErrorCode::Ok as i32);
+        let mut serr = OdError::ok();
+        unsafe { od_stat(op, path.as_ptr(), &mut meta, &mut serr) };
+        assert_eq!(serr.code as i32, OdErrorCode::Ok as i32);
         assert_eq!(meta.content_length, payload.len() as u64);
         assert_eq!(meta.is_dir, 0);
 
         // reader: positioned read of the middle slice
-        let mut rerr = OdopError::ok();
-        let reader = unsafe { odop_reader_open(op, path.as_ptr(), &mut rerr) };
+        let mut rerr = OdError::ok();
+        let reader = unsafe { od_reader_open(op, path.as_ptr(), &mut rerr) };
         assert!(!reader.is_null());
         let mut buf = vec![0u8; 6];
-        let n = unsafe { odop_reader_read(reader, 6, 6, buf.as_mut_ptr(), &mut rerr) };
+        let n = unsafe { od_reader_read(reader, 6, 6, buf.as_mut_ptr(), &mut rerr) };
         assert_eq!(n, 6);
         assert_eq!(&buf, b"openda");
 
-        unsafe { odop_reader_free(reader) };
-        unsafe { odop_operator_free(op) };
+        unsafe { od_reader_free(reader) };
+        unsafe { od_operator_free(op) };
     }
 
     #[test]
     fn memory_list_and_exists() {
         let scheme = CString::new("memory").unwrap();
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 scheme.as_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
@@ -221,27 +218,27 @@ mod tests {
         // exists
         let p_one = CString::new("a/one.txt").unwrap();
         let p_missing = CString::new("a/nope.txt").unwrap();
-        let mut e = OdopError::ok();
-        assert_eq!(unsafe { odop_exists(op, p_one.as_ptr(), &mut e) }, 1);
-        assert_eq!(unsafe { odop_exists(op, p_missing.as_ptr(), &mut e) }, 0);
+        let mut e = OdError::ok();
+        assert_eq!(unsafe { od_exists(op, p_one.as_ptr(), &mut e) }, 1);
+        assert_eq!(unsafe { od_exists(op, p_missing.as_ptr(), &mut e) }, 0);
 
         // list a/ recursively
         let dir = CString::new("a/").unwrap();
-        let mut lerr = OdopError::ok();
-        let list = unsafe { odop_list(op, dir.as_ptr(), 1, &mut lerr) };
+        let mut lerr = OdError::ok();
+        let list = unsafe { od_list(op, dir.as_ptr(), 1, &mut lerr) };
         assert!(!list.is_null());
-        let n = unsafe { odop_list_len(list) };
+        let n = unsafe { od_list_len(list) };
         // Expect our two files (dir markers may or may not appear depending on backend).
         let mut files = 0;
         for i in 0..n {
-            let mut ent = OdopEntry {
+            let mut ent = OdEntry {
                 path: std::ptr::null(),
                 name: std::ptr::null(),
                 content_length: 0,
                 last_modified_ms: 0,
                 is_dir: 0,
             };
-            assert_eq!(unsafe { odop_list_entry(list, i, &mut ent) }, 1);
+            assert_eq!(unsafe { od_list_entry(list, i, &mut ent) }, 1);
             if ent.is_dir == 0 {
                 files += 1;
                 let name = unsafe { CStr::from_ptr(ent.name) }.to_str().unwrap();
@@ -250,16 +247,16 @@ mod tests {
         }
         assert_eq!(files, 2);
 
-        unsafe { odop_list_free(list) };
-        unsafe { odop_operator_free(op) };
+        unsafe { od_list_free(list) };
+        unsafe { od_operator_free(op) };
     }
 
     #[test]
     fn memory_writer_and_mutations() {
         let scheme = CString::new("memory").unwrap();
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 scheme.as_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
@@ -274,63 +271,63 @@ mod tests {
 
         // Write "hello world" in two chunks through the streaming writer.
         let path = CString::new("out/greeting.txt").unwrap();
-        let mut werr = OdopError::ok();
-        let w = unsafe { odop_writer_open(op, path.as_ptr(), &mut werr) };
+        let mut werr = OdError::ok();
+        let w = unsafe { od_writer_open(op, path.as_ptr(), &mut werr) };
         assert!(!w.is_null(), "writer_open failed: {}", werr.code as i32);
         let p1 = b"hello ";
         let p2 = b"world";
         assert_eq!(
-            unsafe { odop_writer_write(w, p1.as_ptr(), p1.len() as u64, &mut werr) },
+            unsafe { od_writer_write(w, p1.as_ptr(), p1.len() as u64, &mut werr) },
             0
         );
         assert_eq!(
-            unsafe { odop_writer_write(w, p2.as_ptr(), p2.len() as u64, &mut werr) },
+            unsafe { od_writer_write(w, p2.as_ptr(), p2.len() as u64, &mut werr) },
             0
         );
-        assert_eq!(unsafe { odop_writer_close(w, &mut werr) }, 0);
-        unsafe { odop_writer_free(w) };
+        assert_eq!(unsafe { od_writer_close(w, &mut werr) }, 0);
+        unsafe { od_writer_free(w) };
 
         // Read it back and verify content + size.
-        let mut meta = OdopMetadata {
+        let mut meta = OdMetadata {
             content_length: 0,
             last_modified_ms: 0,
             is_dir: 9,
         };
-        let mut serr = OdopError::ok();
-        unsafe { odop_stat(op, path.as_ptr(), &mut meta, &mut serr) };
-        assert_eq!(serr.code as i32, OdopErrorCode::Ok as i32);
+        let mut serr = OdError::ok();
+        unsafe { od_stat(op, path.as_ptr(), &mut meta, &mut serr) };
+        assert_eq!(serr.code as i32, OdErrorCode::Ok as i32);
         assert_eq!(meta.content_length, 11);
 
-        let r = unsafe { odop_reader_open(op, path.as_ptr(), &mut serr) };
+        let r = unsafe { od_reader_open(op, path.as_ptr(), &mut serr) };
         assert!(!r.is_null());
         let mut buf = vec![0u8; 11];
-        let n = unsafe { odop_reader_read(r, 0, 11, buf.as_mut_ptr(), &mut serr) };
+        let n = unsafe { od_reader_read(r, 0, 11, buf.as_mut_ptr(), &mut serr) };
         assert_eq!(n, 11);
         assert_eq!(&buf, b"hello world");
-        unsafe { odop_reader_free(r) };
+        unsafe { od_reader_free(r) };
 
         // rename → if the backend supports it, the old path is gone and the new
         // one exists. The memory service does not support server-side rename, so
         // tolerate Unsupported here (the C++ layer falls back to copy+delete).
         let dst = CString::new("out/renamed.txt").unwrap();
-        let mut merr = OdopError::ok();
-        let rc = unsafe { odop_rename(op, path.as_ptr(), dst.as_ptr(), &mut merr) };
+        let mut merr = OdError::ok();
+        let rc = unsafe { od_rename(op, path.as_ptr(), dst.as_ptr(), &mut merr) };
         if rc == 0 {
-            assert_eq!(unsafe { odop_exists(op, path.as_ptr(), &mut merr) }, 0);
-            assert_eq!(unsafe { odop_exists(op, dst.as_ptr(), &mut merr) }, 1);
+            assert_eq!(unsafe { od_exists(op, path.as_ptr(), &mut merr) }, 0);
+            assert_eq!(unsafe { od_exists(op, dst.as_ptr(), &mut merr) }, 1);
             // remove the renamed file.
-            assert_eq!(unsafe { odop_remove(op, dst.as_ptr(), 0, &mut merr) }, 0);
-            assert_eq!(unsafe { odop_exists(op, dst.as_ptr(), &mut merr) }, 0);
+            assert_eq!(unsafe { od_remove(op, dst.as_ptr(), 0, &mut merr) }, 0);
+            assert_eq!(unsafe { od_exists(op, dst.as_ptr(), &mut merr) }, 0);
         } else {
-            assert_eq!(merr.code as i32, OdopErrorCode::Unsupported as i32);
-            unsafe { odop_string_free(merr.message) };
+            assert_eq!(merr.code as i32, OdErrorCode::Unsupported as i32);
+            unsafe { od_string_free(merr.message) };
             // remove the original file instead.
-            let mut rerr = OdopError::ok();
-            assert_eq!(unsafe { odop_remove(op, path.as_ptr(), 0, &mut rerr) }, 0);
-            assert_eq!(unsafe { odop_exists(op, path.as_ptr(), &mut rerr) }, 0);
+            let mut rerr = OdError::ok();
+            assert_eq!(unsafe { od_remove(op, path.as_ptr(), 0, &mut rerr) }, 0);
+            assert_eq!(unsafe { od_exists(op, path.as_ptr(), &mut rerr) }, 0);
         }
 
-        unsafe { odop_operator_free(op) };
+        unsafe { od_operator_free(op) };
     }
 
     #[test]
@@ -349,9 +346,9 @@ mod tests {
         let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
         let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
 
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 scheme.as_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
@@ -373,17 +370,17 @@ mod tests {
             crate::runtime::block_on(inner.write("layered.txt", b"ok".to_vec())).unwrap();
         }
         let path = CString::new("layered.txt").unwrap();
-        let mut meta = OdopMetadata {
+        let mut meta = OdMetadata {
             content_length: 0,
             last_modified_ms: 0,
             is_dir: 9,
         };
-        let mut serr = OdopError::ok();
-        unsafe { odop_stat(op, path.as_ptr(), &mut meta, &mut serr) };
-        assert_eq!(serr.code as i32, OdopErrorCode::Ok as i32);
+        let mut serr = OdError::ok();
+        unsafe { od_stat(op, path.as_ptr(), &mut meta, &mut serr) };
+        assert_eq!(serr.code as i32, OdErrorCode::Ok as i32);
         assert_eq!(meta.content_length, 2);
 
-        unsafe { odop_operator_free(op) };
+        unsafe { od_operator_free(op) };
     }
 
     #[test]
@@ -402,9 +399,9 @@ mod tests {
         let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
         let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
 
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 scheme.as_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
@@ -428,17 +425,17 @@ mod tests {
         let path = CString::new("cached.txt").unwrap();
         // Read twice — second read should be served from the cache.
         for _ in 0..2 {
-            let mut serr = OdopError::ok();
-            let r = unsafe { odop_reader_open(op, path.as_ptr(), &mut serr) };
+            let mut serr = OdError::ok();
+            let r = unsafe { od_reader_open(op, path.as_ptr(), &mut serr) };
             assert!(!r.is_null());
             let mut buf = vec![0u8; 8];
-            let n = unsafe { odop_reader_read(r, 0, 8, buf.as_mut_ptr(), &mut serr) };
+            let n = unsafe { od_reader_read(r, 0, 8, buf.as_mut_ptr(), &mut serr) };
             assert_eq!(n, 8);
             assert_eq!(&buf, b"cache me");
-            unsafe { odop_reader_free(r) };
+            unsafe { od_reader_free(r) };
         }
 
-        unsafe { odop_operator_free(op) };
+        unsafe { od_operator_free(op) };
     }
 
     #[test]
@@ -446,7 +443,7 @@ mod tests {
         // from_uri must map the URI authority to the s3 `bucket` config via
         // OpenDAL's per-service parsing — no bucket key passed explicitly.
         // Uses a dummy endpoint/creds; no network I/O (operator build is lazy).
-        odop_init(); // register services (no auto-register ctor)
+        od_init(); // register services (no auto-register ctor)
         let uri = CString::new("s3://my-bucket").unwrap();
         let keys: Vec<CString> = ["endpoint", "region", "access_key_id", "secret_access_key"]
             .iter()
@@ -459,9 +456,9 @@ mod tests {
         let k_ptrs: Vec<*const c_char> = keys.iter().map(|c| c.as_ptr()).collect();
         let v_ptrs: Vec<*const c_char> = vals.iter().map(|c| c.as_ptr()).collect();
 
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 uri.as_ptr(),
                 k_ptrs.as_ptr(),
                 v_ptrs.as_ptr(),
@@ -481,7 +478,7 @@ mod tests {
         let name = unsafe { (*op).op.info().name().to_string() };
         assert_eq!(name, "my-bucket");
         assert_eq!(unsafe { &(*op).scheme }, "s3");
-        unsafe { odop_operator_free(op) };
+        unsafe { od_operator_free(op) };
     }
 
     #[test]
@@ -505,9 +502,9 @@ mod tests {
         let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
         let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
 
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 scheme.as_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
@@ -530,17 +527,17 @@ mod tests {
         }
         let path = CString::new("disk_cached.txt").unwrap();
         for _ in 0..3 {
-            let mut serr = OdopError::ok();
-            let r = unsafe { odop_reader_open(op, path.as_ptr(), &mut serr) };
+            let mut serr = OdError::ok();
+            let r = unsafe { od_reader_open(op, path.as_ptr(), &mut serr) };
             assert!(!r.is_null());
             let mut buf = vec![0u8; 4096];
-            let n = unsafe { odop_reader_read(r, 0, 4096, buf.as_mut_ptr(), &mut serr) };
+            let n = unsafe { od_reader_read(r, 0, 4096, buf.as_mut_ptr(), &mut serr) };
             assert_eq!(n, 4096);
             assert_eq!(buf[0], 7);
-            unsafe { odop_reader_free(r) };
+            unsafe { od_reader_free(r) };
         }
 
-        unsafe { odop_operator_free(op) };
+        unsafe { od_operator_free(op) };
 
         // The on-disk cache directory should contain foyer's data files.
         let entries: Vec<_> = std::fs::read_dir(dir.path())
@@ -555,9 +552,9 @@ mod tests {
         // memory supports read/write/list but NOT server-side rename, so the
         // capability list must reflect that and the rename guard must fail-fast.
         let scheme = CString::new("memory").unwrap();
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 scheme.as_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
@@ -571,25 +568,25 @@ mod tests {
         assert!(!op.is_null());
 
         // Capability list: collect into a name→supported map.
-        let mut cerr = OdopError::ok();
-        let list = unsafe { odop_capabilities(op, &mut cerr) };
+        let mut cerr = OdError::ok();
+        let list = unsafe { od_capabilities(op, &mut cerr) };
         assert!(!list.is_null());
-        let n = unsafe { odop_capabilities_len(list) };
+        let n = unsafe { od_capabilities_len(list) };
         assert!(n > 0);
         let mut caps = std::collections::HashMap::new();
         for i in 0..n {
-            let mut ent = OdopCapability {
+            let mut ent = OdCapability {
                 name: std::ptr::null(),
                 supported: 0,
             };
-            assert_eq!(unsafe { odop_capabilities_entry(list, i, &mut ent) }, 1);
+            assert_eq!(unsafe { od_capabilities_entry(list, i, &mut ent) }, 1);
             let name = unsafe { CStr::from_ptr(ent.name) }
                 .to_str()
                 .unwrap()
                 .to_owned();
             caps.insert(name, ent.supported == 1);
         }
-        unsafe { odop_capabilities_free(list) };
+        unsafe { od_capabilities_free(list) };
         assert_eq!(caps.get("read"), Some(&true));
         assert_eq!(caps.get("write"), Some(&true));
         assert_eq!(caps.get("list"), Some(&true));
@@ -600,33 +597,33 @@ mod tests {
         // touching the backend.
         let from = CString::new("a.txt").unwrap();
         let to = CString::new("b.txt").unwrap();
-        let mut merr = OdopError::ok();
-        let rc = unsafe { odop_rename(op, from.as_ptr(), to.as_ptr(), &mut merr) };
+        let mut merr = OdError::ok();
+        let rc = unsafe { od_rename(op, from.as_ptr(), to.as_ptr(), &mut merr) };
         assert_eq!(rc, -1);
-        assert_eq!(merr.code as i32, OdopErrorCode::Unsupported as i32);
+        assert_eq!(merr.code as i32, OdErrorCode::Unsupported as i32);
         let msg = unsafe { CStr::from_ptr(merr.message) }.to_str().unwrap();
         assert!(
             msg.contains("memory") && msg.contains("rename"),
             "unexpected msg: {msg}"
         );
-        unsafe { odop_string_free(merr.message) };
+        unsafe { od_string_free(merr.message) };
 
         // copy likewise fail-fasts on memory (no copy capability).
-        let mut cerr = OdopError::ok();
-        let rc = unsafe { odop_copy(op, from.as_ptr(), to.as_ptr(), &mut cerr) };
+        let mut cerr = OdError::ok();
+        let rc = unsafe { od_copy(op, from.as_ptr(), to.as_ptr(), &mut cerr) };
         assert_eq!(rc, -1);
-        assert_eq!(cerr.code as i32, OdopErrorCode::Unsupported as i32);
-        unsafe { odop_string_free(cerr.message) };
+        assert_eq!(cerr.code as i32, OdErrorCode::Unsupported as i32);
+        unsafe { od_string_free(cerr.message) };
 
-        unsafe { odop_operator_free(op) };
+        unsafe { od_operator_free(op) };
     }
 
     #[test]
     fn fs_copy_succeeds() {
-        // The fs service supports copy; exercise the odop_copy FFI end to end
+        // The fs service supports copy; exercise the od_copy FFI end to end
         // (this is the branch the C++ MoveFile copy+delete fallback uses when a
         // service lacks server-side rename, e.g. s3).
-        odop_init(); // register services (no auto-register ctor)
+        od_init(); // register services (no auto-register ctor)
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
         let uri = CString::new("fs://").unwrap();
@@ -634,9 +631,9 @@ mod tests {
         let vals = [CString::new(root).unwrap()];
         let k_ptrs: Vec<*const c_char> = keys.iter().map(|c| c.as_ptr()).collect();
         let v_ptrs: Vec<*const c_char> = vals.iter().map(|c| c.as_ptr()).collect();
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 uri.as_ptr(),
                 k_ptrs.as_ptr(),
                 v_ptrs.as_ptr(),
@@ -656,17 +653,17 @@ mod tests {
         }
         let from = CString::new("src.txt").unwrap();
         let to = CString::new("dst.txt").unwrap();
-        let mut cerr = OdopError::ok();
+        let mut cerr = OdError::ok();
         assert_eq!(
-            unsafe { odop_copy(op, from.as_ptr(), to.as_ptr(), &mut cerr) },
+            unsafe { od_copy(op, from.as_ptr(), to.as_ptr(), &mut cerr) },
             0
         );
 
-        let mut e = OdopError::ok();
-        assert_eq!(unsafe { odop_exists(op, from.as_ptr(), &mut e) }, 1);
-        assert_eq!(unsafe { odop_exists(op, to.as_ptr(), &mut e) }, 1);
+        let mut e = OdError::ok();
+        assert_eq!(unsafe { od_exists(op, from.as_ptr(), &mut e) }, 1);
+        assert_eq!(unsafe { od_exists(op, to.as_ptr(), &mut e) }, 1);
 
-        unsafe { odop_operator_free(op) };
+        unsafe { od_operator_free(op) };
     }
 
     #[test]
@@ -690,9 +687,9 @@ mod tests {
         let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
         let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
 
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 scheme.as_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
@@ -718,38 +715,37 @@ mod tests {
 
         // Round-trip a write + read through the tuned writer/reader.
         let path = CString::new("tuned.txt").unwrap();
-        let mut werr = OdopError::ok();
-        let w = unsafe { odop_writer_open(op, path.as_ptr(), &mut werr) };
+        let mut werr = OdError::ok();
+        let w = unsafe { od_writer_open(op, path.as_ptr(), &mut werr) };
         assert!(!w.is_null());
         let payload = b"tuned io";
         assert_eq!(
-            unsafe { odop_writer_write(w, payload.as_ptr(), payload.len() as u64, &mut werr) },
+            unsafe { od_writer_write(w, payload.as_ptr(), payload.len() as u64, &mut werr) },
             0
         );
-        assert_eq!(unsafe { odop_writer_close(w, &mut werr) }, 0);
-        unsafe { odop_writer_free(w) };
+        assert_eq!(unsafe { od_writer_close(w, &mut werr) }, 0);
+        unsafe { od_writer_free(w) };
 
-        let mut rerr = OdopError::ok();
-        let r = unsafe { odop_reader_open(op, path.as_ptr(), &mut rerr) };
+        let mut rerr = OdError::ok();
+        let r = unsafe { od_reader_open(op, path.as_ptr(), &mut rerr) };
         assert!(!r.is_null());
         let mut buf = vec![0u8; payload.len()];
-        let n =
-            unsafe { odop_reader_read(r, 0, payload.len() as u64, buf.as_mut_ptr(), &mut rerr) };
+        let n = unsafe { od_reader_read(r, 0, payload.len() as u64, buf.as_mut_ptr(), &mut rerr) };
         assert_eq!(n as usize, payload.len());
         assert_eq!(&buf, payload);
-        unsafe { odop_reader_free(r) };
+        unsafe { od_reader_free(r) };
 
-        unsafe { odop_operator_free(op) };
+        unsafe { od_operator_free(op) };
     }
 
     #[test]
     fn global_io_options_apply_as_defaults() {
         // A global default fills in unset per-operator fields.
-        unsafe { odop_set_global_io_options(3, 131072, 5, 524288) };
+        unsafe { od_set_global_io_options(3, 131072, 5, 524288) };
         let scheme = CString::new("memory").unwrap();
-        let mut err = OdopError::ok();
+        let mut err = OdError::ok();
         let op = unsafe {
-            odop_operator_new(
+            od_operator_new(
                 scheme.as_ptr(),
                 std::ptr::null(),
                 std::ptr::null(),
@@ -767,8 +763,8 @@ mod tests {
             assert_eq!((*op).io.write.concurrent, 5);
             assert_eq!((*op).io.write.chunk, 524288);
         }
-        unsafe { odop_operator_free(op) };
+        unsafe { od_operator_free(op) };
         // Reset globals so other tests are unaffected.
-        unsafe { odop_set_global_io_options(0, 0, 0, 0) };
+        unsafe { od_set_global_io_options(0, 0, 0, 0) };
     }
 }

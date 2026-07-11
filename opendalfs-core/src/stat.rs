@@ -6,14 +6,14 @@
 use std::ffi::c_char;
 
 use crate::capability::require;
-use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::error::{set_error, set_ok, set_opendal_error, OdError, OdErrorCode};
 use crate::ffi::{cstr, ffi_guard};
-use crate::operator::OdopOperator;
+use crate::operator::OdOperator;
 use crate::runtime::block_on;
 
 /// C-visible metadata for a path.
 #[repr(C)]
-pub struct OdopMetadata {
+pub struct OdMetadata {
     /// Content length in bytes.
     pub content_length: u64,
     /// Last-modified time in Unix milliseconds, or -1 if unknown.
@@ -22,9 +22,9 @@ pub struct OdopMetadata {
     pub is_dir: u8,
 }
 
-impl OdopMetadata {
+impl OdMetadata {
     fn empty() -> Self {
-        OdopMetadata {
+        OdMetadata {
             content_length: 0,
             last_modified_ms: -1,
             is_dir: 0,
@@ -38,22 +38,22 @@ impl OdopMetadata {
 /// `*err` and leaves `*out_meta` zeroed.
 ///
 /// # Safety
-/// - `op` must be a live handle from `odop_operator_new`.
+/// - `op` must be a live handle from `od_operator_new`.
 /// - `path` must be a valid NUL-terminated C string.
 /// - `out_meta` and `err` must be valid, writable pointers.
 #[no_mangle]
-pub unsafe extern "C" fn odop_stat(
-    op: *const OdopOperator,
+pub unsafe extern "C" fn od_stat(
+    op: *const OdOperator,
     path: *const c_char,
-    out_meta: *mut OdopMetadata,
-    err: *mut OdopError,
+    out_meta: *mut OdMetadata,
+    err: *mut OdError,
 ) {
-    ffi_guard!(err, (), "odop_stat", {
+    ffi_guard!(err, (), "od_stat", {
         if !out_meta.is_null() {
-            *out_meta = OdopMetadata::empty();
+            *out_meta = OdMetadata::empty();
         }
         if op.is_null() || path.is_null() {
-            set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
+            set_error(err, OdErrorCode::InvalidInput, "null operator or path");
             return;
         }
         let odop = &*op;
@@ -64,11 +64,7 @@ pub unsafe extern "C" fn odop_stat(
         let path = match cstr(path) {
             Some(s) => s,
             None => {
-                set_error(
-                    err,
-                    OdopErrorCode::InvalidInput,
-                    "path is null or not UTF-8",
-                );
+                set_error(err, OdErrorCode::InvalidInput, "path is null or not UTF-8");
                 return;
             }
         };
@@ -80,7 +76,7 @@ pub unsafe extern "C" fn odop_stat(
                         .last_modified()
                         .map(|t| t.into_inner().as_millisecond())
                         .unwrap_or(-1);
-                    *out_meta = OdopMetadata {
+                    *out_meta = OdMetadata {
                         content_length: meta.content_length(),
                         last_modified_ms,
                         is_dir: if meta.is_dir() { 1 } else { 0 },
@@ -97,18 +93,18 @@ pub unsafe extern "C" fn odop_stat(
 /// (with `*err` populated).
 ///
 /// # Safety
-/// - `op` must be a live handle from `odop_operator_new`.
+/// - `op` must be a live handle from `od_operator_new`.
 /// - `path` must be a valid NUL-terminated C string.
 /// - `err` must be a valid, writable pointer.
 #[no_mangle]
-pub unsafe extern "C" fn odop_exists(
-    op: *const OdopOperator,
+pub unsafe extern "C" fn od_exists(
+    op: *const OdOperator,
     path: *const c_char,
-    err: *mut OdopError,
+    err: *mut OdError,
 ) -> i8 {
-    ffi_guard!(err, -1, "odop_exists", {
+    ffi_guard!(err, -1, "od_exists", {
         if op.is_null() || path.is_null() {
-            set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
+            set_error(err, OdErrorCode::InvalidInput, "null operator or path");
             return -1;
         }
         let odop = &*op;
@@ -119,11 +115,7 @@ pub unsafe extern "C" fn odop_exists(
         let path = match cstr(path) {
             Some(s) => s,
             None => {
-                set_error(
-                    err,
-                    OdopErrorCode::InvalidInput,
-                    "path is null or not UTF-8",
-                );
+                set_error(err, OdErrorCode::InvalidInput, "path is null or not UTF-8");
                 return -1;
             }
         };

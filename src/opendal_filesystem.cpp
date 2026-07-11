@@ -101,26 +101,26 @@ static std::string AbsolutizeFsPath(const std::string &path) {
 }
 
 // ─── Error helper ────────────────────────────────────────────────────────────
-// Convert an OdopError into a thrown IOException (freeing its message), or
+// Convert an OdError into a thrown IOException (freeing its message), or
 // return quietly if there is no error. `context` prefixes the message.
-static void ThrowIfError(OdopError &err, const std::string &context) {
-	if (err.code == OdopErrorCode::Ok) {
+static void ThrowIfError(OdError &err, const std::string &context) {
+	if (err.code == OdErrorCode::Ok) {
 		return;
 	}
 	std::string msg = context;
 	if (err.message) {
 		msg += ": ";
 		msg += err.message;
-		odop_string_free(err.message);
+		od_string_free(err.message);
 		err.message = nullptr;
 	}
 	throw IOException(msg);
 }
 
-// Free an OdopError's message if present (for non-throwing paths).
-static void ClearError(OdopError &err) {
+// Free an OdError's message if present (for non-throwing paths).
+static void ClearError(OdError &err) {
 	if (err.message) {
-		odop_string_free(err.message);
+		od_string_free(err.message);
 		err.message = nullptr;
 	}
 }
@@ -128,34 +128,34 @@ static void ClearError(OdopError &err) {
 // Whether `op` reports support for capability `name` (e.g. "rename", "copy",
 // "delete"). Reads the operator's capability list once; returns false on any
 // error. Names match OpenDAL's Capability field names.
-static bool OperatorSupports(OdopOperator *op, const char *name) {
-	OdopError err = {};
-	OdopCapabilityList *caps = odop_capabilities(op, &err);
+static bool OperatorSupports(OdOperator *op, const char *name) {
+	OdError err = {};
+	OdCapabilityList *caps = od_capabilities(op, &err);
 	if (!caps) {
 		ClearError(err);
 		return false;
 	}
 	ClearError(err);
 	bool supported = false;
-	size_t n = odop_capabilities_len(caps);
+	size_t n = od_capabilities_len(caps);
 	for (size_t i = 0; i < n; i++) {
-		OdopCapability cap = {};
-		if (odop_capabilities_entry(caps, i, &cap) && cap.name && std::strcmp(cap.name, name) == 0) {
+		OdCapability cap = {};
+		if (od_capabilities_entry(caps, i, &cap) && cap.name && std::strcmp(cap.name, name) == 0) {
 			supported = cap.supported != 0;
 			break;
 		}
 	}
-	odop_capabilities_free(caps);
+	od_capabilities_free(caps);
 	return supported;
 }
 
 // ─── OpenDalFileHandle ───────────────────────────────────────────────────────
-OpenDalFileHandle::OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdopReader *reader_,
+OpenDalFileHandle::OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdReader *reader_,
                                      int64_t file_size_, int64_t last_modified_ms_)
     : FileHandle(fs, path, flags), reader(reader_), file_size(file_size_), last_modified_ms(last_modified_ms_) {
 }
 
-OpenDalFileHandle::OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdopWriter *writer_)
+OpenDalFileHandle::OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdWriter *writer_)
     : FileHandle(fs, path, flags), writer(writer_) {
 }
 
@@ -168,7 +168,7 @@ void OpenDalFileHandle::Close() {
 		DUCKDB_LOG_FILE_SYSTEM_CLOSE((*this));
 	}
 	if (reader) {
-		odop_reader_free(reader);
+		od_reader_free(reader);
 		reader = nullptr;
 	}
 	if (writer) {
@@ -176,21 +176,21 @@ void OpenDalFileHandle::Close() {
 		// unwinding), finalize the upload so partial data isn't silently lost;
 		// OpenDAL flushes buffered/multipart state on close.
 		if (!write_closed) {
-			OdopError err = {};
-			if (odop_writer_close(writer, &err) != 0) {
+			OdError err = {};
+			if (od_writer_close(writer, &err) != 0) {
 				// Best-effort: abort to release the multipart session.
-				OdopError aerr = {};
-				odop_writer_abort(writer, &aerr);
+				OdError aerr = {};
+				od_writer_abort(writer, &aerr);
 				if (aerr.message) {
-					odop_string_free(aerr.message);
+					od_string_free(aerr.message);
 				}
 			}
 			if (err.message) {
-				odop_string_free(err.message);
+				od_string_free(err.message);
 			}
 			write_closed = true;
 		}
-		odop_writer_free(writer);
+		od_writer_free(writer);
 		writer = nullptr;
 	}
 }
@@ -202,7 +202,7 @@ OpenDalFileSystem::~OpenDalFileSystem() {
 	std::lock_guard<std::mutex> lk(mu_);
 	for (auto &entry : operators_) {
 		if (entry.second) {
-			odop_operator_free(entry.second);
+			od_operator_free(entry.second);
 		}
 	}
 	operators_.clear();
@@ -232,7 +232,7 @@ bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme
                                  std::string &out_path) {
 	// Lightweight local split — this is a hot path (called per FS op), so we do
 	// not round-trip through the FFI/OperatorUri here. The canonical OpenDAL
-	// parse happens once, operator-side, at construction (see odop_operator_new).
+	// parse happens once, operator-side, at construction (see od_operator_new).
 	// The split itself is mechanical: scheme, then either an authority (first
 	// segment, for object stores) or the whole remainder as a path (fs/memory).
 	auto pos = url.find("://");
@@ -347,14 +347,14 @@ static bool ApplySecret(optional_ptr<ClientContext> context, optional_ptr<Databa
 	}
 }
 
-OdopOperator *OpenDalFileSystem::OperatorFor(const std::string &scheme, const std::string &authority,
+OdOperator *OpenDalFileSystem::OperatorFor(const std::string &scheme, const std::string &authority,
                                              const std::string &url, optional_ptr<FileOpener> opener) {
 	auto context = FileOpener::TryGetClientContext(opener);
 	auto db = FileOpener::TryGetDatabase(opener);
 	return BuildOperator(scheme, authority, url, context, db);
 }
 
-OdopOperator *OpenDalFileSystem::OperatorForCtx(const std::string &scheme, const std::string &authority,
+OdOperator *OpenDalFileSystem::OperatorForCtx(const std::string &scheme, const std::string &authority,
                                                 const std::string &url, optional_ptr<ClientContext> context) {
 	optional_ptr<DatabaseInstance> db;
 	if (context) {
@@ -363,7 +363,7 @@ OdopOperator *OpenDalFileSystem::OperatorForCtx(const std::string &scheme, const
 	return BuildOperator(scheme, authority, url, context, db);
 }
 
-OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const std::string &authority,
+OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const std::string &authority,
                                                const std::string &url, optional_ptr<ClientContext> context,
                                                optional_ptr<DatabaseInstance> db) {
 	std::string key = scheme + "://" + authority;
@@ -427,11 +427,11 @@ OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const 
 		lval_ptrs.push_back(lvals[i].c_str());
 	}
 
-	// Build the operator OUTSIDE the lock: odop_operator_new may do DNS/network
+	// Build the operator OUTSIDE the lock: od_operator_new may do DNS/network
 	// work, and holding mu_ across it would serialize operator creation for
 	// unrelated schemes/buckets.
-	OdopError err = {};
-	OdopOperator *op = odop_operator_new(uri.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
+	OdError err = {};
+	OdOperator *op = od_operator_new(uri.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
 	                                     val_ptrs.empty() ? nullptr : val_ptrs.data(), keys.size(),
 	                                     lkey_ptrs.empty() ? nullptr : lkey_ptrs.data(),
 	                                     lval_ptrs.empty() ? nullptr : lval_ptrs.data(), lkeys.size(), &err);
@@ -446,7 +446,7 @@ OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const 
 	std::lock_guard<std::mutex> lk(mu_);
 	auto res = operators_.emplace(key, op);
 	if (!res.second) {
-		odop_operator_free(op);
+		od_operator_free(op);
 		return res.first->second;
 	}
 	return op;
@@ -481,8 +481,8 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	if (flags.OpenForWriting()) {
 		// Streaming, append-only write. OpenDAL overwrites any existing object
 		// on close. (Read-modify-write / partial overwrite is not supported.)
-		OdopError werr = {};
-		OdopWriter *writer = odop_writer_open(op, rel.c_str(), &werr);
+		OdError werr = {};
+		OdWriter *writer = od_writer_open(op, rel.c_str(), &werr);
 		if (!writer) {
 			ThrowIfError(werr, "opendal open (write): " + path);
 			throw IOException("opendal: null writer for " + path);
@@ -497,16 +497,16 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	}
 
 	// Read mode: stat first to get size + type.
-	OdopMetadata meta = {};
-	OdopError serr = {};
-	odop_stat(op, rel.c_str(), &meta, &serr);
+	OdMetadata meta = {};
+	OdError serr = {};
+	od_stat(op, rel.c_str(), &meta, &serr);
 	ThrowIfError(serr, "opendal stat: " + path);
 	if (meta.is_dir) {
 		throw IOException("opendal: cannot open directory as file: " + path);
 	}
 
-	OdopError rerr = {};
-	OdopReader *reader = odop_reader_open(op, rel.c_str(), &rerr);
+	OdError rerr = {};
+	OdReader *reader = od_reader_open(op, rel.c_str(), &rerr);
 	if (!reader) {
 		ThrowIfError(rerr, "opendal open: " + path);
 		throw IOException("opendal: null reader for " + path);
@@ -535,8 +535,8 @@ void OpenDalFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes
 		                  " (expected " + std::to_string(h.bytes_written) +
 		                  "); random-access writes are not supported for " + h.path);
 	}
-	OdopError err = {};
-	if (odop_writer_write(h.writer, static_cast<const uint8_t *>(buffer), (uint64_t)nr_bytes, &err) != 0) {
+	OdError err = {};
+	if (od_writer_write(h.writer, static_cast<const uint8_t *>(buffer), (uint64_t)nr_bytes, &err) != 0) {
 		ThrowIfError(err, "opendal write: " + h.path);
 		throw IOException("opendal write failed: " + h.path);
 	}
@@ -556,8 +556,8 @@ void OpenDalFileSystem::FileSync(FileHandle &handle) {
 	if (!h.writer || h.write_closed) {
 		return;
 	}
-	OdopError err = {};
-	if (odop_writer_close(h.writer, &err) != 0) {
+	OdError err = {};
+	if (od_writer_close(h.writer, &err) != 0) {
 		ThrowIfError(err, "opendal close (write): " + h.path);
 		throw IOException("opendal close failed: " + h.path);
 	}
@@ -571,9 +571,9 @@ void OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes,
 	if (!h.reader) {
 		throw IOException("opendal: read on closed handle: " + h.path);
 	}
-	OdopError err = {};
+	OdError err = {};
 	int64_t n =
-	    odop_reader_read(h.reader, (uint64_t)location, (uint64_t)nr_bytes, static_cast<uint8_t *>(buffer), &err);
+	    od_reader_read(h.reader, (uint64_t)location, (uint64_t)nr_bytes, static_cast<uint8_t *>(buffer), &err);
 	if (n < 0) {
 		ThrowIfError(err, "opendal read: " + h.path);
 		throw IOException("opendal read failed: " + h.path);
@@ -600,9 +600,9 @@ int64_t OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_byt
 	}
 	int64_t to_read = nr_bytes < remaining ? nr_bytes : remaining;
 
-	OdopError err = {};
+	OdError err = {};
 	int64_t n =
-	    odop_reader_read(h.reader, (uint64_t)h.position, (uint64_t)to_read, static_cast<uint8_t *>(buffer), &err);
+	    od_reader_read(h.reader, (uint64_t)h.position, (uint64_t)to_read, static_cast<uint8_t *>(buffer), &err);
 	if (n < 0) {
 		ThrowIfError(err, "opendal read: " + h.path);
 		throw IOException("opendal read failed: " + h.path);
@@ -636,16 +636,16 @@ bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpen
 	if (!ParseUrl(filename, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
-	OdopOperator *op;
+	OdOperator *op;
 	try {
 		op = OperatorFor(scheme, auth, filename, opener);
 	} catch (...) {
 		return false;
 	}
-	OdopMetadata meta = {};
-	OdopError err = {};
-	odop_stat(op, rel.c_str(), &meta, &err);
-	bool ok = (err.code == OdopErrorCode::Ok) && !meta.is_dir;
+	OdMetadata meta = {};
+	OdError err = {};
+	od_stat(op, rel.c_str(), &meta, &err);
+	bool ok = (err.code == OdErrorCode::Ok) && !meta.is_dir;
 	ClearError(err);
 	return ok;
 }
@@ -655,16 +655,16 @@ bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<Fi
 	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
-	OdopOperator *op;
+	OdOperator *op;
 	try {
 		op = OperatorFor(scheme, auth, directory, opener);
 	} catch (...) {
 		return false;
 	}
-	OdopMetadata meta = {};
-	OdopError err = {};
-	odop_stat(op, rel.c_str(), &meta, &err);
-	bool ok = (err.code == OdopErrorCode::Ok) && meta.is_dir;
+	OdMetadata meta = {};
+	OdError err = {};
+	od_stat(op, rel.c_str(), &meta, &err);
+	bool ok = (err.code == OdErrorCode::Ok) && meta.is_dir;
 	ClearError(err);
 	return ok;
 }
@@ -680,7 +680,7 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
-	OdopOperator *op;
+	OdOperator *op;
 	try {
 		op = OperatorFor(scheme, auth, directory, opener);
 	} catch (...) {
@@ -692,8 +692,8 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 		dir += "/";
 	}
 
-	OdopError err = {};
-	OdopEntryList *list = odop_list(op, dir.c_str(), /*recursive=*/0, &err);
+	OdError err = {};
+	OdEntryList *list = od_list(op, dir.c_str(), /*recursive=*/0, &err);
 	if (!list) {
 		ClearError(err);
 		return false;
@@ -707,10 +707,10 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 	while (!self_path.empty() && self_path.front() == '/') {
 		self_path.erase(self_path.begin());
 	}
-	size_t n = odop_list_len(list);
+	size_t n = od_list_len(list);
 	for (size_t i = 0; i < n; i++) {
-		OdopEntry ent = {};
-		if (!odop_list_entry(list, i, &ent)) {
+		OdEntry ent = {};
+		if (!od_list_entry(list, i, &ent)) {
 			continue;
 		}
 		std::string epath = ent.path ? std::string(ent.path) : std::string();
@@ -732,7 +732,7 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 		}
 		callback(name, ent.is_dir != 0);
 	}
-	odop_list_free(list);
+	od_list_free(list);
 	return true;
 }
 
@@ -761,7 +761,7 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 		return results;
 	}
 
-	OdopOperator *op;
+	OdOperator *op;
 	try {
 		op = OperatorFor(scheme, auth, path, opener);
 	} catch (...) {
@@ -790,18 +790,18 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 		list_dir += "/";
 	}
 
-	OdopError err = {};
-	OdopEntryList *list = odop_list(op, list_dir.c_str(), recursive ? 1 : 0, &err);
+	OdError err = {};
+	OdEntryList *list = od_list(op, list_dir.c_str(), recursive ? 1 : 0, &err);
 	if (!list) {
 		ClearError(err);
 		return results;
 	}
 	ClearError(err);
 
-	size_t n = odop_list_len(list);
+	size_t n = od_list_len(list);
 	for (size_t i = 0; i < n; i++) {
-		OdopEntry ent = {};
-		if (!odop_list_entry(list, i, &ent) || ent.is_dir) {
+		OdEntry ent = {};
+		if (!od_list_entry(list, i, &ent) || ent.is_dir) {
 			continue;
 		}
 		std::string epath = ent.path ? std::string(ent.path) : std::string();
@@ -810,7 +810,7 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 			results.emplace_back(BuildUrl(scheme, auth, epath));
 		}
 	}
-	odop_list_free(list);
+	od_list_free(list);
 
 	std::sort(results.begin(), results.end(),
 	          [](const OpenFileInfo &a, const OpenFileInfo &b) { return a.path < b.path; });
@@ -840,8 +840,8 @@ void OpenDalFileSystem::CreateDirectory(const string &directory, optional_ptr<Fi
 		throw IOException("opendal: unsupported or invalid URL: " + directory);
 	}
 	auto *op = OperatorFor(scheme, auth, directory, opener);
-	OdopError err = {};
-	if (odop_create_dir(op, rel.c_str(), &err) != 0) {
+	OdError err = {};
+	if (od_create_dir(op, rel.c_str(), &err) != 0) {
 		ThrowIfError(err, "opendal create_dir: " + directory);
 		throw IOException("opendal create_dir failed: " + directory);
 	}
@@ -854,8 +854,8 @@ void OpenDalFileSystem::RemoveFile(const string &filename, optional_ptr<FileOpen
 		throw IOException("opendal: unsupported or invalid URL: " + filename);
 	}
 	auto *op = OperatorFor(scheme, auth, filename, opener);
-	OdopError err = {};
-	if (odop_remove(op, rel.c_str(), /*recursive=*/0, &err) != 0) {
+	OdError err = {};
+	if (od_remove(op, rel.c_str(), /*recursive=*/0, &err) != 0) {
 		ThrowIfError(err, "opendal remove: " + filename);
 		throw IOException("opendal remove failed: " + filename);
 	}
@@ -873,8 +873,8 @@ void OpenDalFileSystem::RemoveDirectory(const string &directory, optional_ptr<Fi
 	if (dir.empty() || dir.back() != '/') {
 		dir += "/";
 	}
-	OdopError err = {};
-	if (odop_remove(op, dir.c_str(), /*recursive=*/1, &err) != 0) {
+	OdError err = {};
+	if (od_remove(op, dir.c_str(), /*recursive=*/1, &err) != 0) {
 		ThrowIfError(err, "opendal remove (dir): " + directory);
 		throw IOException("opendal remove (dir) failed: " + directory);
 	}
@@ -898,8 +898,8 @@ void OpenDalFileSystem::MoveFile(const string &source, const string &target, opt
 	// rename but does have copy), fall back to copy+delete — a non-atomic move.
 	// If neither is available, surface a clear error.
 	if (OperatorSupports(op, "rename")) {
-		OdopError err = {};
-		if (odop_rename(op, s_rel.c_str(), t_rel.c_str(), &err) != 0) {
+		OdError err = {};
+		if (od_rename(op, s_rel.c_str(), t_rel.c_str(), &err) != 0) {
 			ThrowIfError(err, "opendal move: " + source + " -> " + target);
 			throw IOException("opendal move failed: " + source + " -> " + target);
 		}
@@ -908,14 +908,14 @@ void OpenDalFileSystem::MoveFile(const string &source, const string &target, opt
 	}
 
 	if (OperatorSupports(op, "copy")) {
-		OdopError cerr = {};
-		if (odop_copy(op, s_rel.c_str(), t_rel.c_str(), &cerr) != 0) {
+		OdError cerr = {};
+		if (od_copy(op, s_rel.c_str(), t_rel.c_str(), &cerr) != 0) {
 			ThrowIfError(cerr, "opendal move (copy): " + source + " -> " + target);
 			throw IOException("opendal move failed (copy): " + source + " -> " + target);
 		}
 		ClearError(cerr);
-		OdopError derr = {};
-		if (odop_remove(op, s_rel.c_str(), /*recursive=*/0, &derr) != 0) {
+		OdError derr = {};
+		if (od_remove(op, s_rel.c_str(), /*recursive=*/0, &derr) != 0) {
 			ThrowIfError(derr, "opendal move (delete source after copy): " + source);
 			throw IOException("opendal move failed (delete source after copy): " + source);
 		}

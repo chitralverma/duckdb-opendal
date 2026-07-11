@@ -5,10 +5,10 @@
 //! flags — the effective capability after layers/simulation, per RFC 7700). We use it two ways:
 //!
 //!   1. **Fail-fast guards** — before a mutating/IO call we check the relevant
-//!      flag and, if unsupported, return `OdopErrorCode::Unsupported` with a
+//!      flag and, if unsupported, return `OdErrorCode::Unsupported` with a
 //!      clear "service '<scheme>' does not support <op>" message, rather than
 //!      letting the deep OpenDAL call fail with a less obvious error.
-//!   2. **Introspection** — `odop_capabilities` materializes every boolean
+//!   2. **Introspection** — `od_capabilities` materializes every boolean
 //!      capability as an index-addressable `(name, supported)` list so the C++
 //!      side can surface them generically (e.g. a future `opendal_fs_services()`)
 //!      without hardcoding a column per flag.
@@ -17,9 +17,9 @@ use std::ffi::{c_char, CString};
 
 use opendal::Capability;
 
-use crate::error::{set_error, OdopError, OdopErrorCode};
+use crate::error::{set_error, OdError, OdErrorCode};
 use crate::ffi::{ffi_guard, free_handle};
-use crate::operator::OdopOperator;
+use crate::operator::OdOperator;
 
 /// Enumerate an operator's capabilities as `(name, supported)` pairs.
 ///
@@ -48,12 +48,12 @@ pub(crate) fn require(
     scheme: &str,
     supported: bool,
     op_name: &str,
-) -> Result<(), (OdopErrorCode, String)> {
+) -> Result<(), (OdErrorCode, String)> {
     if supported {
         Ok(())
     } else {
         Err((
-            OdopErrorCode::Unsupported,
+            OdErrorCode::Unsupported,
             format!("service '{scheme}' does not support {op_name}"),
         ))
     }
@@ -63,34 +63,34 @@ pub(crate) fn require(
 
 /// One capability flag: `name` (borrowed, NUL-terminated) + `supported`.
 #[repr(C)]
-pub struct OdopCapability {
+pub struct OdCapability {
     /// Capability name (e.g. "write_can_append"). Borrowed from the list; do
-    /// NOT free. Valid until `odop_capabilities_free`.
+    /// NOT free. Valid until `od_capabilities_free`.
     pub name: *const c_char,
     /// 1 if supported, 0 otherwise.
     pub supported: u8,
 }
 
 /// Opaque, index-addressable list of an operator's boolean capabilities.
-pub struct OdopCapabilityList {
+pub struct OdCapabilityList {
     items: Vec<(CString, bool)>,
 }
 
 /// Materialize every boolean capability of `op` into an index-addressable list.
 ///
 /// Returns null only on null input or panic. Free with
-/// `odop_capabilities_free`.
+/// `od_capabilities_free`.
 ///
 /// # Safety
-/// `op` must be a live handle from `odop_operator_new`. `err` must be valid.
+/// `op` must be a live handle from `od_operator_new`. `err` must be valid.
 #[no_mangle]
-pub unsafe extern "C" fn odop_capabilities(
-    op: *const OdopOperator,
-    err: *mut OdopError,
-) -> *mut OdopCapabilityList {
-    ffi_guard!(err, std::ptr::null_mut(), "odop_capabilities", {
+pub unsafe extern "C" fn od_capabilities(
+    op: *const OdOperator,
+    err: *mut OdError,
+) -> *mut OdCapabilityList {
+    ffi_guard!(err, std::ptr::null_mut(), "od_capabilities", {
         if op.is_null() {
-            set_error(err, OdopErrorCode::InvalidInput, "null operator");
+            set_error(err, OdErrorCode::InvalidInput, "null operator");
             return std::ptr::null_mut();
         }
         let cap = (*op).cap;
@@ -99,16 +99,16 @@ pub unsafe extern "C" fn odop_capabilities(
             .map(|(name, sup)| (CString::new(name).unwrap_or_default(), sup))
             .collect();
         crate::error::set_ok(err);
-        Box::into_raw(Box::new(OdopCapabilityList { items }))
+        Box::into_raw(Box::new(OdCapabilityList { items }))
     })
 }
 
 /// Number of capability entries in the list. 0 on null.
 ///
 /// # Safety
-/// `list` must be null or a handle from `odop_capabilities`.
+/// `list` must be null or a handle from `od_capabilities`.
 #[no_mangle]
-pub unsafe extern "C" fn odop_capabilities_len(list: *const OdopCapabilityList) -> usize {
+pub unsafe extern "C" fn od_capabilities_len(list: *const OdCapabilityList) -> usize {
     if list.is_null() {
         return 0;
     }
@@ -119,12 +119,12 @@ pub unsafe extern "C" fn odop_capabilities_len(list: *const OdopCapabilityList) 
 /// or null. `out.name` borrows from the list (valid until it is freed).
 ///
 /// # Safety
-/// `list` must be a live handle from `odop_capabilities`; `out` must be valid.
+/// `list` must be a live handle from `od_capabilities`; `out` must be valid.
 #[no_mangle]
-pub unsafe extern "C" fn odop_capabilities_entry(
-    list: *const OdopCapabilityList,
+pub unsafe extern "C" fn od_capabilities_entry(
+    list: *const OdCapabilityList,
     index: usize,
-    out: *mut OdopCapability,
+    out: *mut OdCapability,
 ) -> u8 {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if list.is_null() || out.is_null() {
@@ -145,8 +145,8 @@ pub unsafe extern "C" fn odop_capabilities_entry(
 /// Free a capability list. Safe with null (no-op).
 ///
 /// # Safety
-/// `list` must be null or a handle from `odop_capabilities`, not already freed.
+/// `list` must be null or a handle from `od_capabilities`, not already freed.
 #[no_mangle]
-pub unsafe extern "C" fn odop_capabilities_free(list: *mut OdopCapabilityList) {
+pub unsafe extern "C" fn od_capabilities_free(list: *mut OdCapabilityList) {
     free_handle(list);
 }

@@ -1,6 +1,6 @@
 //! Reader across the FFI boundary — the positioned/ranged read path.
 //!
-//! A DuckDB positioned read maps to a single `odop_reader_read(handle, offset,
+//! A DuckDB positioned read maps to a single `od_reader_read(handle, offset,
 //! len, buf)` → one OpenDAL ranged read into the caller's buffer. The offset is
 //! passed per call, so reads are stateless and atomic by construction.
 
@@ -11,31 +11,31 @@ use std::future::IntoFuture;
 use opendal::Reader;
 
 use crate::capability::require;
-use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::error::{set_error, set_ok, set_opendal_error, OdError, OdErrorCode};
 use crate::ffi::{cstr, ffi_guard, free_handle};
-use crate::operator::OdopOperator;
+use crate::operator::OdOperator;
 use crate::runtime::block_on;
 
-/// Opaque handle wrapping an `opendal::Reader`. Free with `odop_reader_free`.
-pub struct OdopReader {
+/// Opaque handle wrapping an `opendal::Reader`. Free with `od_reader_free`.
+pub struct OdReader {
     reader: Reader,
 }
 
 /// Open a reader for `path` on `op`.
 ///
 /// # Safety
-/// - `op` must be a live handle from `odop_operator_new`.
+/// - `op` must be a live handle from `od_operator_new`.
 /// - `path` must be a valid NUL-terminated C string.
-/// - The returned handle must be freed once with `odop_reader_free`.
+/// - The returned handle must be freed once with `od_reader_free`.
 #[no_mangle]
-pub unsafe extern "C" fn odop_reader_open(
-    op: *const OdopOperator,
+pub unsafe extern "C" fn od_reader_open(
+    op: *const OdOperator,
     path: *const c_char,
-    err: *mut OdopError,
-) -> *mut OdopReader {
-    ffi_guard!(err, std::ptr::null_mut(), "odop_reader_open", {
+    err: *mut OdError,
+) -> *mut OdReader {
+    ffi_guard!(err, std::ptr::null_mut(), "od_reader_open", {
         if op.is_null() {
-            set_error(err, OdopErrorCode::InvalidInput, "null operator");
+            set_error(err, OdErrorCode::InvalidInput, "null operator");
             return std::ptr::null_mut();
         }
         let odop = &*op;
@@ -46,11 +46,7 @@ pub unsafe extern "C" fn odop_reader_open(
         let path = match cstr(path) {
             Some(s) => s,
             None => {
-                set_error(
-                    err,
-                    OdopErrorCode::InvalidInput,
-                    "path is null or not UTF-8",
-                );
+                set_error(err, OdErrorCode::InvalidInput, "path is null or not UTF-8");
                 return std::ptr::null_mut();
             }
         };
@@ -66,7 +62,7 @@ pub unsafe extern "C" fn odop_reader_open(
         match block_on(b.into_future()) {
             Ok(reader) => {
                 set_ok(err);
-                Box::into_raw(Box::new(OdopReader { reader }))
+                Box::into_raw(Box::new(OdReader { reader }))
             }
             Err(e) => {
                 set_opendal_error(err, &e);
@@ -82,20 +78,20 @@ pub unsafe extern "C" fn odop_reader_open(
 /// error. Reads straight into the caller's buffer.
 ///
 /// # Safety
-/// - `reader` must be a live handle from `odop_reader_open`.
+/// - `reader` must be a live handle from `od_reader_open`.
 /// - `buf` must point to at least `len` writable bytes.
 /// - `err` must be a valid, writable pointer.
 #[no_mangle]
-pub unsafe extern "C" fn odop_reader_read(
-    reader: *mut OdopReader,
+pub unsafe extern "C" fn od_reader_read(
+    reader: *mut OdReader,
     offset: u64,
     len: u64,
     buf: *mut u8,
-    err: *mut OdopError,
+    err: *mut OdError,
 ) -> i64 {
-    ffi_guard!(err, -1, "odop_reader_read", {
+    ffi_guard!(err, -1, "od_reader_read", {
         if reader.is_null() || buf.is_null() {
-            set_error(err, OdopErrorCode::InvalidInput, "null reader or buffer");
+            set_error(err, OdErrorCode::InvalidInput, "null reader or buffer");
             return -1;
         }
         if len == 0 {
@@ -126,8 +122,8 @@ pub unsafe extern "C" fn odop_reader_read(
 /// Free a reader handle. Safe to call with null (no-op).
 ///
 /// # Safety
-/// `reader` must be null or a handle from `odop_reader_open`, not already freed.
+/// `reader` must be null or a handle from `od_reader_open`, not already freed.
 #[no_mangle]
-pub unsafe extern "C" fn odop_reader_free(reader: *mut OdopReader) {
+pub unsafe extern "C" fn od_reader_free(reader: *mut OdReader) {
     free_handle(reader);
 }
