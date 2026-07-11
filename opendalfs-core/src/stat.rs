@@ -5,7 +5,7 @@
 
 use std::ffi::c_char;
 
-use crate::capability::{full, require};
+use crate::capability::require;
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
 use crate::ffi::{cstr, ffi_guard};
 use crate::operator::OdopOperator;
@@ -57,7 +57,7 @@ pub unsafe extern "C" fn odop_stat(
             return;
         }
         let odop = &*op;
-        if let Err((code, msg)) = require(&odop.scheme, full(odop).stat, "stat") {
+        if let Err((code, msg)) = require(&odop.scheme, odop.cap.stat, "stat") {
             set_error(err, code, msg);
             return;
         }
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn odop_exists(
             return -1;
         }
         let odop = &*op;
-        if let Err((code, msg)) = require(&odop.scheme, full(odop).stat, "stat") {
+        if let Err((code, msg)) = require(&odop.scheme, odop.cap.stat, "stat") {
             set_error(err, code, msg);
             return -1;
         }

@@ -10,7 +10,7 @@ use std::future::IntoFuture;
 
 use opendal::Reader;
 
-use crate::capability::{full, require};
+use crate::capability::require;
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
 use crate::ffi::{cstr, ffi_guard, free_handle};
 use crate::operator::OdopOperator;
@@ -39,7 +39,7 @@ pub unsafe extern "C" fn odop_reader_open(
             return std::ptr::null_mut();
         }
         let odop = &*op;
-        if let Err((code, msg)) = require(&odop.scheme, full(odop).read, "read") {
+        if let Err((code, msg)) = require(&odop.scheme, odop.cap.read, "read") {
             set_error(err, code, msg);
             return std::ptr::null_mut();
         }

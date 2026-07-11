@@ -27,6 +27,11 @@ pub struct OdopOperator {
     /// Reader/writer I/O tuning (concurrent + chunk), resolved from per-operator
     /// `io.*` options merged over the process-global defaults.
     pub(crate) io: crate::io::IoOptions,
+    /// The operator's capability, cached at construction. It is immutable for
+    /// the operator's lifetime, so the fail-fast guards read it from here
+    /// instead of re-deriving it (which clones the Arc-backed ServiceInfo) on
+    /// every read/write/stat/list.
+    pub(crate) cap: opendal::Capability,
 }
 
 /// Build an Operator from `uri` (`scheme://authority`) plus `len` key/value
@@ -100,8 +105,14 @@ pub unsafe extern "C" fn odop_operator_new(
         match Operator::from_uri(parsed) {
             Ok(op) => {
                 let op = apply_layers(op, &layer_opts);
+                let cap = op.info().capability();
                 set_ok(err);
-                Box::into_raw(Box::new(OdopOperator { op, scheme, io }))
+                Box::into_raw(Box::new(OdopOperator {
+                    op,
+                    scheme,
+                    io,
+                    cap,
+                }))
             }
             Err(e) => {
                 set_opendal_error(err, &e);

@@ -3,7 +3,7 @@
 use std::ffi::c_char;
 use std::future::IntoFuture;
 
-use crate::capability::{full, require};
+use crate::capability::require;
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
 use crate::ffi::cstr;
 use crate::operator::OdopOperator;
@@ -31,7 +31,7 @@ pub unsafe extern "C" fn odop_create_dir(
             Some(s) => s,
             None => return Err(MutErr::Invalid("path is null or not UTF-8".into())),
         };
-        guard(&o.scheme, full(o).create_dir, "create_dir")?;
+        guard(&o.scheme, o.cap.create_dir, "create_dir")?;
         // OpenDAL requires a trailing slash to denote a directory.
         let p = if p.ends_with('/') {
             p.to_string()
@@ -60,7 +60,7 @@ pub unsafe extern "C" fn odop_remove(
             Some(s) => s,
             None => return Err(MutErr::Invalid("path is null or not UTF-8".into())),
         };
-        let cap = full(o);
+        let cap = o.cap;
         guard(&o.scheme, cap.delete, "delete")?;
         if recursive != 0 {
             // Recursion is provided by OpenDAL's raw layer even when a backend
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn odop_rename(
             Some(s) => s,
             None => return Err(MutErr::Invalid("to is null or not UTF-8".into())),
         };
-        guard(&o.scheme, full(o).rename, "rename")?;
+        guard(&o.scheme, o.cap.rename, "rename")?;
         block_on(o.op.rename(f, t)).map_err(MutErr::Opendal)
     })
 }
@@ -123,7 +123,7 @@ pub unsafe extern "C" fn odop_copy(
             Some(s) => s,
             None => return Err(MutErr::Invalid("to is null or not UTF-8".into())),
         };
-        guard(&o.scheme, full(o).copy, "copy")?;
+        guard(&o.scheme, o.cap.copy, "copy")?;
         block_on(o.op.copy(f, t))
             .map(|_meta| ())
             .map_err(MutErr::Opendal)

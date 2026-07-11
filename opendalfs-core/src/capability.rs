@@ -59,13 +59,6 @@ pub(crate) fn require(
     }
 }
 
-/// Convenience: fetch the operator's effective capability once. Cheap (cached
-/// by OpenDAL); the whole `Capability` is `Copy`. Uses `capability()` (RFC 7700
-/// renamed the old `full_capability()`).
-pub(crate) fn full(op: &OdopOperator) -> Capability {
-    op.op.info().capability()
-}
-
 // ── introspection FFI: capabilities as an index-addressable (name, bool) list ─
 
 /// One capability flag: `name` (borrowed, NUL-terminated) + `supported`.
@@ -100,7 +93,7 @@ pub unsafe extern "C" fn odop_capabilities(
             set_error(err, OdopErrorCode::InvalidInput, "null operator");
             return std::ptr::null_mut();
         }
-        let cap = full(&*op);
+        let cap = (*op).cap;
         let items: Vec<(CString, bool)> = capability_bools(&cap)
             .into_iter()
             .map(|(name, sup)| (CString::new(name).unwrap_or_default(), sup))
