@@ -11,20 +11,32 @@ description = "OpenDAL FFI core for the duckdb-opendal filesystem extension"
 crate-type = ["staticlib"]
 
 [dependencies]
-# Pinned per plan §2. We keep OpenDAL's default features and add only the
-# extras we need. The `default` set (0.58.0) already includes
-# auto-register-services, executors-tokio, layers-retry/timeout/concurrent-limit,
-# layers-logging, and `http-transport-reqwest` — the reqwest transport with
-# rustls TLS (RFC 7749 moved TLS out of core into this feature; it replaces the
-# old `reqwest-rustls-tls` flag). So HTTPS object-store access works out of the
-# box; no explicit TLS feature is required.
-opendal = { version = "0.58.0", features = [
+# Pinned per plan §2. We disable OpenDAL's default features so we can pick the
+# rustls crypto provider ourselves (ring, not the default aws-lc-rs) — aws-lc-sys
+# fails to build its ARMv8 asm under MSVC on windows_arm64, while ring builds
+# cleanly there and is smaller. We install the ring provider at startup (see
+# operator.rs). All the other 0.58 defaults we rely on are re-listed explicitly.
+opendal = { version = "0.58.0", default-features = false, features = [
+    "auto-register-services",
+    "executors-tokio",
+    "layers-retry",
+    "layers-timeout",
+    "layers-concurrent-limit",
+    "layers-logging",
+    # reqwest transport with rustls, but no bundled crypto provider — we install
+    # ring ourselves rather than pull in aws-lc-rs.
+    "http-transport-reqwest-rustls-no-provider",
     # Foyer hybrid (memory + disk) cache layer (Phase 5), opt-in per secret.
     "layers-foyer",
     "services-memory",
     "services-fs",
     "services-s3",
 ] }
+# rustls with the ring provider; installed process-wide at startup.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# The reqwest HTTP transport for OpenDAL. With rustls-no-provider the facade does
+# not auto-install it, so we construct + install it ourselves (see operator.rs).
+opendal-http-transport-reqwest = { version = "0.58.0", default-features = false, features = ["rustls-no-provider"] }
 # foyer builder types for constructing the hybrid cache used by FoyerLayer.
 # Pinned to match opendal-layer-foyer's transitive foyer version.
 foyer = "0.22"

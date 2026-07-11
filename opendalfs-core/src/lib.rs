@@ -35,7 +35,7 @@ pub use lister::{
     odop_list, odop_list_entry, odop_list_free, odop_list_len, OdopEntry, OdopEntryList,
 };
 pub use mutate::{odop_copy, odop_create_dir, odop_remove, odop_rename};
-pub use operator::{odop_operator_free, odop_operator_new, OdopOperator};
+pub use operator::{odop_init, odop_operator_free, odop_operator_new, OdopOperator};
 pub use reader::{odop_reader_free, odop_reader_open, odop_reader_read, OdopReader};
 pub use stat::{odop_exists, odop_stat, OdopMetadata};
 pub use writer::{

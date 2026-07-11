@@ -75,6 +75,11 @@ inline void OpendalFsVersionScalarFun(DataChunk &args, ExpressionState &state, V
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &db = loader.GetDatabaseInstance();
 
+	// One-time init of the Rust core: populate OpenDAL's service registry and
+	// install the rustls (ring) crypto provider + reqwest HTTP transport. Must
+	// run before any operator is built (idempotent).
+	odop_init();
+
 	// Register the OpenDAL filesystem as a DuckDB subsystem. From here, any URL
 	// with a supported OpenDAL scheme (fs://, memory://, …) is served through
 	// the Rust core. Keep a raw pointer (owned by the VFS) for table functions.

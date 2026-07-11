@@ -64,12 +64,6 @@ pub unsafe extern "C" fn odop_operator_new(
     err: *mut OdopError,
 ) -> *mut OdopOperator {
     ffi_guard!(err, std::ptr::null_mut(), "odop_operator_new", {
-        // Ensure OpenDAL's service registry is populated. We link opendal as a
-        // staticlib, so the `#[ctor]`-based auto-registration can be dropped by
-        // the linker (notably under thin LTO). Calling this explicitly is the
-        // documented, robust path and is idempotent (guarded by a `Once`).
-        opendal::init_default_registry();
-
         let uri_str = match cstr(uri) {
             Some(s) => s,
             None => {
@@ -159,4 +153,33 @@ unsafe fn collect_pairs(
 #[no_mangle]
 pub unsafe extern "C" fn odop_operator_free(op: *mut OdopOperator) {
     free_handle(op);
+}
+
+/// One-time process initialization: populate OpenDAL's service registry and
+/// install the rustls crypto provider (ring) + reqwest HTTP transport.
+///
+/// Call this **once at extension load** (from `LoadInternal`), before any
+/// operator is built. It is required because:
+///  - we link opendal as a `staticlib`, so its `#[ctor]` auto-registration can
+///    be dropped by the linker (e.g. under thin LTO) — the OpenDAL docs tell
+///    staticlib consumers to call `init_default_registry()` explicitly;
+///  - with the `rustls-no-provider` feature the facade does NOT auto-install a
+///    crypto provider or the HTTP transport, so we install both ourselves.
+///
+/// Idempotent (guarded by a `Once`); safe to call more than once.
+#[no_mangle]
+pub extern "C" fn odop_init() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    let _ = std::panic::catch_unwind(|| {
+        INIT.call_once(|| {
+            opendal::init_default_registry();
+            // Provider must be installed before the transport builds its client.
+            // Err only means a provider is already installed — fine.
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            opendal::HttpTransporter::install_default(
+                opendal_http_transport_reqwest::ReqwestTransport::default(),
+            );
+        });
+    });
 }
