@@ -20,66 +20,22 @@ use opendal::Capability;
 use crate::error::{set_error, OdopError, OdopErrorCode};
 use crate::operator::OdopOperator;
 
-/// Every boolean field of `opendal::Capability`, paired with its name. This is
-/// the single source of truth for both guards and introspection: adding a new
-/// OpenDAL capability means adding one line here.
+/// Enumerate an operator's capabilities as `(name, supported)` pairs.
 ///
-/// The `Option<usize>` size-hint fields (`write_multi_max_size`, …) are not
-/// boolean "supported/not" flags and are intentionally omitted.
-fn capability_bools(c: &Capability) -> [(&'static str, bool); 51] {
-    [
-        ("stat", c.stat),
-        ("stat_with_if_match", c.stat_with_if_match),
-        ("stat_with_if_none_match", c.stat_with_if_none_match),
-        ("stat_with_if_modified_since", c.stat_with_if_modified_since),
-        ("stat_with_if_unmodified_since", c.stat_with_if_unmodified_since),
-        ("stat_with_override_cache_control", c.stat_with_override_cache_control),
-        ("stat_with_override_content_disposition", c.stat_with_override_content_disposition),
-        ("stat_with_override_content_type", c.stat_with_override_content_type),
-        ("stat_with_version", c.stat_with_version),
-        ("read", c.read),
-        ("read_with_if_match", c.read_with_if_match),
-        ("read_with_if_none_match", c.read_with_if_none_match),
-        ("read_with_if_modified_since", c.read_with_if_modified_since),
-        ("read_with_if_unmodified_since", c.read_with_if_unmodified_since),
-        ("read_with_override_cache_control", c.read_with_override_cache_control),
-        ("read_with_override_content_disposition", c.read_with_override_content_disposition),
-        ("read_with_override_content_type", c.read_with_override_content_type),
-        ("read_with_version", c.read_with_version),
-        ("write", c.write),
-        ("write_can_multi", c.write_can_multi),
-        ("write_can_empty", c.write_can_empty),
-        ("write_can_append", c.write_can_append),
-        ("write_with_content_type", c.write_with_content_type),
-        ("write_with_content_disposition", c.write_with_content_disposition),
-        ("write_with_content_encoding", c.write_with_content_encoding),
-        ("write_with_cache_control", c.write_with_cache_control),
-        ("write_with_if_match", c.write_with_if_match),
-        ("write_with_if_none_match", c.write_with_if_none_match),
-        ("write_with_if_not_exists", c.write_with_if_not_exists),
-        ("write_with_user_metadata", c.write_with_user_metadata),
-        ("create_dir", c.create_dir),
-        ("delete", c.delete),
-        ("delete_with_version", c.delete_with_version),
-        ("delete_with_recursive", c.delete_with_recursive),
-        ("copy", c.copy),
-        ("copy_with_if_not_exists", c.copy_with_if_not_exists),
-        ("copy_with_if_match", c.copy_with_if_match),
-        ("copy_can_multi", c.copy_can_multi),
-        ("rename", c.rename),
-        ("list", c.list),
-        ("list_with_limit", c.list_with_limit),
-        ("list_with_start_after", c.list_with_start_after),
-        ("list_with_recursive", c.list_with_recursive),
-        ("list_with_versions", c.list_with_versions),
-        ("list_with_deleted", c.list_with_deleted),
-        ("presign", c.presign),
-        ("presign_read", c.presign_read),
-        ("presign_stat", c.presign_stat),
-        ("presign_write", c.presign_write),
-        ("presign_delete", c.presign_delete),
-        ("shared", c.shared),
-    ]
+/// `opendal::Capability` derives `Serialize`, so we serialize it to a JSON
+/// object and keep every boolean field — no hand-maintained field list, so this
+/// automatically tracks capabilities added in future OpenDAL versions. The
+/// non-boolean size-hint fields (`write_multi_max_size`, …) are skipped: they
+/// are limits, not "supported / not-supported" flags. Field order is whatever
+/// serde_json yields (deterministic per build); the C++ side treats it as a set.
+fn capability_bools(c: &Capability) -> Vec<(String, bool)> {
+    match serde_json::to_value(c) {
+        Ok(serde_json::Value::Object(map)) => map
+            .into_iter()
+            .filter_map(|(k, v)| v.as_bool().map(|b| (k, b)))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// Fail-fast guard: return `Err((code, message))` if `supported` is false.
@@ -144,8 +100,8 @@ pub unsafe extern "C" fn odop_capabilities(
         }
         let cap = full(&*op);
         let items: Vec<(CString, bool)> = capability_bools(&cap)
-            .iter()
-            .map(|(name, sup)| (CString::new(*name).unwrap_or_default(), *sup))
+            .into_iter()
+            .map(|(name, sup)| (CString::new(name).unwrap_or_default(), sup))
             .collect();
         crate::error::set_ok(err);
         Box::into_raw(Box::new(OdopCapabilityList { items }))

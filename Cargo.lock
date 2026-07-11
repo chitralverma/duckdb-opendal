@@ -1515,6 +1515,7 @@ dependencies = [
  "cbindgen",
  "foyer",
  "opendal",
+ "serde_json",
  "tempfile",
  "tokio",
 ]
