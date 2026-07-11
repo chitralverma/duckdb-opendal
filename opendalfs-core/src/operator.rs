@@ -12,7 +12,7 @@
 
 use std::ffi::{c_char, CStr};
 
-use opendal::Operator;
+use opendal::{Operator, OperatorUri};
 
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
 use crate::layers::apply_layers;
@@ -89,11 +89,19 @@ pub unsafe extern "C" fn odop_operator_new(
             }
         };
 
-        // Extract the scheme for capability error messages via OpenDAL's
-        // canonical URI parser (no hand-rolled string splitting).
-        let scheme = crate::uri::scheme_of(uri_str);
+        // Parse the URI once (folding in the secret config as extra options),
+        // then reuse the same OperatorUri for both the scheme (for capability
+        // error messages) and operator construction — no second parse.
+        let parsed = match OperatorUri::new(uri_str, cfg) {
+            Ok(p) => p,
+            Err(e) => {
+                set_opendal_error(err, &e);
+                return std::ptr::null_mut();
+            }
+        };
+        let scheme = parsed.scheme().to_owned();
 
-        match Operator::from_uri((uri_str, cfg)) {
+        match Operator::from_uri(parsed) {
             Ok(op) => {
                 let op = apply_layers(op, &layer_opts);
                 set_ok(err);

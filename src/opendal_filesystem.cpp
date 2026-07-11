@@ -204,33 +204,24 @@ static bool SchemeNeedsSecret(const std::string &scheme) {
 
 bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme,
                                  std::string &out_authority, std::string &out_path) {
-	// Parse with OpenDAL's canonical OperatorUri (via FFI) so scheme/authority
-	// extraction matches how from_uri builds operators — no hand-rolled split.
-	OdopUriParts parts = {};
-	OdopError err = {};
-	OdopParsedUri *handle = odop_parse_uri(url.c_str(), &parts, &err);
-	if (!handle) {
-		ClearError(err);
+	// Lightweight local split — this is a hot path (called per FS op), so we do
+	// not round-trip through the FFI/OperatorUri here. The canonical OpenDAL
+	// parse happens once, operator-side, at construction (see odop_operator_new).
+	// The split itself is mechanical: scheme, then either an authority (first
+	// segment, for object stores) or the whole remainder as a path (fs/memory).
+	auto pos = url.find("://");
+	if (pos == std::string::npos) {
 		return false;
 	}
-	out_scheme = parts.scheme ? std::string(parts.scheme) : std::string();
-	std::string root = parts.root ? std::string(parts.root) : std::string();
-	std::string authority = parts.authority ? std::string(parts.authority) : std::string();
-	bool has_authority = parts.has_authority != 0;
-	odop_parsed_uri_free(handle);
-
+	out_scheme = url.substr(0, pos);
 	if (out_scheme.empty()) {
 		return false;
 	}
-
+	std::string rest = url.substr(pos + 3);
 	out_authority.clear();
 
 	if (SchemeIsPathStyle(out_scheme)) {
-		// fs / memory: no authority. OperatorUri may misread a relative first
-		// segment (e.g. fs://__TEST_DIR__/x) as an authority, so reconstruct the
-		// path from the raw URL instead of trusting the parsed split.
-		auto pos = url.find("://");
-		std::string rest = pos == std::string::npos ? url : url.substr(pos + 3);
+		// fs / memory: no authority; everything after :// is the path.
 		out_path = rest.empty() ? "/" : rest;
 		if (out_scheme == "fs") {
 			out_path = AbsolutizeFsPath(out_path);
@@ -238,12 +229,21 @@ bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme
 		return true;
 	}
 
-	// Authority-style (object stores): the authority is the bucket/container;
-	// the object key is the root. Keep a leading slash on the key (OpenDAL
-	// normalizes it) to preserve the existing per-call path contract.
-	out_authority = authority;
-	(void)has_authority;
-	out_path = root.empty() ? "/" : ("/" + root);
+	// Authority-style (object stores): scheme://<authority>/<key>. The authority
+	// (bucket/container) is mapped to service config by OpenDAL's from_uri; here
+	// we only split it off so per-call paths are the object key (leading slash
+	// kept; OpenDAL normalizes it).
+	auto slash = rest.find('/');
+	if (slash == std::string::npos) {
+		out_authority = rest;
+		out_path = "/";
+	} else {
+		out_authority = rest.substr(0, slash);
+		out_path = rest.substr(slash);
+		if (out_path.empty()) {
+			out_path = "/";
+		}
+	}
 	return true;
 }
 
