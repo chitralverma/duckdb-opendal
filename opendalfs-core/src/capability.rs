@@ -1,8 +1,8 @@
 //! Capability introspection + fail-fast guards.
 //!
 //! OpenDAL exposes each service's supported operations via
-//! `Operator::info().full_capability()` (a cheap, cached `Capability` of `bool`
-//! flags). We use it two ways:
+//! `Operator::info().capability()` (a cheap, cached `Capability` of `bool`
+//! flags — the effective capability after layers/simulation, per RFC 7700). We use it two ways:
 //!
 //!   1. **Fail-fast guards** — before a mutating/IO call we check the relevant
 //!      flag and, if unsupported, return `OdopErrorCode::Unsupported` with a
@@ -58,10 +58,11 @@ pub(crate) fn require(
     }
 }
 
-/// Convenience: fetch the operator's full capability once. Cheap (cached by
-/// OpenDAL); the whole `Capability` is `Copy`.
+/// Convenience: fetch the operator's effective capability once. Cheap (cached
+/// by OpenDAL); the whole `Capability` is `Copy`. Uses `capability()` (RFC 7700
+/// renamed the old `full_capability()`).
 pub(crate) fn full(op: &OdopOperator) -> Capability {
-    op.op.info().full_capability()
+    op.op.info().capability()
 }
 
 // ── introspection FFI: capabilities as an index-addressable (name, bool) list ─

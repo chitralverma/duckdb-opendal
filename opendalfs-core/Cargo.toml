@@ -11,17 +11,14 @@ description = "OpenDAL FFI core for the duckdb-opendal filesystem extension"
 crate-type = ["staticlib"]
 
 [dependencies]
-# Pinned per plan §2. Local dev enables only memory + fs services for now;
-# more services + layers are gated behind features and enabled incrementally.
-opendal = { version = "0.57.0", default-features = false, features = [
-    "executors-tokio",
-    # Registers service schemes so string-based `Operator::via_iter("<scheme>", ..)`
-    # works. Without this, via_iter reports "scheme is not registered".
-    "auto-register-services",
-    # Layers (Phase 3): configurable per operator via odop_operator_new.
-    "layers-retry",
-    "layers-timeout",
-    "layers-concurrent-limit",
+# Pinned per plan §2. We keep OpenDAL's default features and add only the
+# extras we need. The `default` set (0.58.0) already includes
+# auto-register-services, executors-tokio, layers-retry/timeout/concurrent-limit,
+# layers-logging, and `http-transport-reqwest` — the reqwest transport with
+# rustls TLS (RFC 7749 moved TLS out of core into this feature; it replaces the
+# old `reqwest-rustls-tls` flag). So HTTPS object-store access works out of the
+# box; no explicit TLS feature is required.
+opendal = { version = "0.58.0", features = [
     # Foyer hybrid (memory + disk) cache layer (Phase 5), opt-in per secret.
     "layers-foyer",
     "services-memory",
