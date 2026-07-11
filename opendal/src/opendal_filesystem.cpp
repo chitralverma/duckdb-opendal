@@ -46,7 +46,7 @@ static int glob_match(const char *pattern, const char *name) {
 namespace duckdb {
 
 // ── Native-filesystem override (opendal_override_native_filesystems) ─────────
-// A process-global set of schemes for which opendal_fs should win DuckDB's VFS
+// A process-global set of schemes for which opendal should win DuckDB's VFS
 // dispatch over a native/core extension (e.g. httpfs's s3://). Populated by the
 // `opendal_override_native_filesystems` setting.
 //

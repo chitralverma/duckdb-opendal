@@ -1,5 +1,5 @@
-# name: test/sql/opendal_fs.test
-# description: test opendal_fs extension (Phase 1 — FFI read path over fs://)
+# name: test/sql/opendal.test
+# description: test opendal extension (Phase 1 — FFI read path over fs://)
 # group: [sql]
 
 # Before we load the extension, this will fail

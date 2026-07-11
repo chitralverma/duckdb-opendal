@@ -105,7 +105,7 @@ pub(crate) fn apply_layers(mut op: Operator, opts: &[(String, String)]) -> Opera
             Err(e) => {
                 // Caching is best-effort: log and continue without it rather than
                 // failing the whole operator.
-                eprintln!("[opendalfs] foyer cache disabled ({e})");
+                eprintln!("[duckdb-opendal] foyer cache disabled ({e})");
             }
         }
     }

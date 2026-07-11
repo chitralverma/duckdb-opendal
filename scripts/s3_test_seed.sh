@@ -13,7 +13,7 @@
 #   AWS_ENDPOINT_URL=http://127.0.0.1:19100 \
 #   AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
 #   AWS_REGION=us-east-1 \
-#   ./build/release/test/unittest --test-dir . test/sql/opendal_fs_s3.test
+#   ./build/release/test/unittest --test-dir . test/sql/opendal_s3.test
 
 set -euo pipefail
 

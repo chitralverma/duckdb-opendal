@@ -10,7 +10,7 @@
 //!      letting the deep OpenDAL call fail with a less obvious error.
 //!   2. **Introspection** — `od_capabilities` materializes every boolean
 //!      capability as an index-addressable `(name, supported)` list so the C++
-//!      side can surface them generically (e.g. a future `opendal_fs_services()`)
+//!      side can surface them generically (e.g. a future `opendal_services()`)
 //!      without hardcoding a column per flag.
 
 use std::ffi::{c_char, CString};

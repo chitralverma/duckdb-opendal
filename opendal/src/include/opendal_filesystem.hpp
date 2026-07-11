@@ -85,7 +85,7 @@ public:
 	// handlers still serve schemes not in the list.
 	bool IsManuallySet() override;
 
-	// Configure the set of schemes for which opendal_fs overrides native
+	// Configure the set of schemes for which opendal overrides native
 	// filesystems. `csv` is a comma-separated list (e.g. "s3,gcs"); empty
 	// disables all overrides. Thread-safe; process-global.
 	static void SetOverrideSchemes(const std::string &csv);

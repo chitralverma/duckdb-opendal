@@ -18,9 +18,9 @@ pub(crate) fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(|| {
         Builder::new_multi_thread()
             .enable_all()
-            .thread_name("opendalfs")
+            .thread_name("duckdb-opendal")
             .build()
-            .expect("failed to build opendalfs Tokio runtime")
+            .expect("failed to build duckdb-opendal Tokio runtime")
     })
 }
 

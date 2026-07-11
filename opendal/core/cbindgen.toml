@@ -21,6 +21,6 @@ rename_args = "None"
 
 [enum]
 # Keep Rust variant names (Ok, NotFound, …) so the C++ side references them as
-# OdopErrorCode::Ok. (Avoids a ScreamingSnakeCase `OK` that could collide with
+# OdErrorCode::Ok. (Avoids a ScreamingSnakeCase `OK` that could collide with
 # platform macros.)
 rename_variants = "None"
