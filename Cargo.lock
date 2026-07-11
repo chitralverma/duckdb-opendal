@@ -385,16 +385,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ctor"
-version = "1.0.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb22e947478ccf9dc44d8922042c677a63fbb88f2cb468521d1145816e5087cb"
-dependencies = [
- "link-section",
- "linktime-proc-macro",
-]
-
-[[package]]
 name = "ctutils"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1284,18 +1274,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
-name = "link-section"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e333fe507b738576d6da5bb3f1a7d7a1c80307ed9ef31624c057d844c19c93e9"
-
-[[package]]
-name = "linktime-proc-macro"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c7b0a3383c2a1002d11349c92c85a666a5fb679e96c79d782cf0dbe557fd6ee"
-
-[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1469,12 +1447,10 @@ version = "0.58.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77d02c6564e376d3670aaf66ad886cd34f83c0aca407b6364777c624a63e0e2d"
 dependencies = [
- "ctor",
  "opendal-core",
  "opendal-http-transport-reqwest",
  "opendal-layer-concurrent-limit",
  "opendal-layer-foyer",
- "opendal-layer-logging",
  "opendal-layer-retry",
  "opendal-layer-timeout",
  "opendal-service-fs",
@@ -1540,16 +1516,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96091105e03091b35b25cc023a912c735bf1126718db0402d033a50666c50533"
 dependencies = [
  "foyer",
- "opendal-core",
-]
-
-[[package]]
-name = "opendal-layer-logging"
-version = "0.58.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed46bc88c1ea9b961c342a796ec790ee5a0ac5a02bf465aea6791684d72ca291"
-dependencies = [
- "log",
  "opendal-core",
 ]
 

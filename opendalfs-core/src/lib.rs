@@ -35,7 +35,7 @@ pub use lister::{
     odop_list, odop_list_entry, odop_list_free, odop_list_len, OdopEntry, OdopEntryList,
 };
 pub use mutate::{odop_copy, odop_create_dir, odop_remove, odop_rename};
-pub use operator::{odop_init, odop_operator_free, odop_operator_new, OdopOperator};
+pub use operator::{odop_operator_free, odop_operator_new, OdopOperator};
 pub use reader::{odop_reader_free, odop_reader_open, odop_reader_read, OdopReader};
 pub use stat::{odop_exists, odop_stat, OdopMetadata};
 pub use writer::{
@@ -53,6 +53,29 @@ const OPENDALFS_CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Cargo.toml dependency pin (opendal exposes no public VERSION const). Falls
 /// back to "unknown" if unresolved.
 const OPENDAL_VERSION: &str = env!("OPENDAL_VERSION");
+
+/// One-time process initialization — call once at extension load, before any
+/// operator is built.
+///
+/// Populates OpenDAL's service registry (we link opendal as a `staticlib`, so
+/// its `#[ctor]` init can be dropped by the linker) and installs the rustls
+/// `ring` crypto provider + reqwest HTTP transport (the `rustls-no-provider`
+/// feature auto-installs neither). Idempotent (guarded by a `Once`).
+#[no_mangle]
+pub extern "C" fn odop_init() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    let _ = catch_unwind(|| {
+        INIT.call_once(|| {
+            opendal::init_default_registry();
+            // The provider must be installed before the transport builds its client.
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            opendal::HttpTransporter::install_default(
+                opendal_http_transport_reqwest::ReqwestTransport::default(),
+            );
+        });
+    });
+}
 
 /// Return a heap-allocated C string describing the opendalfs-core + OpenDAL
 /// versions. Caller owns the pointer and MUST free it with `odop_string_free`.
@@ -423,6 +446,7 @@ mod tests {
         // from_uri must map the URI authority to the s3 `bucket` config via
         // OpenDAL's per-service parsing — no bucket key passed explicitly.
         // Uses a dummy endpoint/creds; no network I/O (operator build is lazy).
+        odop_init(); // register services (no auto-register ctor)
         let uri = CString::new("s3://my-bucket").unwrap();
         let keys: Vec<CString> = ["endpoint", "region", "access_key_id", "secret_access_key"]
             .iter()
@@ -602,6 +626,7 @@ mod tests {
         // The fs service supports copy; exercise the odop_copy FFI end to end
         // (this is the branch the C++ MoveFile copy+delete fallback uses when a
         // service lacks server-side rename, e.g. s3).
+        odop_init(); // register services (no auto-register ctor)
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
         let uri = CString::new("fs://").unwrap();

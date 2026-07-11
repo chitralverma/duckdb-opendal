@@ -11,47 +11,36 @@ description = "OpenDAL FFI core for the duckdb-opendal filesystem extension"
 crate-type = ["staticlib"]
 
 [dependencies]
-# Pinned per plan §2. We disable OpenDAL's default features so we can pick the
-# rustls crypto provider ourselves (ring, not the default aws-lc-rs) — aws-lc-sys
-# fails to build its ARMv8 asm under MSVC on windows_arm64, while ring builds
-# cleanly there and is smaller. We install the ring provider at startup (see
-# operator.rs). All the other 0.58 defaults we rely on are re-listed explicitly.
+# default-features off so we pick the rustls crypto provider (ring, not the
+# default aws-lc-rs — aws-lc-sys fails its ARMv8 asm build under MSVC on
 opendal = { version = "0.58.0", default-features = false, features = [
-    "auto-register-services",
     "executors-tokio",
+    "http-transport-reqwest-rustls-no-provider",
+
+    # layers
     "layers-retry",
     "layers-timeout",
     "layers-concurrent-limit",
-    "layers-logging",
-    # reqwest transport with rustls, but no bundled crypto provider — we install
-    # ring ourselves rather than pull in aws-lc-rs.
-    "http-transport-reqwest-rustls-no-provider",
-    # Foyer hybrid (memory + disk) cache layer (Phase 5), opt-in per secret.
     "layers-foyer",
+
+    # services
     "services-memory",
     "services-fs",
     "services-s3",
 ] }
-# rustls with the ring provider; installed process-wide at startup.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-# The reqwest HTTP transport for OpenDAL. With rustls-no-provider the facade does
-# not auto-install it, so we construct + install it ourselves (see operator.rs).
 opendal-http-transport-reqwest = { version = "0.58.0", default-features = false, features = ["rustls-no-provider"] }
-# foyer builder types for constructing the hybrid cache used by FoyerLayer.
-# Pinned to match opendal-layer-foyer's transitive foyer version.
+# Match opendal-layer-foyer's transitive foyer version.
 foyer = "0.22"
 tokio = { version = "1", features = ["rt-multi-thread"] }
-# Used to enumerate an operator's Capability generically (it derives Serialize),
-# so we don't hand-maintain a list of ~50 capability fields.
+# Capability is serialized to enumerate its bool fields generically.
 serde_json = "1"
-# BufMut for the zero-extra-copy Reader::read_into path. Already in the tree via
-# opendal, so this adds no new crate.
+# BufMut for the zero-extra-copy Reader::read_into path.
 bytes = "1"
 
 [build-dependencies]
 cbindgen = "0.29"
-# Parse Cargo.toml (TOML) to resolve the opendal version at build time. Already
-# in the build-dep tree via cbindgen, so this adds no new crate.
+# Resolve the opendal version from Cargo.toml at build time.
 toml = "0.9"
 
 [dev-dependencies]
