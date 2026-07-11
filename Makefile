@@ -4,9 +4,13 @@ PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 EXT_NAME=opendal
 EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 
+# Submodules live under external/. Point the ci-tools makefile at the DuckDB
+# source there (DUCKDB_SRCDIR is declared with ?= so this override wins).
+DUCKDB_SRCDIR := ./external/duckdb/
+
 # Include the Makefile from extension-ci-tools. Its first target (`all: release`)
 # stays the default goal, so a bare `make` still builds the extension.
-include extension-ci-tools/makefiles/duckdb_extension.Makefile
+include external/extension-ci-tools/makefiles/duckdb_extension.Makefile
 
 # ── Rust convenience targets ─────────────────────────────────────────────────
 .PHONY: rust-build rust-test rust-fmt rust-lint rust-clean cargo-clean clean-all help
