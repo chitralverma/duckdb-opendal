@@ -12,11 +12,11 @@ set(CMAKE_CXX_STANDARD "17" CACHE STRING "C++ standard to enforce")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Rust core (opendalfs-core) via Corrosion
+# Rust core (duckdb-opendal) via Corrosion
 #
 # The storage core is the OpenDAL Rust crate, statically linked into this C++
 # extension. Corrosion drives cargo from CMake and exposes the staticlib as a
-# CMake target (named after the crate: `opendalfs-core`). See
+# CMake target (named after the crate: `duckdb-opendal`). See
 # docs/duckdb-opendal-plan.md §7.
 # ─────────────────────────────────────────────────────────────────────────────
 include(FetchContent)
@@ -66,7 +66,7 @@ message(STATUS "opendal: Rust_CARGO_TARGET = ${Rust_CARGO_TARGET}")
 
 corrosion_import_crate(
     MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
-    CRATES opendalfs-core
+    CRATES duckdb-opendal
     PROFILE release)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -95,15 +95,15 @@ endif()
 # Link the Rust core into both the static and loadable extension.
 #
 # NOTE: DuckDB's build_*_extension macros define the extension targets in a
-# CMake scope where Corrosion's IMPORTED targets (`opendalfs-core`,
-# `opendalfs-core-static`) are not visible as targets, so linking them by name
+# CMake scope where Corrosion's IMPORTED targets (`duckdb-opendal`,
+# `duckdb-opendal-static`) are not visible as targets, so linking them by name
 # degrades to `-l<name>` and fails. To be deterministic across scopes we link
 # the absolute path of the staticlib that Corrosion produces, and add an
 # explicit dependency on the Corrosion build target for correct ordering.
-set(RUST_STATICLIB "${CMAKE_BINARY_DIR}/extension/opendal/libopendalfs_core.a")
+set(RUST_STATICLIB "${CMAKE_BINARY_DIR}/extension/opendal/libduckdb_opendal.a")
 
-add_dependencies(${EXTENSION_NAME} cargo-build_opendalfs_core)
-add_dependencies(${LOADABLE_EXTENSION_NAME} cargo-build_opendalfs_core)
+add_dependencies(${EXTENSION_NAME} cargo-build_duckdb_opendal)
+add_dependencies(${LOADABLE_EXTENSION_NAME} cargo-build_duckdb_opendal)
 
 target_link_libraries(${EXTENSION_NAME} ${RUST_STATICLIB} ${RUST_SYSTEM_LIBS})
 target_link_libraries(${LOADABLE_EXTENSION_NAME} ${RUST_STATICLIB} ${RUST_SYSTEM_LIBS})

@@ -14,11 +14,11 @@ require opendal
 # Parquet reader/writer used below.
 require parquet
 
-# The version string comes from the Rust core (opendalfs-core) across the FFI.
+# The version string comes from the Rust core (duckdb-opendal) across the FFI.
 # The OpenDAL version is resolved from Cargo.lock at build time (not hardcoded),
 # so assert only the shape, not a specific version.
 query I
-SELECT opendal_version() ILIKE 'opendalfs-core%(opendal %)%';
+SELECT opendal_version() ILIKE 'duckdb-opendal%(opendal %)%';
 ----
 true
 

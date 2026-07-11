@@ -1,4 +1,4 @@
-//! opendalfs-core — FFI core for the duckdb-opendal filesystem extension.
+//! duckdb-opendal — FFI core for the duckdb-opendal filesystem extension.
 //!
 //! A C++ DuckDB `FileSystem` shell calls this Rust core (wrapping the OpenDAL
 //! async crate) across a raw `extern "C"` boundary. A shared multi-thread Tokio
@@ -43,8 +43,9 @@ pub use writer::{
 use std::ffi::{c_char, CString};
 use std::panic::catch_unwind;
 
-/// Version string of this FFI core (crate version).
-const OPENDALFS_CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Name + version of this FFI core crate (auto-tracks the Cargo.toml name).
+const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
+const CRATE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Resolved OpenDAL crate version, injected by build.rs from this crate's
 /// Cargo.toml dependency pin (opendal exposes no public VERSION const). Falls
@@ -74,7 +75,7 @@ pub extern "C" fn od_init() {
     });
 }
 
-/// Return a heap-allocated C string describing the opendalfs-core + OpenDAL
+/// Return a heap-allocated C string describing the crate + OpenDAL
 /// versions. Caller owns the pointer and MUST free it with `od_string_free`.
 ///
 /// Returns null on allocation failure or panic.
@@ -85,7 +86,7 @@ pub extern "C" fn od_init() {
 #[no_mangle]
 pub extern "C" fn od_version() -> *mut c_char {
     catch_unwind(|| {
-        let s = format!("opendalfs-core {OPENDALFS_CORE_VERSION} (opendal {OPENDAL_VERSION})");
+        let s = format!("{CRATE_NAME} {CRATE_VERSION} (opendal {OPENDAL_VERSION})");
         match CString::new(s) {
             Ok(c) => c.into_raw(),
             Err(_) => std::ptr::null_mut(),
@@ -122,7 +123,7 @@ mod tests {
         let p = od_version();
         assert!(!p.is_null());
         let s = unsafe { CStr::from_ptr(p) }.to_str().unwrap().to_owned();
-        assert!(s.contains("opendalfs-core"));
+        assert!(s.contains("duckdb-opendal"));
         // The opendal version is resolved from Cargo.lock at build time, not
         // hardcoded; check it is present and non-empty.
         assert!(s.contains("opendal "));

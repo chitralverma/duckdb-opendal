@@ -1,4 +1,4 @@
-//! Build script for opendalfs-core.
+//! Build script for duckdb-opendal.
 //!
 //! Generates the C header (`../src/include/rust.h`) from the `extern "C"`
 //! surface using cbindgen. The C++ extension shell includes this header.
