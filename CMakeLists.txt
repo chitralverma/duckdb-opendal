@@ -65,20 +65,20 @@ endif()
 message(STATUS "opendal: Rust_CARGO_TARGET = ${Rust_CARGO_TARGET}")
 
 corrosion_import_crate(
-    MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/opendalfs-core/Cargo.toml
+    MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/opendal/core/Cargo.toml
     CRATES duckdb-opendal
     PROFILE release)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Extension
 # ─────────────────────────────────────────────────────────────────────────────
-include_directories(src/include)
+include_directories(opendal/src/include)
 
 set(EXTENSION_SOURCES
-    src/opendal_extension.cpp
-    src/opendal_filesystem.cpp
-    src/opendal_table_functions.cpp
-    src/opendal_secret.cpp)
+    opendal/src/opendal_extension.cpp
+    opendal/src/opendal_filesystem.cpp
+    opendal/src/opendal_table_functions.cpp
+    opendal/src/opendal_secret.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})

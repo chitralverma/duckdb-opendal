@@ -12,25 +12,26 @@ DUCKDB_SRCDIR := ./external/duckdb/
 # stays the default goal, so a bare `make` still builds the extension.
 include external/extension-ci-tools/makefiles/duckdb_extension.Makefile
 
-# ── Rust convenience targets ─────────────────────────────────────────────────
+# ── Rust convenience targets (crate lives in opendal/core) ───────────────────
 .PHONY: rust-build rust-test rust-fmt rust-lint rust-clean cargo-clean clean-all help
+CARGO_MANIFEST := opendal/core/Cargo.toml
 
 rust-build: ## Build the Rust core (release)
-	cargo build --release
+	cargo build --release --manifest-path $(CARGO_MANIFEST)
 
 rust-test: ## Run the Rust unit tests
-	cargo test --release
+	cargo test --release --manifest-path $(CARGO_MANIFEST)
 
 rust-fmt: ## Format the Rust sources
-	cargo fmt
+	cargo fmt --manifest-path $(CARGO_MANIFEST)
 
 rust-lint: ## Lint the Rust sources (clippy, warnings as errors)
-	cargo clippy --release -- -D warnings
+	cargo clippy --release --manifest-path $(CARGO_MANIFEST) -- -D warnings
 
-rust-clean cargo-clean: ## Clean the Rust workspace (target/)
-	cargo clean
+rust-clean cargo-clean: ## Clean the Rust build artifacts (target/)
+	cargo clean --manifest-path $(CARGO_MANIFEST)
 
-# Make the extension-ci-tools `clean` also clean the Rust workspace, so a single
+# Make the extension-ci-tools `clean` also clean the Rust artifacts, so a single
 # `make clean` is consistent. `clean-all` is a friendly alias.
 clean: cargo-clean
 clean-all: clean ## Clean everything (build/, testext/, DuckDB tree, and Rust target/)
