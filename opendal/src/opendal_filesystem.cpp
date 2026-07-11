@@ -292,9 +292,11 @@ std::string OpenDalFileSystem::BuildUrl(const std::string &scheme, const std::st
 	return scheme + "://" + p;
 }
 
-// Schemes this build serves. (Expanded per-service in later phases.)
+// Whether this build serves `scheme`. Not hardcoded: we ask the Rust core,
+// which probes OpenDAL's operator registry (od_scheme_supported), so the set
+// tracks exactly the services compiled in via Cargo features.
 static bool IsSupportedScheme(const std::string &scheme) {
-	return scheme == "fs" || scheme == "memory" || scheme == "s3";
+	return od_scheme_supported(scheme.c_str()) != 0;
 }
 
 bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_scheme, std::string &out_authority,

@@ -33,7 +33,7 @@ pub use error::{OdError, OdErrorCode};
 pub use io::od_set_global_io_options;
 pub use lister::{od_list, od_list_entry, od_list_free, od_list_len, OdEntry, OdEntryList};
 pub use mutate::{od_copy, od_create_dir, od_remove, od_rename};
-pub use operator::{od_operator_free, od_operator_new, OdOperator};
+pub use operator::{od_operator_free, od_operator_new, od_scheme_supported, OdOperator};
 pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
 pub use stat::{od_exists, od_stat, OdMetadata};
 pub use writer::{
@@ -763,5 +763,22 @@ mod tests {
         unsafe { od_operator_free(op) };
         // Reset globals so other tests are unaffected.
         unsafe { od_set_global_io_options(0, 0, 0, 0) };
+    }
+
+    #[test]
+    fn scheme_supported_probes_registry() {
+        od_init(); // populate the registry
+        let sup = |s: &str| {
+            let c = CString::new(s).unwrap();
+            (unsafe { od_scheme_supported(c.as_ptr()) }) == 1
+        };
+        // Compiled-in services.
+        assert!(sup("memory"));
+        assert!(sup("fs"));
+        assert!(sup("s3"));
+        // Not compiled in this build.
+        assert!(!sup("gcs"));
+        assert!(!sup("azblob"));
+        assert!(!sup("definitely_not_a_scheme"));
     }
 }
