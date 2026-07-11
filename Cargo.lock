@@ -1685,6 +1685,7 @@ dependencies = [
 name = "opendalfs-core"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "cbindgen",
  "foyer",
  "opendal",

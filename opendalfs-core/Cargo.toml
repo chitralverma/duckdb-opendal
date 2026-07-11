@@ -32,6 +32,9 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 # Used to enumerate an operator's Capability generically (it derives Serialize),
 # so we don't hand-maintain a list of ~50 capability fields.
 serde_json = "1"
+# BufMut for the zero-extra-copy Reader::read_into path. Already in the tree via
+# opendal, so this adds no new crate.
+bytes = "1"
 
 [build-dependencies]
 cbindgen = "0.29"

@@ -104,15 +104,16 @@ pub unsafe extern "C" fn odop_reader_read(
         }
         let reader = &mut (*reader).reader;
         let end = offset.saturating_add(len);
-        match block_on(reader.read(offset..end)) {
-            Ok(buffer) => {
-                // `buffer` may be non-contiguous; copy into the caller's buffer,
-                // clamped to `len`.
-                let to_copy = std::cmp::min(buffer.len() as u64, len) as usize;
-                let dst = std::slice::from_raw_parts_mut(buf, to_copy);
-                dst.copy_from_slice(&buffer.to_bytes()[..to_copy]);
+        // Read directly into the caller's buffer. `read_into` streams each chunk
+        // straight into the destination (one copy), avoiding the flatten
+        // allocation + second copy that `read()` + `Buffer::to_bytes()` incurs
+        // for a multi-chunk Buffer. The range is bounded to `len`, so the yielded
+        // bytes fit; we still expose the slice as a fixed-capacity BufMut.
+        let mut dst: &mut [u8] = std::slice::from_raw_parts_mut(buf, len as usize);
+        match block_on(reader.read_into(&mut dst, offset..end)) {
+            Ok(n) => {
                 set_ok(err);
-                to_copy as i64
+                n as i64
             }
             Err(e) => {
                 set_opendal_error(err, &e);
