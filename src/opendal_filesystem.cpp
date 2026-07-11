@@ -271,10 +271,6 @@ static bool IsSupportedScheme(const std::string &scheme) {
 	return scheme == "fs" || scheme == "memory" || scheme == "s3";
 }
 
-bool OpenDalFileSystem::IsSupportedSchemePublic(const std::string &scheme) {
-	return IsSupportedScheme(scheme);
-}
-
 bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_scheme,
                                     std::string &out_authority, std::string &out_path) {
 	if (!ParseUrl(url, out_scheme, out_authority, out_path)) {
@@ -579,7 +575,8 @@ timestamp_t OpenDalFileSystem::GetLastModifiedTime(FileHandle &handle) {
 }
 
 FileType OpenDalFileSystem::GetFileType(FileHandle &handle) {
-	// Handles are only opened for files in Phase 1.
+	// Handles are only ever opened for regular files (OpenFile throws on a
+	// directory path), so a handle is always a regular file.
 	return FileType::FILE_TYPE_REGULAR;
 }
 

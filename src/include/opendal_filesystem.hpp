@@ -30,11 +30,10 @@ namespace duckdb {
 //
 // A single DuckDB FileSystem subclass that serves every OpenDAL service scheme
 // (fs://, memory://, s3://, …). It is registered once with DuckDB's
-// VirtualFileSystem and delegates all I/O to the OpenDAL Rust core over the FFI.
-//
-// Phase 1 scope: read path only (memory + fs) — OpenFile(read)/Read/GetFileSize/
-// FileExists/Seek. Writes, listing, glob, mutations, secrets and layers arrive
-// in later phases.
+// VirtualFileSystem and delegates all I/O to the OpenDAL Rust core over the FFI:
+// read (ranged/sequential), streaming writes, stat, list, glob, and mutations
+// (create_dir/remove/rename). Operators are built per scheme://authority and
+// cached; secrets/layers are resolved per operator via the SecretManager.
 // ─────────────────────────────────────────────────────────────────────────────
 class OpenDalFileSystem : public FileSystem {
 public:
@@ -72,8 +71,6 @@ public:
 	void Seek(FileHandle &handle, idx_t location) override;
 	idx_t SeekPosition(FileHandle &handle) override;
 
-	// Phase 1: only exact (non-wildcard) paths are resolved; true globbing
-	// arrives with the lister in Phase 2.
 	vector<OpenFileInfo> Glob(const string &path, FileOpener *opener = nullptr) override;
 
 	bool CanHandleFile(const string &path) override;
@@ -117,7 +114,6 @@ public:
 	                                const std::string &url, optional_ptr<ClientContext> context) {
 		return OperatorForCtx(scheme, authority, url, context);
 	}
-	static bool IsSupportedSchemePublic(const std::string &scheme);
 
 private:
 	// Split a URL into scheme, authority (bucket/host — may be empty), and the

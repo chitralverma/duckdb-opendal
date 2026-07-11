@@ -229,15 +229,6 @@ struct DuGlobalState : public GlobalTableFunctionState {
 	idx_t offset = 0;
 };
 
-static unique_ptr<FunctionData> DuBind(ClientContext &context, TableFunctionBindInput &input,
-                                       vector<LogicalType> &return_types, vector<string> &names) {
-	auto result = make_uniq<DuBindData>();
-	result->url = input.inputs[0].GetValue<string>();
-	names = {"directory", "file_count", "total_size", "size_pretty"};
-	return_types = {LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::VARCHAR};
-	return std::move(result);
-}
-
 static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context,
                                                    TableFunctionInitInput &input) {
 	auto &bind = input.bind_data->Cast<DuBindData>();
@@ -312,12 +303,9 @@ static void DuFunc(ClientContext &context, TableFunctionInput &data, DataChunk &
 
 // ── registration ─────────────────────────────────────────────────────────────
 
-// Because DuckDB table function callbacks are plain function pointers, we pass
-// the filesystem pointer through the bind data. We inject it via a bound-info
-// wrapper: each bind reads it from the shared function info.
-//
-// Simpler approach used here: capture the fs pointer in a small static shim by
-// storing it on the bind data through the function's extra_info.
+// DuckDB table-function callbacks are plain function pointers, so the
+// OpenDalFileSystem pointer is carried on the TableFunction's function_info (an
+// OpenDalTableInfo) and read back in each bind via input.info.
 
 static unique_ptr<FunctionData> LsBindWithFs(ClientContext &context, TableFunctionBindInput &input,
                                              vector<LogicalType> &return_types, vector<string> &names) {
