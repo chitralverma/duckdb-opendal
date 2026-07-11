@@ -1,10 +1,14 @@
 //! Operator lifecycle across the FFI boundary.
 //!
-//! `odop_operator_new` builds an `opendal::Operator` from a scheme string and a
-//! flat key/value config array (the same string→string map OpenDAL accepts for
-//! every service). The handle is opaque to C++; free it with
-//! `odop_operator_free`. Reader/stat/etc. borrow the operator, so it must
-//! outlive all handles derived from it.
+//! `odop_operator_new` builds an `opendal::Operator` from a **URI**
+//! (`scheme://authority`) plus a flat key/value config array. It delegates to
+//! `Operator::from_uri`, so OpenDAL's per-service URI parsing decides how the
+//! authority maps to config (e.g. s3 authority → `bucket`, azblob → `container`,
+//! fs/memory → no authority). The extra key/value pairs are OpenDAL config
+//! (from a SCOPE-matched secret) and **override** anything parsed from the URI.
+//! The handle is opaque to C++; free it with `odop_operator_free`.
+//! Reader/stat/etc. borrow the operator, so it must outlive all handles derived
+//! from it.
 
 use std::ffi::{c_char, CStr};
 
@@ -29,23 +33,27 @@ unsafe fn cstr<'a>(p: *const c_char) -> Option<&'a str> {
     CStr::from_ptr(p).to_str().ok()
 }
 
-/// Build an Operator for `scheme` configured by `len` key/value pairs, then
-/// apply optional layers described by `layer_len` key/value pairs.
+/// Build an Operator from `uri` (`scheme://authority`) plus `len` key/value
+/// config pairs, then apply optional layers described by `layer_len` pairs.
 ///
-/// `keys`/`values` are the OpenDAL service config; `layer_keys`/`layer_values`
-/// configure layers (retry/timeout/concurrent-limit — see `layers.rs`).
+/// Construction goes through `Operator::from_uri((uri, extra_opts))`: OpenDAL's
+/// per-service URI parsing maps the authority to the right config key (bucket /
+/// container / …); `keys`/`values` are extra OpenDAL config (typically a
+/// SCOPE-matched secret) that override URI-parsed values.
+/// `layer_keys`/`layer_values` configure layers (retry/timeout/… — see
+/// `layers.rs`).
 /// On success returns a non-null `*mut OdopOperator` and sets `*err` to Ok.
 /// On failure returns null and populates `*err`.
 ///
 /// # Safety
-/// - `scheme`, and each config/layer `keys[i]`/`values[i]`, must be valid
+/// - `uri`, and each config/layer `keys[i]`/`values[i]`, must be valid
 ///   NUL-terminated C strings for the duration of the call.
 /// - `keys`/`values` must each point to `len` valid pointers (or be null iff
 ///   `len == 0`); likewise `layer_keys`/`layer_values` and `layer_len`.
 /// - The returned handle must be freed exactly once with `odop_operator_free`.
 #[no_mangle]
 pub unsafe extern "C" fn odop_operator_new(
-    scheme: *const c_char,
+    uri: *const c_char,
     keys: *const *const c_char,
     values: *const *const c_char,
     len: usize,
@@ -55,15 +63,15 @@ pub unsafe extern "C" fn odop_operator_new(
     err: *mut OdopError,
 ) -> *mut OdopOperator {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let scheme_str = match cstr(scheme) {
+        let uri_str = match cstr(uri) {
             Some(s) => s,
             None => {
-                set_error(err, OdopErrorCode::InvalidInput, "scheme is null or not UTF-8");
+                set_error(err, OdopErrorCode::InvalidInput, "uri is null or not UTF-8");
                 return std::ptr::null_mut();
             }
         };
 
-        // Collect the config map from the parallel arrays.
+        // Collect the extra config map (secret config) from the parallel arrays.
         let cfg = match collect_pairs(keys, values, len) {
             Ok(v) => v,
             Err(msg) => {
@@ -81,14 +89,18 @@ pub unsafe extern "C" fn odop_operator_new(
             }
         };
 
-        match Operator::via_iter(scheme_str, cfg) {
+        // Extract the scheme for capability error messages (before "://").
+        let scheme = uri_str
+            .split_once("://")
+            .map(|(s, _)| s)
+            .unwrap_or(uri_str)
+            .to_owned();
+
+        match Operator::from_uri((uri_str, cfg)) {
             Ok(op) => {
                 let op = apply_layers(op, &layer_opts);
                 set_ok(err);
-                Box::into_raw(Box::new(OdopOperator {
-                    op,
-                    scheme: scheme_str.to_owned(),
-                }))
+                Box::into_raw(Box::new(OdopOperator { op, scheme }))
             }
             Err(e) => {
                 set_opendal_error(err, &e);

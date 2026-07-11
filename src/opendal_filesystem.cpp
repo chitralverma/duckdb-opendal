@@ -185,8 +185,12 @@ OpenDalFileSystem::~OpenDalFileSystem() {
 // scheme://rest  →  scheme + OpenDAL-relative path.
 // For fs:///tmp/x  → scheme="fs", path="/tmp/x".
 // For memory://foo → scheme="memory", path="foo".
-// Schemes whose authority component is a bucket (object stores), so the URL is
-// scheme://<bucket>/<key> and the bucket becomes operator config.
+// Whether a scheme's authority component carries a name (bucket/container/…)
+// rather than being part of the path — i.e. the URL is scheme://<name>/<key>.
+// This governs only how *we* split the URL into (authority, per-call path);
+// mapping that authority to the right service config key (bucket, container, …)
+// is handled inside OpenDAL by from_uri. fs/memory keep everything after :// as
+// the path. Extend this set as authority-style services are enabled/tested.
 static bool SchemeUsesBucket(const std::string &scheme) {
 	return scheme == "s3";
 }
@@ -339,20 +343,28 @@ OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const 
 		return it->second;
 	}
 
+	// The operator URI: scheme://authority (no path). OpenDAL's per-service
+	// from_uri parsing maps the authority to the right config key — s3 bucket,
+	// gcs bucket, azblob container, etc. — so we do not special-case it here.
+	// fs/memory have an empty authority. Per-call paths are passed relative to
+	// the operator root (which stays default), unaffected by this URI.
+	std::string uri = scheme + "://" + authority;
+
 	std::vector<std::string> keys;
 	std::vector<std::string> vals;
 	std::vector<std::string> lkeys; // layer keys
 	std::vector<std::string> lvals; // layer values
 
+	// The local `fs` service treats the URI path as its root; we instead root it
+	// at "/" and pass absolute paths per call (see AbsolutizeFsPath). Set it
+	// explicitly as an override since the fs:// URI carries no path.
 	if (scheme == "fs") {
 		keys.push_back("root");
 		vals.push_back("/");
-	} else if (scheme == "s3") {
-		keys.push_back("bucket");
-		vals.push_back(authority);
 	}
 
-	// Merge a SCOPE-matched secret's config (if any).
+	// Merge a SCOPE-matched secret's config (if any). These override any config
+	// OpenDAL parsed from the URI.
 	bool have_secret = ApplySecret(context, db, scheme, url, keys, vals, lkeys, lvals);
 
 	// Env fallback for object stores when no secret provided the credentials.
@@ -383,7 +395,7 @@ OdopOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const 
 
 	OdopError err = {};
 	OdopOperator *op = odop_operator_new(
-	    scheme.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
+	    uri.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
 	    val_ptrs.empty() ? nullptr : val_ptrs.data(), keys.size(),
 	    lkey_ptrs.empty() ? nullptr : lkey_ptrs.data(), lval_ptrs.empty() ? nullptr : lval_ptrs.data(),
 	    lkeys.size(), &err);

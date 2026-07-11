@@ -352,6 +352,36 @@ mod tests {
     }
 
     #[test]
+    fn s3_operator_from_uri_extracts_bucket() {
+        // from_uri must map the URI authority to the s3 `bucket` config via
+        // OpenDAL's per-service parsing — no bucket key passed explicitly.
+        // Uses a dummy endpoint/creds; no network I/O (operator build is lazy).
+        let uri = CString::new("s3://my-bucket").unwrap();
+        let keys: Vec<CString> = ["endpoint", "region", "access_key_id", "secret_access_key"]
+            .iter()
+            .map(|s| CString::new(*s).unwrap())
+            .collect();
+        let vals: Vec<CString> = ["http://127.0.0.1:1", "us-east-1", "x", "y"]
+            .iter()
+            .map(|s| CString::new(*s).unwrap())
+            .collect();
+        let k_ptrs: Vec<*const c_char> = keys.iter().map(|c| c.as_ptr()).collect();
+        let v_ptrs: Vec<*const c_char> = vals.iter().map(|c| c.as_ptr()).collect();
+
+        let mut err = OdopError::ok();
+        let op = unsafe {
+            odop_operator_new(uri.as_ptr(), k_ptrs.as_ptr(), v_ptrs.as_ptr(), k_ptrs.len(),
+                              std::ptr::null(), std::ptr::null(), 0, &mut err)
+        };
+        assert!(!op.is_null(), "s3 from_uri operator_new failed: code {}", err.code as i32);
+        // The operator's name should be the bucket parsed from the authority.
+        let name = unsafe { (*op).op.info().name().to_string() };
+        assert_eq!(name, "my-bucket");
+        assert_eq!(unsafe { &(*op).scheme }, "s3");
+        unsafe { odop_operator_free(op) };
+    }
+
+    #[test]
     fn memory_operator_with_foyer_disk_cache() {
         // Enable the foyer on-disk (hybrid) cache and confirm reads work and the
         // cache directory is populated.
