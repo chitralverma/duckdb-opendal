@@ -14,6 +14,7 @@
 mod capability;
 mod error;
 mod ffi;
+mod io;
 mod layers;
 mod lister;
 mod mutate;
@@ -29,6 +30,7 @@ pub use capability::{
     OdopCapability, OdopCapabilityList,
 };
 pub use error::{OdopError, OdopErrorCode};
+pub use io::odop_set_global_io_options;
 pub use lister::{
     odop_list, odop_list_entry, odop_list_free, odop_list_len, OdopEntry, OdopEntryList,
 };
@@ -640,5 +642,108 @@ mod tests {
         assert_eq!(unsafe { odop_exists(op, to.as_ptr(), &mut e) }, 1);
 
         unsafe { odop_operator_free(op) };
+    }
+
+    #[test]
+    fn memory_operator_with_io_options() {
+        // Set per-operator I/O tuning via the layers map (io.* keys) and confirm
+        // read/write still work — the options are transparent to correctness.
+        let scheme = CString::new("memory").unwrap();
+        let lk: Vec<CString> = [
+            "io.write.concurrent",
+            "io.write.chunk",
+            "io.read.concurrent",
+            "io.read.chunk",
+        ]
+        .iter()
+        .map(|s| CString::new(*s).unwrap())
+        .collect();
+        let lv: Vec<CString> = ["4", "1048576", "2", "262144"]
+            .iter()
+            .map(|s| CString::new(*s).unwrap())
+            .collect();
+        let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
+        let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
+
+        let mut err = OdopError::ok();
+        let op = unsafe {
+            odop_operator_new(
+                scheme.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                lk_ptrs.as_ptr(),
+                lv_ptrs.as_ptr(),
+                lk_ptrs.len(),
+                &mut err,
+            )
+        };
+        assert!(
+            !op.is_null(),
+            "io-options operator_new failed: {}",
+            err.code as i32
+        );
+        // The parsed options are stored on the operator.
+        unsafe {
+            assert_eq!((*op).io.write.concurrent, 4);
+            assert_eq!((*op).io.write.chunk, 1048576);
+            assert_eq!((*op).io.read.concurrent, 2);
+            assert_eq!((*op).io.read.chunk, 262144);
+        }
+
+        // Round-trip a write + read through the tuned writer/reader.
+        let path = CString::new("tuned.txt").unwrap();
+        let mut werr = OdopError::ok();
+        let w = unsafe { odop_writer_open(op, path.as_ptr(), &mut werr) };
+        assert!(!w.is_null());
+        let payload = b"tuned io";
+        assert_eq!(
+            unsafe { odop_writer_write(w, payload.as_ptr(), payload.len() as u64, &mut werr) },
+            0
+        );
+        assert_eq!(unsafe { odop_writer_close(w, &mut werr) }, 0);
+        unsafe { odop_writer_free(w) };
+
+        let mut rerr = OdopError::ok();
+        let r = unsafe { odop_reader_open(op, path.as_ptr(), &mut rerr) };
+        assert!(!r.is_null());
+        let mut buf = vec![0u8; payload.len()];
+        let n =
+            unsafe { odop_reader_read(r, 0, payload.len() as u64, buf.as_mut_ptr(), &mut rerr) };
+        assert_eq!(n as usize, payload.len());
+        assert_eq!(&buf, payload);
+        unsafe { odop_reader_free(r) };
+
+        unsafe { odop_operator_free(op) };
+    }
+
+    #[test]
+    fn global_io_options_apply_as_defaults() {
+        // A global default fills in unset per-operator fields.
+        unsafe { odop_set_global_io_options(3, 131072, 5, 524288) };
+        let scheme = CString::new("memory").unwrap();
+        let mut err = OdopError::ok();
+        let op = unsafe {
+            odop_operator_new(
+                scheme.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                &mut err,
+            )
+        };
+        assert!(!op.is_null());
+        unsafe {
+            assert_eq!((*op).io.read.concurrent, 3);
+            assert_eq!((*op).io.read.chunk, 131072);
+            assert_eq!((*op).io.write.concurrent, 5);
+            assert_eq!((*op).io.write.chunk, 524288);
+        }
+        unsafe { odop_operator_free(op) };
+        // Reset globals so other tests are unaffected.
+        unsafe { odop_set_global_io_options(0, 0, 0, 0) };
     }
 }

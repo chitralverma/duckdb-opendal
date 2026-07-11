@@ -24,6 +24,9 @@ pub struct OdopOperator {
     /// The scheme this operator was built for (e.g. "s3"). Used to produce
     /// clear "service '<scheme>' does not support <op>" capability errors.
     pub(crate) scheme: String,
+    /// Reader/writer I/O tuning (concurrent + chunk), resolved from per-operator
+    /// `io.*` options merged over the process-global defaults.
+    pub(crate) io: crate::io::IoOptions,
 }
 
 /// Build an Operator from `uri` (`scheme://authority`) plus `len` key/value
@@ -91,11 +94,14 @@ pub unsafe extern "C" fn odop_operator_new(
         };
         let scheme = parsed.scheme().to_owned();
 
+        // Resolve I/O tuning: per-operator io.* options over global defaults.
+        let io = crate::io::IoOptions::from_opts(&layer_opts).with_defaults(&crate::io::global());
+
         match Operator::from_uri(parsed) {
             Ok(op) => {
                 let op = apply_layers(op, &layer_opts);
                 set_ok(err);
-                Box::into_raw(Box::new(OdopOperator { op, scheme }))
+                Box::into_raw(Box::new(OdopOperator { op, scheme, io }))
             }
             Err(e) => {
                 set_opendal_error(err, &e);

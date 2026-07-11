@@ -6,6 +6,8 @@
 
 use std::ffi::c_char;
 
+use std::future::IntoFuture;
+
 use opendal::Reader;
 
 use crate::capability::{full, require};
@@ -52,7 +54,16 @@ pub unsafe extern "C" fn odop_reader_open(
                 return std::ptr::null_mut();
             }
         };
-        match block_on(odop.op.reader(path)) {
+        // Apply I/O tuning (concurrent/chunk) when configured; 0 = leave the
+        // OpenDAL per-service default.
+        let mut b = odop.op.reader_with(path);
+        if odop.io.read.concurrent > 0 {
+            b = b.concurrent(odop.io.read.concurrent);
+        }
+        if odop.io.read.chunk > 0 {
+            b = b.chunk(odop.io.read.chunk);
+        }
+        match block_on(b.into_future()) {
             Ok(reader) => {
                 set_ok(err);
                 Box::into_raw(Box::new(OdopReader { reader }))

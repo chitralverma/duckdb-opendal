@@ -29,6 +29,34 @@ static void SetOverrideNativeFilesystems(ClientContext &, SetScope, Value &param
 	OpenDalFileSystem::SetOverrideSchemes(parameter.IsNull() ? std::string() : parameter.ToString());
 }
 
+// Process-global I/O tuning defaults, mirrored to the Rust core. Each setting's
+// callback re-pushes the full set (the FFI takes all four at once). 0 = unset
+// (OpenDAL per-service default).
+static uint64_t g_io_read_concurrent = 0;
+static uint64_t g_io_read_chunk = 0;
+static uint64_t g_io_write_concurrent = 0;
+static uint64_t g_io_write_chunk = 0;
+
+static void PushGlobalIoOptions() {
+	odop_set_global_io_options(g_io_read_concurrent, g_io_read_chunk, g_io_write_concurrent, g_io_write_chunk);
+}
+static void SetIoReadConcurrent(ClientContext &, SetScope, Value &v) {
+	g_io_read_concurrent = v.IsNull() ? 0 : (uint64_t)v.GetValue<int64_t>();
+	PushGlobalIoOptions();
+}
+static void SetIoReadChunk(ClientContext &, SetScope, Value &v) {
+	g_io_read_chunk = v.IsNull() ? 0 : (uint64_t)v.GetValue<int64_t>();
+	PushGlobalIoOptions();
+}
+static void SetIoWriteConcurrent(ClientContext &, SetScope, Value &v) {
+	g_io_write_concurrent = v.IsNull() ? 0 : (uint64_t)v.GetValue<int64_t>();
+	PushGlobalIoOptions();
+}
+static void SetIoWriteChunk(ClientContext &, SetScope, Value &v) {
+	g_io_write_chunk = v.IsNull() ? 0 : (uint64_t)v.GetValue<int64_t>();
+	PushGlobalIoOptions();
+}
+
 // opendal_fs_version() -> VARCHAR
 // Returns the linked opendalfs-core crate version and the resolved OpenDAL
 // library version (the latter is not exposed by DuckDB's built-in
@@ -72,6 +100,21 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "Comma-separated schemes (e.g. 's3,gcs') for which the OpenDAL filesystem overrides native "
 	    "extensions in DuckDB's filesystem dispatch. Empty disables all overrides.",
 	    LogicalType::VARCHAR, Value(""), SetOverrideNativeFilesystems);
+
+	// Global I/O tuning (applied to every operator unless a secret sets its own
+	// io.* option). concurrent = parallel range reads / multipart writes; chunk
+	// = per-request size in bytes. 0 (default) = OpenDAL per-service default.
+	db.config.AddExtensionOption("opendal_read_concurrent",
+	                             "Global default for concurrent range reads (0 = service default).",
+	                             LogicalType::BIGINT, Value::BIGINT(0), SetIoReadConcurrent);
+	db.config.AddExtensionOption("opendal_read_chunk", "Global default read chunk size in bytes (0 = service default).",
+	                             LogicalType::BIGINT, Value::BIGINT(0), SetIoReadChunk);
+	db.config.AddExtensionOption("opendal_write_concurrent",
+	                             "Global default for concurrent multipart writes (0 = service default).",
+	                             LogicalType::BIGINT, Value::BIGINT(0), SetIoWriteConcurrent);
+	db.config.AddExtensionOption("opendal_write_chunk",
+	                             "Global default write chunk size in bytes (0 = service default).", LogicalType::BIGINT,
+	                             Value::BIGINT(0), SetIoWriteChunk);
 }
 
 void OpendalFsExtension::Load(ExtensionLoader &loader) {

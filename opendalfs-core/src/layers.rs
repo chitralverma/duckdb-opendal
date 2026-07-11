@@ -16,6 +16,10 @@
 //!   foyer.disk_mb             usize   — on-disk cache capacity (default 1024)
 //!   foyer.block_mb            usize   — on-disk block size (default 4)
 //!
+//! I/O tuning (`io.*`) keys are also carried on this map but consumed by
+//! `io.rs` (not a layer): `io.read.concurrent`, `io.read.chunk`,
+//! `io.write.concurrent`, `io.write.chunk`.
+//!
 //! Unknown keys are ignored (forward-compatible). Applying no options returns
 //! the operator unchanged.
 

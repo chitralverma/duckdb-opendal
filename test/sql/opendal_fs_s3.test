@@ -146,6 +146,55 @@ SELECT count(*), sum(v) FROM read_parquet('s3://warehouse/written/out.parquet');
 ----
 333	552780
 
+# I/O tuning: global concurrent + chunk on the multipart write path. The write
+# must still round-trip correctly with tuning enabled.
+statement ok
+SET opendal_write_concurrent=4;
+
+statement ok
+SET opendal_write_chunk=8388608;
+
+statement ok
+SET opendal_read_concurrent=2;
+
+statement ok
+COPY (SELECT range AS id, range * 2 AS v FROM range(500))
+TO 's3://warehouse/tuned/out.parquet' (FORMAT parquet);
+
+query II
+SELECT count(*), sum(v) FROM read_parquet('s3://warehouse/tuned/out.parquet');
+----
+500	249500
+
+# Reset globals so later cases use service defaults.
+statement ok
+SET opendal_write_concurrent=0;
+
+statement ok
+SET opendal_write_chunk=0;
+
+statement ok
+SET opendal_read_concurrent=0;
+
+# Per-secret I/O tuning via the layers map (io.* keys) — scoped to one bucket.
+statement ok
+CREATE SECRET s3_tuned (
+    TYPE s3, SCOPE 's3://warehouse/perssecret',
+    key_id 'minioadmin', secret 'minioadmin', region 'us-east-1',
+    endpoint 'http://127.0.0.1:19100',
+    config MAP{'enable_virtual_host_style':'false'},
+    layers MAP{'io.write.concurrent':'4','io.write.chunk':'8388608'}
+);
+
+statement ok
+COPY (SELECT range AS id FROM range(250))
+TO 's3://warehouse/perssecret/out.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/perssecret/out.parquet');
+----
+250
+
 # Partitioned write to S3 creates one object per partition value.
 statement ok
 COPY (SELECT range AS id, range % 3 AS p FROM range(300))
