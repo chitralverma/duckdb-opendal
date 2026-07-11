@@ -12,7 +12,7 @@
 # vars (Phase 3 will replace these with CREATE SECRET). The fixtures live in the
 # `warehouse` bucket seeded by scripts/s3_test_seed.sh.
 
-require opendal_fs
+require opendal
 
 require parquet
 

@@ -4,7 +4,7 @@
 
 namespace duckdb {
 
-class OpendalFsExtension : public Extension {
+class OpendalExtension : public Extension {
 public:
 	void Load(ExtensionLoader &db) override;
 	std::string Name() override;

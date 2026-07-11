@@ -1,7 +1,7 @@
 # This file is included by DuckDB's build system. It specifies which extension to load
 
 # Extension from this repo
-duckdb_extension_load(opendal_fs
+duckdb_extension_load(opendal
     SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
 )
 

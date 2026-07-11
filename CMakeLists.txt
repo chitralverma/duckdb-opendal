@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 
 # Set extension name here
-set(TARGET_NAME opendal_fs)
+set(TARGET_NAME opendal)
 
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
@@ -62,7 +62,7 @@ if("${Rust_CARGO_TARGET}" STREQUAL "")
         set(Rust_CARGO_TARGET "${CMAKE_MATCH_1}")
     endif()
 endif()
-message(STATUS "opendal_fs: Rust_CARGO_TARGET = ${Rust_CARGO_TARGET}")
+message(STATUS "opendal: Rust_CARGO_TARGET = ${Rust_CARGO_TARGET}")
 
 corrosion_import_crate(
     MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
@@ -75,7 +75,7 @@ corrosion_import_crate(
 include_directories(src/include)
 
 set(EXTENSION_SOURCES
-    src/opendal_fs_extension.cpp
+    src/opendal_extension.cpp
     src/opendal_filesystem.cpp
     src/opendal_table_functions.cpp
     src/opendal_secret.cpp)
@@ -100,7 +100,7 @@ endif()
 # degrades to `-l<name>` and fails. To be deterministic across scopes we link
 # the absolute path of the staticlib that Corrosion produces, and add an
 # explicit dependency on the Corrosion build target for correct ordering.
-set(RUST_STATICLIB "${CMAKE_BINARY_DIR}/extension/opendal_fs/libopendalfs_core.a")
+set(RUST_STATICLIB "${CMAKE_BINARY_DIR}/extension/opendal/libopendalfs_core.a")
 
 add_dependencies(${EXTENSION_NAME} cargo-build_opendalfs_core)
 add_dependencies(${LOADABLE_EXTENSION_NAME} cargo-build_opendalfs_core)

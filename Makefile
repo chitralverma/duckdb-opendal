@@ -1,7 +1,7 @@
 PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 # Configuration of extension
-EXT_NAME=opendal_fs
+EXT_NAME=opendal
 EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 
 # Include the Makefile from extension-ci-tools. Its first target (`all: release`)
@@ -32,6 +32,6 @@ clean: cargo-clean
 clean-all: clean ## Clean everything (build/, testext/, DuckDB tree, and Rust target/)
 
 help: ## Show this help
-	@echo "opendal_fs — make targets (bare 'make' builds the extension via 'all: release'):"
+	@echo "opendal — make targets (bare 'make' builds the extension via 'all: release'):"
 	@grep -hE '^[a-zA-Z_-]+.*:.*## .*$$' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'

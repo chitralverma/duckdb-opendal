@@ -1,6 +1,6 @@
 #define DUCKDB_EXTENSION_MAIN
 
-#include "opendal_fs_extension.hpp"
+#include "opendal_extension.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/scalar_function.hpp"
@@ -122,16 +122,16 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                             Value::BIGINT(0), SetIoWriteChunk);
 }
 
-void OpendalFsExtension::Load(ExtensionLoader &loader) {
+void OpendalExtension::Load(ExtensionLoader &loader) {
 	LoadInternal(loader);
 }
-std::string OpendalFsExtension::Name() {
-	return "opendal_fs";
+std::string OpendalExtension::Name() {
+	return "opendal";
 }
 
-std::string OpendalFsExtension::Version() const {
-#ifdef EXT_VERSION_OPENDAL_FS
-	return EXT_VERSION_OPENDAL_FS;
+std::string OpendalExtension::Version() const {
+#ifdef EXT_VERSION_OPENDAL
+	return EXT_VERSION_OPENDAL;
 #else
 	return "";
 #endif
@@ -141,7 +141,7 @@ std::string OpendalFsExtension::Version() const {
 
 extern "C" {
 
-DUCKDB_CPP_EXTENSION_ENTRY(opendal_fs, loader) {
+DUCKDB_CPP_EXTENSION_ENTRY(opendal, loader) {
 	duckdb::LoadInternal(loader);
 }
 }

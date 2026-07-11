@@ -9,7 +9,7 @@ SELECT opendal_version();
 Catalog Error: Scalar Function with name opendal_version does not exist!
 
 # Require statement will ensure this test is run with this extension loaded
-require opendal_fs
+require opendal
 
 # Parquet reader/writer used below.
 require parquet
