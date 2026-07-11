@@ -1,7 +1,7 @@
 //! Build script for duckdb-opendal.
 //!
-//! Generates the C header (`../src/include/rust.h`) from the `extern "C"`
-//! surface using cbindgen. The C++ extension shell includes this header.
+//! Generates the C header (`src/include/rust.h`) from the `extern "C"` surface
+//! using cbindgen. The C++ extension shell (same `src/` dir) includes it.
 
 use std::env;
 use std::path::PathBuf;
@@ -9,9 +9,8 @@ use std::path::PathBuf;
 fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
 
-    // Emit the header into the C++ shell's include dir: <repo>/src/include/rust.h
+    // C++ and Rust share this crate's src/; emit the header into src/include.
     let out_path = PathBuf::from(&crate_dir)
-        .join("..")
         .join("src")
         .join("include")
         .join("rust.h");

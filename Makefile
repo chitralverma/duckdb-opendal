@@ -14,7 +14,7 @@ include external/extension-ci-tools/makefiles/duckdb_extension.Makefile
 
 # ── Rust convenience targets (crate lives in opendal/core) ───────────────────
 .PHONY: rust-build rust-test rust-fmt rust-lint rust-clean cargo-clean clean-all help
-CARGO_MANIFEST := opendal/core/Cargo.toml
+CARGO_MANIFEST := opendal/Cargo.toml
 
 rust-build: ## Build the Rust core (release)
 	cargo build --release --manifest-path $(CARGO_MANIFEST)
