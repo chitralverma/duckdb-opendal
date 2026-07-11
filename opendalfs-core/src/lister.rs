@@ -9,13 +9,14 @@
 
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, CString};
 use std::future::IntoFuture;
 
 use opendal::Entry;
 
 use crate::capability::{full, require};
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::ffi::{cstr, ffi_guard, free_handle};
 use crate::operator::OdopOperator;
 use crate::runtime::block_on;
 
@@ -62,13 +63,13 @@ impl OdopEntry {
 /// Build (once) and return borrowed C-string pointers for entry `index`.
 unsafe fn cached_ptrs(list: &OdopEntryList, index: usize) -> (*const c_char, *const c_char) {
     let cache = &mut *list.strings.get();
-    if !cache.contains_key(&index) {
+    let (p, n) = cache.entry(index).or_insert_with(|| {
         let e = &list.entries[index];
-        let p = CString::new(e.path()).unwrap_or_default();
-        let n = CString::new(e.name()).unwrap_or_default();
-        cache.insert(index, (p, n));
-    }
-    let (p, n) = cache.get(&index).unwrap();
+        (
+            CString::new(e.path()).unwrap_or_default(),
+            CString::new(e.name()).unwrap_or_default(),
+        )
+    });
     (p.as_ptr(), n.as_ptr())
 }
 
@@ -88,7 +89,7 @@ pub unsafe extern "C" fn odop_list(
     recursive: u8,
     err: *mut OdopError,
 ) -> *mut OdopEntryList {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    ffi_guard!(err, std::ptr::null_mut(), "odop_list", {
         if op.is_null() || path.is_null() {
             set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
             return std::ptr::null_mut();
@@ -100,16 +101,15 @@ pub unsafe extern "C" fn odop_list(
         }
         // NB: recursion is provided by OpenDAL's raw layer even when a backend
         // does not advertise `list_with_recursive`, so we guard only `list`.
-        let op = &odop.op;
-        let path = match CStr::from_ptr(path).to_str() {
-            Ok(s) => s,
-            Err(_) => {
-                set_error(err, OdopErrorCode::InvalidInput, "path not UTF-8");
+        let path = match cstr(path) {
+            Some(s) => s,
+            None => {
+                set_error(err, OdopErrorCode::InvalidInput, "path is null or not UTF-8");
                 return std::ptr::null_mut();
             }
         };
 
-        match block_on(op.list_with(path).recursive(recursive != 0).into_future()) {
+        match block_on(odop.op.list_with(path).recursive(recursive != 0).into_future()) {
             Ok(entries) => {
                 set_ok(err);
                 Box::into_raw(Box::new(OdopEntryList {
@@ -122,15 +122,7 @@ pub unsafe extern "C" fn odop_list(
                 std::ptr::null_mut()
             }
         }
-    }));
-
-    match result {
-        Ok(ptr) => ptr,
-        Err(_) => {
-            set_error(err, OdopErrorCode::Panic, "panic in odop_list");
-            std::ptr::null_mut()
-        }
-    }
+    })
 }
 
 /// Number of entries in the list. Returns 0 if `list` is null.
@@ -195,10 +187,5 @@ pub unsafe extern "C" fn odop_list_entry(
 /// borrowed `path`/`name` pointers still in use.
 #[no_mangle]
 pub unsafe extern "C" fn odop_list_free(list: *mut OdopEntryList) {
-    if list.is_null() {
-        return;
-    }
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        drop(Box::from_raw(list));
-    }));
+    free_handle(list);
 }

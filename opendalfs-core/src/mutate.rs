@@ -1,20 +1,13 @@
 //! Filesystem mutations across the FFI boundary: create_dir, remove, rename.
 
-use std::ffi::{c_char, CStr};
+use std::ffi::c_char;
 use std::future::IntoFuture;
 
 use crate::capability::{full, require};
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::ffi::cstr;
 use crate::operator::OdopOperator;
 use crate::runtime::block_on;
-
-/// Read a `*const c_char` into `&str`, or None on null/invalid UTF-8.
-unsafe fn cstr<'a>(p: *const c_char) -> Option<&'a str> {
-    if p.is_null() {
-        return None;
-    }
-    CStr::from_ptr(p).to_str().ok()
-}
 
 /// Adapt a capability `require` check into a `MutErr::Unsupported`.
 fn guard(scheme: &str, supported: bool, op_name: &str) -> Result<(), MutErr> {

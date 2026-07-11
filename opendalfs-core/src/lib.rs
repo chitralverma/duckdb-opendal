@@ -13,6 +13,7 @@
 
 mod capability;
 mod error;
+mod ffi;
 mod layers;
 mod lister;
 mod mutate;

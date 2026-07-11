@@ -10,11 +10,12 @@
 //! Reader/stat/etc. borrow the operator, so it must outlive all handles derived
 //! from it.
 
-use std::ffi::{c_char, CStr};
+use std::ffi::c_char;
 
 use opendal::{Operator, OperatorUri};
 
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::ffi::{cstr, ffi_guard, free_handle};
 use crate::layers::apply_layers;
 
 /// Opaque handle wrapping an `opendal::Operator`.
@@ -23,14 +24,6 @@ pub struct OdopOperator {
     /// The scheme this operator was built for (e.g. "s3"). Used to produce
     /// clear "service '<scheme>' does not support <op>" capability errors.
     pub(crate) scheme: String,
-}
-
-/// Read a `*const c_char` into a Rust `&str`, returning None on null/invalid UTF-8.
-unsafe fn cstr<'a>(p: *const c_char) -> Option<&'a str> {
-    if p.is_null() {
-        return None;
-    }
-    CStr::from_ptr(p).to_str().ok()
 }
 
 /// Build an Operator from `uri` (`scheme://authority`) plus `len` key/value
@@ -62,7 +55,7 @@ pub unsafe extern "C" fn odop_operator_new(
     layer_len: usize,
     err: *mut OdopError,
 ) -> *mut OdopOperator {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    ffi_guard!(err, std::ptr::null_mut(), "odop_operator_new", {
         let uri_str = match cstr(uri) {
             Some(s) => s,
             None => {
@@ -71,7 +64,7 @@ pub unsafe extern "C" fn odop_operator_new(
             }
         };
 
-        // Collect the extra config map (secret config) from the parallel arrays.
+        // Extra config (secret) + layer options from the parallel arrays.
         let cfg = match collect_pairs(keys, values, len) {
             Ok(v) => v,
             Err(msg) => {
@@ -79,8 +72,6 @@ pub unsafe extern "C" fn odop_operator_new(
                 return std::ptr::null_mut();
             }
         };
-
-        // Collect layer options.
         let layer_opts = match collect_pairs(layer_keys, layer_values, layer_len) {
             Ok(v) => v,
             Err(msg) => {
@@ -89,9 +80,8 @@ pub unsafe extern "C" fn odop_operator_new(
             }
         };
 
-        // Parse the URI once (folding in the secret config as extra options),
-        // then reuse the same OperatorUri for both the scheme (for capability
-        // error messages) and operator construction — no second parse.
+        // Parse the URI once (folding the secret config in as extra options),
+        // then reuse it for both the scheme and operator construction.
         let parsed = match OperatorUri::new(uri_str, cfg) {
             Ok(p) => p,
             Err(e) => {
@@ -112,15 +102,7 @@ pub unsafe extern "C" fn odop_operator_new(
                 std::ptr::null_mut()
             }
         }
-    }));
-
-    match result {
-        Ok(ptr) => ptr,
-        Err(_) => {
-            set_error(err, OdopErrorCode::Panic, "panic in odop_operator_new");
-            std::ptr::null_mut()
-        }
-    }
+    })
 }
 
 /// Collect `len` parallel (key, value) C-string pairs into owned Rust strings.
@@ -153,10 +135,5 @@ unsafe fn collect_pairs(
 /// with no live Reader/Lister/etc. still borrowing it.
 #[no_mangle]
 pub unsafe extern "C" fn odop_operator_free(op: *mut OdopOperator) {
-    if op.is_null() {
-        return;
-    }
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        drop(Box::from_raw(op));
-    }));
+    free_handle(op);
 }

@@ -1,31 +1,25 @@
 //! Reader across the FFI boundary — the positioned/ranged read path.
 //!
 //! A DuckDB positioned read maps to a single `odop_reader_read(handle, offset,
-//! len, buf)` call → one OpenDAL ranged read into the caller's buffer. There is
-//! no separate seek step at the boundary (see plan §5.2): the offset is passed
-//! per call, so reads are stateless and atomic by construction.
+//! len, buf)` → one OpenDAL ranged read into the caller's buffer. The offset is
+//! passed per call, so reads are stateless and atomic by construction.
 
-use std::ffi::{c_char, CStr};
+use std::ffi::c_char;
 
 use opendal::Reader;
 
 use crate::capability::{full, require};
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::ffi::{cstr, ffi_guard, free_handle};
 use crate::operator::OdopOperator;
 use crate::runtime::block_on;
 
-/// Opaque handle wrapping an `opendal::Reader`.
-///
-/// The reader borrows nothing from the operator directly (OpenDAL readers are
-/// self-contained once created), but conceptually must not outlive the process
-/// runtime. Free with `odop_reader_free`.
+/// Opaque handle wrapping an `opendal::Reader`. Free with `odop_reader_free`.
 pub struct OdopReader {
     reader: Reader,
 }
 
 /// Open a reader for `path` on `op`.
-///
-/// On success returns a non-null `*mut OdopReader` and sets `*err` to Ok.
 ///
 /// # Safety
 /// - `op` must be a live handle from `odop_operator_new`.
@@ -37,9 +31,9 @@ pub unsafe extern "C" fn odop_reader_open(
     path: *const c_char,
     err: *mut OdopError,
 ) -> *mut OdopReader {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if op.is_null() || path.is_null() {
-            set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
+    ffi_guard!(err, std::ptr::null_mut(), "odop_reader_open", {
+        if op.is_null() {
+            set_error(err, OdopErrorCode::InvalidInput, "null operator");
             return std::ptr::null_mut();
         }
         let odop = &*op;
@@ -47,16 +41,14 @@ pub unsafe extern "C" fn odop_reader_open(
             set_error(err, code, msg);
             return std::ptr::null_mut();
         }
-        let op = &odop.op;
-        let path = match CStr::from_ptr(path).to_str() {
-            Ok(s) => s,
-            Err(_) => {
-                set_error(err, OdopErrorCode::InvalidInput, "path not UTF-8");
+        let path = match cstr(path) {
+            Some(s) => s,
+            None => {
+                set_error(err, OdopErrorCode::InvalidInput, "path is null or not UTF-8");
                 return std::ptr::null_mut();
             }
         };
-
-        match block_on(op.reader(path)) {
+        match block_on(odop.op.reader(path)) {
             Ok(reader) => {
                 set_ok(err);
                 Box::into_raw(Box::new(OdopReader { reader }))
@@ -66,22 +58,13 @@ pub unsafe extern "C" fn odop_reader_open(
                 std::ptr::null_mut()
             }
         }
-    }));
-
-    match result {
-        Ok(ptr) => ptr,
-        Err(_) => {
-            set_error(err, OdopErrorCode::Panic, "panic in odop_reader_open");
-            std::ptr::null_mut()
-        }
-    }
+    })
 }
 
 /// Read up to `len` bytes starting at `offset` into `buf`.
 ///
-/// Returns the number of bytes actually read (may be less than `len` at EOF),
-/// or -1 on error (with `*err` populated). Reads straight into the caller's
-/// buffer — no intermediate copy beyond OpenDAL's own buffer.
+/// Returns the number of bytes read (may be less than `len` at EOF), or -1 on
+/// error. Reads straight into the caller's buffer.
 ///
 /// # Safety
 /// - `reader` must be a live handle from `odop_reader_open`.
@@ -95,10 +78,10 @@ pub unsafe extern "C" fn odop_reader_read(
     buf: *mut u8,
     err: *mut OdopError,
 ) -> i64 {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    ffi_guard!(err, -1, "odop_reader_read", {
         if reader.is_null() || buf.is_null() {
             set_error(err, OdopErrorCode::InvalidInput, "null reader or buffer");
-            return -1i64;
+            return -1;
         }
         if len == 0 {
             set_ok(err);
@@ -106,15 +89,13 @@ pub unsafe extern "C" fn odop_reader_read(
         }
         let reader = &mut (*reader).reader;
         let end = offset.saturating_add(len);
-
         match block_on(reader.read(offset..end)) {
             Ok(buffer) => {
-                // `buffer` is an opendal::Buffer (possibly non-contiguous). Copy
-                // its bytes into the caller's buffer, clamped to `len`.
+                // `buffer` may be non-contiguous; copy into the caller's buffer,
+                // clamped to `len`.
                 let to_copy = std::cmp::min(buffer.len() as u64, len) as usize;
                 let dst = std::slice::from_raw_parts_mut(buf, to_copy);
-                let bytes = buffer.to_bytes();
-                dst.copy_from_slice(&bytes[..to_copy]);
+                dst.copy_from_slice(&buffer.to_bytes()[..to_copy]);
                 set_ok(err);
                 to_copy as i64
             }
@@ -123,15 +104,7 @@ pub unsafe extern "C" fn odop_reader_read(
                 -1
             }
         }
-    }));
-
-    match result {
-        Ok(n) => n,
-        Err(_) => {
-            set_error(err, OdopErrorCode::Panic, "panic in odop_reader_read");
-            -1
-        }
-    }
+    })
 }
 
 /// Free a reader handle. Safe to call with null (no-op).
@@ -140,10 +113,5 @@ pub unsafe extern "C" fn odop_reader_read(
 /// `reader` must be null or a handle from `odop_reader_open`, not already freed.
 #[no_mangle]
 pub unsafe extern "C" fn odop_reader_free(reader: *mut OdopReader) {
-    if reader.is_null() {
-        return;
-    }
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        drop(Box::from_raw(reader));
-    }));
+    free_handle(reader);
 }

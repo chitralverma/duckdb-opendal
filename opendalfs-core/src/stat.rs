@@ -3,10 +3,11 @@
 //! Returns a `#[repr(C)]` metadata struct by out-param. DuckDB uses this for
 //! `GetFileSize` / `GetLastModifiedTime` / `GetFileType`.
 
-use std::ffi::{c_char, CStr};
+use std::ffi::c_char;
 
 use crate::capability::{full, require};
 use crate::error::{set_error, set_ok, set_opendal_error, OdopError, OdopErrorCode};
+use crate::ffi::{cstr, ffi_guard};
 use crate::operator::OdopOperator;
 use crate::runtime::block_on;
 
@@ -47,7 +48,7 @@ pub unsafe extern "C" fn odop_stat(
     out_meta: *mut OdopMetadata,
     err: *mut OdopError,
 ) {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    ffi_guard!(err, (), "odop_stat", {
         if !out_meta.is_null() {
             *out_meta = OdopMetadata::empty();
         }
@@ -60,16 +61,15 @@ pub unsafe extern "C" fn odop_stat(
             set_error(err, code, msg);
             return;
         }
-        let op = &odop.op;
-        let path = match CStr::from_ptr(path).to_str() {
-            Ok(s) => s,
-            Err(_) => {
-                set_error(err, OdopErrorCode::InvalidInput, "path not UTF-8");
+        let path = match cstr(path) {
+            Some(s) => s,
+            None => {
+                set_error(err, OdopErrorCode::InvalidInput, "path is null or not UTF-8");
                 return;
             }
         };
 
-        match block_on(op.stat(path)) {
+        match block_on(odop.op.stat(path)) {
             Ok(meta) => {
                 if !out_meta.is_null() {
                     let last_modified_ms = meta
@@ -86,11 +86,7 @@ pub unsafe extern "C" fn odop_stat(
             }
             Err(e) => set_opendal_error(err, &e),
         }
-    }));
-
-    if result.is_err() {
-        set_error(err, OdopErrorCode::Panic, "panic in odop_stat");
-    }
+    })
 }
 
 /// Check whether `path` exists. Returns 1 if it exists, 0 if not, -1 on error
@@ -106,25 +102,24 @@ pub unsafe extern "C" fn odop_exists(
     path: *const c_char,
     err: *mut OdopError,
 ) -> i8 {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    ffi_guard!(err, -1, "odop_exists", {
         if op.is_null() || path.is_null() {
             set_error(err, OdopErrorCode::InvalidInput, "null operator or path");
-            return -1i8;
+            return -1;
         }
         let odop = &*op;
         if let Err((code, msg)) = require(&odop.scheme, full(odop).stat, "stat") {
             set_error(err, code, msg);
             return -1;
         }
-        let op = &odop.op;
-        let path = match CStr::from_ptr(path).to_str() {
-            Ok(s) => s,
-            Err(_) => {
-                set_error(err, OdopErrorCode::InvalidInput, "path not UTF-8");
+        let path = match cstr(path) {
+            Some(s) => s,
+            None => {
+                set_error(err, OdopErrorCode::InvalidInput, "path is null or not UTF-8");
                 return -1;
             }
         };
-        match block_on(op.exists(path)) {
+        match block_on(odop.op.exists(path)) {
             Ok(true) => {
                 set_ok(err);
                 1
@@ -138,6 +133,5 @@ pub unsafe extern "C" fn odop_exists(
                 -1
             }
         }
-    }));
-    result.unwrap_or(-1)
+    })
 }

@@ -18,6 +18,7 @@ use std::ffi::{c_char, CString};
 use opendal::Capability;
 
 use crate::error::{set_error, OdopError, OdopErrorCode};
+use crate::ffi::{ffi_guard, free_handle};
 use crate::operator::OdopOperator;
 
 /// Enumerate an operator's capabilities as `(name, supported)` pairs.
@@ -94,7 +95,7 @@ pub unsafe extern "C" fn odop_capabilities(
     op: *const OdopOperator,
     err: *mut OdopError,
 ) -> *mut OdopCapabilityList {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    ffi_guard!(err, std::ptr::null_mut(), "odop_capabilities", {
         if op.is_null() {
             set_error(err, OdopErrorCode::InvalidInput, "null operator");
             return std::ptr::null_mut();
@@ -106,10 +107,6 @@ pub unsafe extern "C" fn odop_capabilities(
             .collect();
         crate::error::set_ok(err);
         Box::into_raw(Box::new(OdopCapabilityList { items }))
-    }));
-    result.unwrap_or_else(|_| {
-        set_error(err, OdopErrorCode::Panic, "panic in odop_capabilities");
-        std::ptr::null_mut()
     })
 }
 
@@ -158,10 +155,5 @@ pub unsafe extern "C" fn odop_capabilities_entry(
 /// `list` must be null or a handle from `odop_capabilities`, not already freed.
 #[no_mangle]
 pub unsafe extern "C" fn odop_capabilities_free(list: *mut OdopCapabilityList) {
-    if list.is_null() {
-        return;
-    }
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        drop(Box::from_raw(list));
-    }));
+    free_handle(list);
 }
