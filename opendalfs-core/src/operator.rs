@@ -64,6 +64,12 @@ pub unsafe extern "C" fn odop_operator_new(
     err: *mut OdopError,
 ) -> *mut OdopOperator {
     ffi_guard!(err, std::ptr::null_mut(), "odop_operator_new", {
+        // Ensure OpenDAL's service registry is populated. We link opendal as a
+        // staticlib, so the `#[ctor]`-based auto-registration can be dropped by
+        // the linker (notably under thin LTO). Calling this explicitly is the
+        // documented, robust path and is idempotent (guarded by a `Once`).
+        opendal::init_default_registry();
+
         let uri_str = match cstr(uri) {
             Some(s) => s,
             None => {

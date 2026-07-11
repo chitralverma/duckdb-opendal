@@ -14,4 +14,6 @@ rust-version = "1.75"
 panic = "unwind"
 lto = true
 codegen-units = 1
+debug = false
+strip = true
 opt-level = 3
