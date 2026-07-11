@@ -1,5 +1,5 @@
 # name: test/sql/opendal_s3.test
-# description: opendalfs over S3 (MinIO) — opt-in; requires a seeded MinIO
+# description: opendal over S3 (MinIO) — opt-in; requires a seeded MinIO
 # group: [sql]
 #
 # This test is skipped unless OPENDAL_S3_TEST is set. To run it locally:

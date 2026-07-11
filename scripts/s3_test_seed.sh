@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Seed a local MinIO instance with fixtures for the opendalfs S3 test.
+# Seed a local MinIO instance with fixtures for the opendal S3 test.
 #
 # Starts MinIO in Docker (idempotent), creates the `warehouse` bucket, and
 # uploads a few Parquet/CSV objects (including a Hive-partitioned prefix).
@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-CONTAINER=opendalfs-minio-test
+CONTAINER=opendal-minio-test
 PORT=19100
 ENDPOINT="http://127.0.0.1:${PORT}"
 USER=minioadmin

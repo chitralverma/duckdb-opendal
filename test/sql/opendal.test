@@ -35,18 +35,18 @@ true
 # the OpenDAL fs:// scheme (Rust core, positioned/ranged reads).
 statement ok
 COPY (SELECT range AS id, range * 2 AS doubled, 'row_' || range AS label FROM range(1000))
-TO '__TEST_DIR__/opendal_fs_read.parquet' (FORMAT parquet);
+TO '__TEST_DIR__/opendal_read.parquet' (FORMAT parquet);
 
 query IIII
 SELECT count(*), min(id), max(id), sum(doubled)
-FROM read_parquet('fs://__TEST_DIR__/opendal_fs_read.parquet');
+FROM read_parquet('fs://__TEST_DIR__/opendal_read.parquet');
 ----
 1000	0	999	999000
 
 # Projection + predicate pushdown exercises column-chunk ranged reads.
 query II
 SELECT id, label
-FROM read_parquet('fs://__TEST_DIR__/opendal_fs_read.parquet')
+FROM read_parquet('fs://__TEST_DIR__/opendal_read.parquet')
 WHERE id BETWEEN 500 AND 502
 ORDER BY id;
 ----
@@ -57,16 +57,16 @@ ORDER BY id;
 # CSV streaming path over fs://
 statement ok
 COPY (SELECT range AS id, 'v' || range AS v FROM range(500))
-TO '__TEST_DIR__/opendal_fs_read.csv' (FORMAT csv, HEADER);
+TO '__TEST_DIR__/opendal_read.csv' (FORMAT csv, HEADER);
 
 query II
-SELECT count(*), max(id) FROM read_csv('fs://__TEST_DIR__/opendal_fs_read.csv');
+SELECT count(*), max(id) FROM read_csv('fs://__TEST_DIR__/opendal_read.csv');
 ----
 500	499
 
 # glob of a concrete existing path returns the one file
 query I
-SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_fs_read.parquet');
+SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_read.parquet');
 ----
 1
 
@@ -104,7 +104,7 @@ SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/', recursive := true) 
 
 # opendal_stat returns exactly one row for a concrete file.
 query I
-SELECT count(*) FROM opendal_stat('fs://__TEST_DIR__/opendal_fs_read.parquet');
+SELECT count(*) FROM opendal_stat('fs://__TEST_DIR__/opendal_read.parquet');
 ----
 1
 
@@ -120,11 +120,11 @@ SELECT sum(file_count) FROM opendal_du('fs://__TEST_DIR__/odtree/');
 ----
 3
 
-# ── DuckDB's built-in glob() table function routes through opendalfs ─────────
+# ── DuckDB's built-in glob() table function routes through opendal ─────────
 
 # Exact path.
 query I
-SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_fs_read.parquet');
+SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_read.parquet');
 ----
 1
 
@@ -145,7 +145,7 @@ SELECT count(*) FROM glob('fs://__TEST_DIR__/does_not_exist_xyz/*.parquet');
 # the directories themselves — so globbing '*' at the CSV/parquet root yields
 # only files.
 query I
-SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_fs_read.*');
+SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_read.*');
 ----
 2
 
@@ -300,7 +300,7 @@ SELECT current_setting('opendal_override_native_filesystems');
 ----
 s3,gcs
 
-# Reads through opendal_fs still work with the override set.
+# Reads through opendal still work with the override set.
 query I
 SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/w_out.parquet');
 ----

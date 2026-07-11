@@ -1,6 +1,6 @@
-# Caching with duckdb-opendal (`opendal_fs`)
+# Caching with duckdb-opendal (`opendal`)
 
-Reads through `opendal_fs` can be cached three complementary ways. They are not
+Reads through `opendal` can be cached three complementary ways. They are not
 mutually exclusive, but you generally pick one to avoid double-caching. All work
 without any change to your queries.
 
@@ -8,13 +8,13 @@ without any change to your queries.
 
 DuckDB ships a block cache (`external file cache`) that transparently caches
 byte ranges for **any** filesystem that reports itself as seekable — including
-`opendal_fs`. It is **on by default** and requires no setup.
+`opendal`. It is **on by default** and requires no setup.
 
 ```sql
 -- It's already enabled:
 SELECT current_setting('enable_external_file_cache');   -- true
 
--- Read something remote through opendal_fs; ranges get cached automatically.
+-- Read something remote through opendal; ranges get cached automatically.
 SELECT * FROM read_parquet('s3://bucket/data.parquet');
 
 -- Inspect what's cached:
@@ -36,7 +36,7 @@ This is the recommended default for most workloads — nothing to configure.
 
 ## 2. OpenDAL foyer layer (internal, opt-in per secret)
 
-`opendal_fs` can attach OpenDAL's [foyer](https://github.com/foyer-rs/foyer)
+`opendal` can attach OpenDAL's [foyer](https://github.com/foyer-rs/foyer)
 cache **inside** the operator, configured per secret via the `layers` map. This
 caches at the OpenDAL layer (below DuckDB), uniformly across every service, and
 supports both an in-memory tier and a **persistent on-disk tier**.
@@ -59,7 +59,7 @@ CREATE SECRET s3_cached_disk (
     layers MAP{
         'foyer.enable'    : 'true',
         'foyer.memory_mb' : '256',
-        'foyer.disk_path' : '/var/cache/opendalfs',  -- enables the on-disk tier
+        'foyer.disk_path' : '/var/cache/opendal',  -- enables the on-disk tier
         'foyer.disk_mb'   : '4096',                   -- on-disk capacity (default 1024)
         'foyer.block_mb'  : '4'                        -- on-disk block size (default 4)
     }
@@ -81,7 +81,7 @@ SELECT * FROM read_parquet('s3://bucket/data.parquet');
 - Best-effort: if the cache fails to build (e.g. an unwritable disk path), the
   operator logs a warning and continues **without** caching rather than failing.
 
-## 3. `cache_httpfs` community extension (external, wraps opendal_fs)
+## 3. `cache_httpfs` community extension (external, wraps opendal)
 
 The [`cache_httpfs`](https://github.com/dentiny/duck-read-cache-fs) community
 extension (a.k.a. `duck-read-cache-fs`) provides a rich on-disk/in-memory read
@@ -92,7 +92,7 @@ cache and can wrap **any** DuckDB filesystem by name — including
 LOAD cache_httpfs;              -- or: INSTALL cache_httpfs FROM community; LOAD cache_httpfs;
 SELECT cache_httpfs_wrap_cache_filesystem('OpenDalFileSystem');
 
--- Reads through opendal_fs are now cached by cache_httpfs.
+-- Reads through opendal are now cached by cache_httpfs.
 SELECT * FROM read_parquet('fs:///data/big.parquet');
 ```
 
@@ -102,9 +102,9 @@ SELECT * FROM read_parquet('fs:///data/big.parquet');
   double-caching); re-enable with `SET enable_external_file_cache = true;`.
 - **Caveat on `s3://`:** loading `cache_httpfs` pulls in DuckDB's native
   `httpfs`, which also claims the `s3://` scheme and may take precedence over
-  `opendal_fs` for `s3://` URLs. Use `cache_httpfs` wrapping with `opendal_fs`
+  `opendal` for `s3://` URLs. Use `cache_httpfs` wrapping with `opendal`
   for schemes `httpfs` does not own (e.g. `fs://`, or other OpenDAL services),
-  or use the `opendal_override_native_filesystems` setting to make `opendal_fs`
+  or use the `opendal_override_native_filesystems` setting to make `opendal`
   win `s3://` (see [schemes.md](schemes.md)) and then rely on option 1/2.
 
 ## Which one?

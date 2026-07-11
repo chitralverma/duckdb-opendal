@@ -1,6 +1,6 @@
 # Schemes & coexistence with native DuckDB filesystems
 
-`opendal_fs` registers a DuckDB filesystem that serves several URL schemes
+`opendal` registers a DuckDB filesystem that serves several URL schemes
 (currently `fs://`, `memory://`, `s3://`; more OpenDAL services are added over
 time). Some of these — notably `s3://` (and `gcs://`, `azure://`, `r2://`, …) —
 are **also** claimed by DuckDB's built-in extensions (`httpfs`, `azure`).
@@ -16,21 +16,21 @@ For a given URL, DuckDB's virtual filesystem asks each registered subsystem
 - otherwise the **last-registered** matching subsystem wins.
 
 DuckDB also **auto-loads** `httpfs` (or `azure`) the first time you touch a
-reserved scheme like `s3://`. So if both `opendal_fs` and `httpfs` are loaded,
+reserved scheme like `s3://`. So if both `opendal` and `httpfs` are loaded,
 `s3://` may be served by either, depending on load order — which is not something
 you want to rely on.
 
-## Making `opendal_fs` win selected schemes
+## Making `opendal` win selected schemes
 
 Use the setting `opendal_override_native_filesystems` — a **comma-separated list
-of schemes** for which `opendal_fs` should take precedence over native
+of schemes** for which `opendal` should take precedence over native
 extensions:
 
 ```sql
--- opendal_fs now wins s3:// and gcs:// over httpfs, for this session:
+-- opendal now wins s3:// and gcs:// over httpfs, for this session:
 SET opendal_override_native_filesystems = 's3,gcs';
 
--- Reads under those schemes go through opendal_fs (and its secrets / layers):
+-- Reads under those schemes go through opendal (and its secrets / layers):
 SELECT * FROM read_parquet('s3://bucket/data.parquet');
 
 -- Turn it back off (native handlers regain precedence):
@@ -40,32 +40,32 @@ SET opendal_override_native_filesystems = '';
 - Default is empty → **no override**; native handlers keep their normal
   precedence.
 - The override is **per scheme**: only the schemes you list are taken over.
-  `opendal_fs` still declines schemes it doesn't support, so those always fall
+  `opendal` still declines schemes it doesn't support, so those always fall
   through to the native handler.
 
 ### Coexistence example
 
-Because the override is per scheme, you can mix `opendal_fs` and native handlers
+Because the override is per scheme, you can mix `opendal` and native handlers
 in the **same session**:
 
 ```sql
-LOAD opendal_fs;
+LOAD opendal;
 LOAD httpfs;
 SET opendal_override_native_filesystems = 's3';
 
--- s3://  -> served by opendal_fs (uses your CREATE SECRET ... TYPE s3)
+-- s3://  -> served by opendal (uses your CREATE SECRET ... TYPE s3)
 SELECT * FROM read_parquet('s3://bucket/a.parquet');
 
--- s3n:// -> not overridden (and not claimed by opendal_fs) -> served by httpfs
+-- s3n:// -> not overridden (and not claimed by opendal) -> served by httpfs
 SELECT * FROM read_parquet('s3n://bucket/b.parquet');
 ```
 
 ## Secrets when both extensions are loaded
 
-Both `opendal_fs` and `httpfs` register a `TYPE s3` secret. `opendal_fs`
+Both `opendal` and `httpfs` register a `TYPE s3` secret. `opendal`
 tolerates the secret type already existing (it will not fail to load if `httpfs`
-registered it first). When the override routes `s3://` to `opendal_fs`, your
-`CREATE SECRET (TYPE s3, ...)` is consumed by `opendal_fs`'s SCOPE-matched
+registered it first). When the override routes `s3://` to `opendal`, your
+`CREATE SECRET (TYPE s3, ...)` is consumed by `opendal`'s SCOPE-matched
 resolution (see the main README / secrets docs).
 
 ## Notes & limitations
