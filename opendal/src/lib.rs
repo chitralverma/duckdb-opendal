@@ -43,10 +43,6 @@ pub use writer::{
 use std::ffi::{c_char, CString};
 use std::panic::catch_unwind;
 
-/// Name + version of this FFI core crate (auto-tracks the Cargo.toml name).
-const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
-const CRATE_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 /// Resolved OpenDAL crate version, injected by build.rs from this crate's
 /// Cargo.toml dependency pin (opendal exposes no public VERSION const). Falls
 /// back to "unknown" if unresolved.
@@ -75,27 +71,25 @@ pub extern "C" fn od_init() {
     });
 }
 
-/// Return a heap-allocated C string describing the crate + OpenDAL
-/// versions. Caller owns the pointer and MUST free it with `od_string_free`.
+/// Return the resolved OpenDAL library version (e.g. "0.58.0") as an owned C
+/// string. Resolved from Cargo.toml at build time (opendal exposes no public
+/// VERSION const). Caller MUST free it with `od_string_free`.
 ///
-/// Returns null on allocation failure or panic.
+/// Returns null on allocation failure or panic. The C++ side composes the full
+/// `opendal <ext-version> (opendal-core <this>)` version string.
 ///
 /// # Safety
-/// The returned pointer must be freed exactly once via `od_string_free` and
-/// not used afterwards.
+/// The returned pointer must be freed exactly once via `od_string_free`.
 #[no_mangle]
-pub extern "C" fn od_version() -> *mut c_char {
-    catch_unwind(|| {
-        let s = format!("{CRATE_NAME} {CRATE_VERSION} (opendal {OPENDAL_VERSION})");
-        match CString::new(s) {
-            Ok(c) => c.into_raw(),
-            Err(_) => std::ptr::null_mut(),
-        }
+pub extern "C" fn od_opendal_version() -> *mut c_char {
+    catch_unwind(|| match CString::new(OPENDAL_VERSION) {
+        Ok(c) => c.into_raw(),
+        Err(_) => std::ptr::null_mut(),
     })
     .unwrap_or(std::ptr::null_mut())
 }
 
-/// Free a C string previously returned by this library (e.g. `od_version`,
+/// Free a C string previously returned by this library (e.g. `od_opendal_version`,
 /// or an `OdError::message`).
 ///
 /// Safe to call with null (no-op).
@@ -119,17 +113,19 @@ mod tests {
     use std::ffi::{CStr, CString};
 
     #[test]
-    fn version_roundtrip() {
-        let p = od_version();
+    fn opendal_version_roundtrip() {
+        let p = od_opendal_version();
         assert!(!p.is_null());
         let s = unsafe { CStr::from_ptr(p) }.to_str().unwrap().to_owned();
-        assert!(s.contains("duckdb-opendal"));
-        // The opendal version is resolved from Cargo.lock at build time, not
-        // hardcoded; check it is present and non-empty.
-        assert!(s.contains("opendal "));
+        // Resolved from Cargo.toml at build time (not hardcoded/unknown).
         assert!(
-            !s.contains("opendal unknown"),
+            !s.is_empty() && s != "unknown",
             "opendal version unresolved: {s}"
+        );
+        // Looks like a semver (e.g. "0.58.0").
+        assert!(
+            s.chars().next().unwrap().is_ascii_digit(),
+            "unexpected: {s}"
         );
         unsafe { od_string_free(p) };
     }

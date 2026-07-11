@@ -58,16 +58,24 @@ static void SetIoWriteChunk(ClientContext &, SetScope, Value &v) {
 }
 
 // opendal_version() -> VARCHAR
-// Returns the linked duckdb-opendal crate version and the resolved OpenDAL
-// library version (the latter is not exposed by DuckDB's built-in
-// extension_version, which reports this extension's own version). The OpenDAL
-// version is resolved from Cargo.lock at build time — see duckdb-opendal/build.rs.
+// Format: "opendal <ext-version> (opendal-core <opendal-lib-version>)".
+//   <ext-version>          this extension's build/git version — the same value
+//                          duckdb_extensions().extension_version reports
+//                          (EXT_VERSION_OPENDAL, set by the build).
+//   <opendal-lib-version>  the linked OpenDAL crate version, resolved from
+//                          Cargo.toml at build time (od_opendal_version()).
 inline void OpendalVersionScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
-	char *raw = od_version();
-	std::string version = raw ? std::string(raw) : std::string("<unavailable>");
+	char *raw = od_opendal_version();
+	std::string opendal_lib = raw ? std::string(raw) : std::string("unknown");
 	if (raw) {
 		od_string_free(raw); // ownership crossed the boundary; free it here
 	}
+#ifdef EXT_VERSION_OPENDAL
+	std::string ext_version = EXT_VERSION_OPENDAL;
+#else
+	std::string ext_version = "unknown";
+#endif
+	std::string version = "opendal " + ext_version + " (opendal-core " + opendal_lib + ")";
 	result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	result.SetValue(0, Value(version));
 }
