@@ -58,7 +58,7 @@ static void SetIoWriteChunk(ClientContext &, SetScope, Value &v) {
 }
 
 // opendal_version() -> VARCHAR
-// Format: "opendal <ext-version> (opendal-core <opendal-lib-version>)".
+// Format: "opendal <ext-version> (built with opendal-core <opendal-lib-version>)".
 //   <ext-version>          this extension's build/git version — the same value
 //                          duckdb_extensions().extension_version reports
 //                          (EXT_VERSION_OPENDAL, set by the build).
@@ -75,7 +75,7 @@ inline void OpendalVersionScalarFun(DataChunk &args, ExpressionState &state, Vec
 #else
 	std::string ext_version = "unknown";
 #endif
-	std::string version = "opendal " + ext_version + " (opendal-core " + opendal_lib + ")";
+	std::string version = "opendal " + ext_version + " (built with opendal-core " + opendal_lib + ")";
 	result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	result.SetValue(0, Value(version));
 }

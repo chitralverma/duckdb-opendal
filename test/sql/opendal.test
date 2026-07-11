@@ -14,11 +14,11 @@ require opendal
 # Parquet reader/writer used below.
 require parquet
 
-# Format: "opendal <ext-version> (opendal-core <opendal-lib-version>)". The ext
-# version matches duckdb_extensions().extension_version; the opendal-core version
-# is resolved from Cargo.toml at build time. Assert only the shape.
+# Format: "opendal <ext-version> (built with opendal-core <lib-version>)". The
+# ext version matches duckdb_extensions().extension_version; the opendal-core
+# version is resolved from Cargo.toml at build time. Assert only the shape.
 query I
-SELECT opendal_version() ILIKE 'opendal % (opendal-core %)';
+SELECT opendal_version() ILIKE 'opendal % (built with opendal-core %)';
 ----
 true
 
@@ -27,7 +27,7 @@ true
 query I
 SELECT opendal_version() =
        'opendal ' || (SELECT extension_version FROM duckdb_extensions() WHERE extension_name = 'opendal')
-       || ' (opendal-core ' || regexp_extract(opendal_version(), 'opendal-core (.*)\)', 1) || ')';
+       || ' (built with opendal-core ' || regexp_extract(opendal_version(), 'opendal-core (.*)\)', 1) || ')';
 ----
 true
 
