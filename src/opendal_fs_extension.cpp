@@ -30,8 +30,10 @@ static void SetOverrideNativeFilesystems(ClientContext &, SetScope, Value &param
 }
 
 // opendal_fs_version() -> VARCHAR
-// Proves the C++ shell can call into the Rust core across the FFI boundary and
-// manage the returned owned C string.
+// Returns the linked opendalfs-core crate version and the resolved OpenDAL
+// library version (the latter is not exposed by DuckDB's built-in
+// extension_version, which reports this extension's own version). The OpenDAL
+// version is resolved from Cargo.lock at build time — see opendalfs-core/build.rs.
 inline void OpendalFsVersionScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
 	char *raw = odop_version();
 	std::string version = raw ? std::string(raw) : std::string("<unavailable>");

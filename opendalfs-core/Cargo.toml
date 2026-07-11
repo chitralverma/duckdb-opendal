@@ -35,6 +35,9 @@ serde_json = "1"
 
 [build-dependencies]
 cbindgen = "0.29"
+# Parse Cargo.toml (TOML) to resolve the opendal version at build time. Already
+# in the build-dep tree via cbindgen, so this adds no new crate.
+toml = "0.9"
 
 [dev-dependencies]
 tempfile = "3"

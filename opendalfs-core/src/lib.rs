@@ -44,6 +44,11 @@ use std::panic::catch_unwind;
 /// Version string of this FFI core (crate version).
 const OPENDALFS_CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Resolved OpenDAL crate version, injected by build.rs from this crate's
+/// Cargo.toml dependency pin (opendal exposes no public VERSION const). Falls
+/// back to "unknown" if unresolved.
+const OPENDAL_VERSION: &str = env!("OPENDAL_VERSION");
+
 /// Return a heap-allocated C string describing the opendalfs-core + OpenDAL
 /// versions. Caller owns the pointer and MUST free it with `odop_string_free`.
 ///
@@ -55,7 +60,7 @@ const OPENDALFS_CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[no_mangle]
 pub extern "C" fn odop_version() -> *mut c_char {
     catch_unwind(|| {
-        let s = format!("opendalfs-core {OPENDALFS_CORE_VERSION} (opendal 0.57)");
+        let s = format!("opendalfs-core {OPENDALFS_CORE_VERSION} (opendal {OPENDAL_VERSION})");
         match CString::new(s) {
             Ok(c) => c.into_raw(),
             Err(_) => std::ptr::null_mut(),
@@ -93,6 +98,10 @@ mod tests {
         assert!(!p.is_null());
         let s = unsafe { CStr::from_ptr(p) }.to_str().unwrap().to_owned();
         assert!(s.contains("opendalfs-core"));
+        // The opendal version is resolved from Cargo.lock at build time, not
+        // hardcoded; check it is present and non-empty.
+        assert!(s.contains("opendal "));
+        assert!(!s.contains("opendal unknown"), "opendal version unresolved: {s}");
         unsafe { odop_string_free(p) };
     }
 

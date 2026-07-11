@@ -40,9 +40,36 @@ fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=cbindgen.toml");
 
+    // Resolve the opendal version from this crate's Cargo.toml so the FFI can
+    // report it programmatically instead of a hardcoded string. opendal exposes
+    // no public VERSION const. We read the declared dependency version (an exact
+    // pin, per plan §2), not Cargo.lock, to keep it simple and dependency-light.
+    let opendal_version = read_manifest_dep_version(
+        &PathBuf::from(&crate_dir).join("Cargo.toml"),
+        "opendal",
+    )
+    .unwrap_or_else(|| "unknown".to_string());
+    println!("cargo:rustc-env=OPENDAL_VERSION={opendal_version}");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+
     // getrandom 0.3+ needs bcrypt on Windows.
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     if target_os == "windows" {
         println!("cargo:rustc-link-lib=bcrypt");
+    }
+}
+
+/// Read the declared `version` of dependency `name` from a Cargo.toml.
+///
+/// Handles both the string form (`name = "1.2"`) and the table form
+/// (`name = { version = "1.2", features = [...] }`).
+fn read_manifest_dep_version(manifest_path: &std::path::Path, name: &str) -> Option<String> {
+    let contents = std::fs::read_to_string(manifest_path).ok()?;
+    let doc: toml::Table = toml::from_str(&contents).ok()?;
+    let dep = doc.get("dependencies")?.get(name)?;
+    match dep {
+        toml::Value::String(s) => Some(s.clone()),
+        toml::Value::Table(t) => t.get("version").and_then(|v| v.as_str()).map(str::to_string),
+        _ => None,
     }
 }
