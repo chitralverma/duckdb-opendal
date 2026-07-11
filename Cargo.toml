@@ -9,11 +9,13 @@ license = "MIT"
 rust-version = "1.75"
 
 [profile.release]
-# Abort would take down the DuckDB host process on panic; we catch panics at the
-# FFI boundary instead, so keep unwind here.
+# panic=unwind is the release default, but pin it explicitly: `abort` would take
+# down the DuckDB host process on a Rust panic — we catch panics at the FFI
+# boundary and convert them to errors instead.
 panic = "unwind"
+# Non-default: whole-program LTO in one codegen unit for a smaller/faster core,
+# and strip the intermediate staticlib. (opt-level=3 and debug=false are the
+# release defaults, so they're omitted.)
 lto = true
 codegen-units = 1
-debug = false
 strip = true
-opt-level = 3
