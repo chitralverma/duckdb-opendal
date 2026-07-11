@@ -65,7 +65,7 @@ endif()
 message(STATUS "opendal: Rust_CARGO_TARGET = ${Rust_CARGO_TARGET}")
 
 corrosion_import_crate(
-    MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
+    MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/opendalfs-core/Cargo.toml
     CRATES duckdb-opendal
     PROFILE release)
 

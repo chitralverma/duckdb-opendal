@@ -1,14 +1,23 @@
 [package]
 name = "duckdb-opendal"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-rust-version.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.91"
 description = "OpenDAL FFI core for the duckdb-opendal filesystem extension"
 
 [lib]
 # Static link into the DuckDB C++ extension (via Corrosion).
 crate-type = ["staticlib"]
+
+[profile.release]
+# panic=unwind (the release default) pinned explicitly: `abort` would take down
+# the DuckDB host process on a Rust panic — we catch panics at the FFI boundary.
+panic = "unwind"
+# Non-default: whole-program LTO in one codegen unit; strip the staticlib.
+lto = true
+codegen-units = 1
+strip = true
 
 [dependencies]
 # default-features off so we pick the rustls crypto provider (ring, not the
