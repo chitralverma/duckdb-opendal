@@ -401,23 +401,14 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 
 	// Merge a SCOPE-matched secret's config (if any). These override any config
 	// OpenDAL parsed from the URI.
-	bool have_secret = ApplySecret(context, db, scheme, url, keys, vals, lkeys, lvals);
-
-	// Env fallback for object stores when no secret provided the credentials.
-	if (scheme == "s3" && !have_secret) {
-		auto add_env = [&](const char *env, const char *odal) {
-			const char *v = std::getenv(env);
-			if (v && *v) {
-				keys.push_back(odal);
-				vals.push_back(v);
-			}
-		};
-		add_env("AWS_REGION", "region");
-		add_env("AWS_ENDPOINT_URL", "endpoint");
-		add_env("AWS_ACCESS_KEY_ID", "access_key_id");
-		add_env("AWS_SECRET_ACCESS_KEY", "secret_access_key");
-		add_env("AWS_SESSION_TOKEN", "session_token");
-	}
+	//
+	// When no secret provides credentials/config, we deliberately do NOT inject
+	// AWS_* env vars ourselves: the S3 backend already loads them natively at
+	// build time -- region (AWS_REGION/AWS_DEFAULT_REGION), endpoint
+	// (AWS_ENDPOINT_URL/AWS_ENDPOINT/AWS_S3_ENDPOINT) and the full credential
+	// chain (env -> shared profile -> IMDS) via DefaultCredentialProvider.
+	// Injecting a partial subset here would only shadow that richer resolution.
+	ApplySecret(context, db, scheme, url, keys, vals, lkeys, lvals);
 
 	std::vector<const char *> key_ptrs, val_ptrs, lkey_ptrs, lval_ptrs;
 	for (size_t i = 0; i < keys.size(); i++) {
