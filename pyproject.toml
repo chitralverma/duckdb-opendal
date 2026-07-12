@@ -1,0 +1,21 @@
+[project]
+name = "duckdb-opendal-tooling"
+version = "0.1.0"
+description = "Formatting/tooling venv for the duckdb-opendal extension."
+readme = "README.md"
+authors = [
+    { name = "chitralverma", email = "chitralverma@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    # Pins mandated by external/duckdb/scripts/format.py (make format):
+    "clang-format==11.0.1", # C++ (.cpp/.hpp) — exact 11.x the script checks for
+    "black>=24",            # Python (.py)
+    "cmake-format",         # CMakeLists.txt
+]
+
+[tool.uv]
+package = false
