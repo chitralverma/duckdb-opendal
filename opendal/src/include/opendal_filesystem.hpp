@@ -110,7 +110,7 @@ public:
 	// Get (creating/caching) an operator for a (scheme, authority) using a
 	// ClientContext for secret lookup (table functions). Throws on failure.
 	OdOperator *OperatorForPublic(const std::string &scheme, const std::string &authority, const std::string &url,
-	                                optional_ptr<ClientContext> context) {
+	                              optional_ptr<ClientContext> context) {
 		return OperatorForCtx(scheme, authority, url, context);
 	}
 
@@ -131,13 +131,13 @@ private:
 	// secret lookup); `opener`/`context` provide access to the SecretManager.
 	// Throws IOException on failure.
 	OdOperator *OperatorFor(const std::string &scheme, const std::string &authority, const std::string &url,
-	                          optional_ptr<FileOpener> opener);
+	                        optional_ptr<FileOpener> opener);
 	OdOperator *OperatorForCtx(const std::string &scheme, const std::string &authority, const std::string &url,
-	                             optional_ptr<ClientContext> context);
+	                           optional_ptr<ClientContext> context);
 	// Shared operator construction: resolve secret + env config, apply layers,
 	// cache per scheme://authority.
 	OdOperator *BuildOperator(const std::string &scheme, const std::string &authority, const std::string &url,
-	                            optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db);
+	                          optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db);
 
 	std::unordered_map<std::string, OdOperator *> operators_;
 	std::mutex mu_;
@@ -148,8 +148,8 @@ private:
 // ─────────────────────────────────────────────────────────────────────────────
 class OpenDalFileHandle : public FileHandle {
 public:
-	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdReader *reader,
-	                  int64_t file_size, int64_t last_modified_ms);
+	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdReader *reader, int64_t file_size,
+	                  int64_t last_modified_ms);
 	// Write-mode handle: wraps an OpenDAL writer.
 	OpenDalFileHandle(FileSystem &fs, const std::string &path, FileOpenFlags flags, OdWriter *writer);
 	~OpenDalFileHandle() override;
@@ -166,6 +166,10 @@ public:
 	OdWriter *writer = nullptr;
 	int64_t bytes_written = 0;
 	bool write_closed = false;
+
+	// Whether the backing scheme is local/on-disk (only `fs`). Cached at open
+	// time so OnDiskFile() need not re-parse the path per call.
+	bool on_disk = false;
 };
 
 } // namespace duckdb

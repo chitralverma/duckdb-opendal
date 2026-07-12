@@ -1,5 +1,6 @@
 #include "opendal_secret.hpp"
 
+#include "duckdb/common/exception.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/secret/secret.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
@@ -73,14 +74,18 @@ static unique_ptr<BaseSecret> CreateOpenDalSecret(ClientContext &, CreateSecretI
 static void RegisterOneService(ExtensionLoader &loader, const std::string &scheme) {
 	// Secret type. Guard against collision: a native/core extension (e.g.
 	// httpfs) may already register a secret type with the same name (e.g. "s3").
-	// RegisterSecretType throws if the type already exists, so ignore that.
+	// RegisterSecretType throws InternalException ("already registered secret
+	// type") on duplicates; swallow only that and let any other error surface.
 	SecretType type;
 	type.name = scheme;
 	type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
 	type.default_provider = "config";
 	try {
 		loader.RegisterSecretType(type);
-	} catch (...) {
+	} catch (const InternalException &e) {
+		if (std::string(e.what()).find("already registered secret type") == std::string::npos) {
+			throw;
+		}
 		// Type already registered by another extension — fine; we still register
 		// our create function below with REPLACE_ON_CONFLICT.
 	}

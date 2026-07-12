@@ -61,6 +61,35 @@ pub(crate) fn require(
 
 // ── introspection FFI: capabilities as an index-addressable (name, bool) list ─
 
+/// Whether `op` supports a single named capability, read from the operator's
+/// cached `Capability` (no list materialization). Returns 1 if supported, 0
+/// otherwise (including null op, unknown name, or panic).
+///
+/// Used by the C++ `MoveFile` fallback to probe `rename`/`copy` cheaply without
+/// building and freeing a full capability list per probe.
+///
+/// # Safety
+/// `op` must be null or a live handle from `od_operator_new`; `name` must be a
+/// valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn od_operator_supports(op: *const OdOperator, name: *const c_char) -> u8 {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if op.is_null() {
+            return 0u8;
+        }
+        let Some(name) = crate::ffi::cstr(name) else {
+            return 0;
+        };
+        let cap = (*op).cap;
+        capability_bools(&cap)
+            .into_iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, sup)| sup as u8)
+            .unwrap_or(0)
+    }))
+    .unwrap_or(0)
+}
+
 /// One capability flag: `name` (borrowed, NUL-terminated) + `supported`.
 #[repr(C)]
 pub struct OdCapability {

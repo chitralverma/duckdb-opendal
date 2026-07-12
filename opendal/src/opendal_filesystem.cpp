@@ -9,7 +9,6 @@
 #include "duckdb/catalog/catalog_transaction.hpp"
 
 #include <algorithm>
-#include <cstring>
 #include <unistd.h>
 #include <unordered_set>
 
@@ -125,28 +124,11 @@ static void ClearError(OdError &err) {
 	}
 }
 
-// Whether `op` reports support for capability `name` (e.g. "rename", "copy",
-// "delete"). Reads the operator's capability list once; returns false on any
-// error. Names match OpenDAL's Capability field names.
+// Whether `op` reports support for capability `name` (e.g. "rename", "copy").
+// Reads the operator's cached capability flag over a single FFI call. Names
+// match OpenDAL's Capability field names.
 static bool OperatorSupports(OdOperator *op, const char *name) {
-	OdError err = {};
-	OdCapabilityList *caps = od_capabilities(op, &err);
-	if (!caps) {
-		ClearError(err);
-		return false;
-	}
-	ClearError(err);
-	bool supported = false;
-	size_t n = od_capabilities_len(caps);
-	for (size_t i = 0; i < n; i++) {
-		OdCapability cap = {};
-		if (od_capabilities_entry(caps, i, &cap) && cap.name && std::strcmp(cap.name, name) == 0) {
-			supported = cap.supported != 0;
-			break;
-		}
-	}
-	od_capabilities_free(caps);
-	return supported;
+	return od_operator_supports(op, name) != 0;
 }
 
 // ─── OpenDalFileHandle ───────────────────────────────────────────────────────
@@ -350,14 +332,14 @@ static bool ApplySecret(optional_ptr<ClientContext> context, optional_ptr<Databa
 }
 
 OdOperator *OpenDalFileSystem::OperatorFor(const std::string &scheme, const std::string &authority,
-                                             const std::string &url, optional_ptr<FileOpener> opener) {
+                                           const std::string &url, optional_ptr<FileOpener> opener) {
 	auto context = FileOpener::TryGetClientContext(opener);
 	auto db = FileOpener::TryGetDatabase(opener);
 	return BuildOperator(scheme, authority, url, context, db);
 }
 
 OdOperator *OpenDalFileSystem::OperatorForCtx(const std::string &scheme, const std::string &authority,
-                                                const std::string &url, optional_ptr<ClientContext> context) {
+                                              const std::string &url, optional_ptr<ClientContext> context) {
 	optional_ptr<DatabaseInstance> db;
 	if (context) {
 		db = &DatabaseInstance::GetDatabase(*context);
@@ -366,8 +348,8 @@ OdOperator *OpenDalFileSystem::OperatorForCtx(const std::string &scheme, const s
 }
 
 OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const std::string &authority,
-                                               const std::string &url, optional_ptr<ClientContext> context,
-                                               optional_ptr<DatabaseInstance> db) {
+                                             const std::string &url, optional_ptr<ClientContext> context,
+                                             optional_ptr<DatabaseInstance> db) {
 	std::string key = scheme + "://" + authority;
 
 	// Fast path: return a cached operator without blocking other schemes.
@@ -425,9 +407,9 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	// unrelated schemes/buckets.
 	OdError err = {};
 	OdOperator *op = od_operator_new(uri.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
-	                                     val_ptrs.empty() ? nullptr : val_ptrs.data(), keys.size(),
-	                                     lkey_ptrs.empty() ? nullptr : lkey_ptrs.data(),
-	                                     lval_ptrs.empty() ? nullptr : lval_ptrs.data(), lkeys.size(), &err);
+	                                 val_ptrs.empty() ? nullptr : val_ptrs.data(), keys.size(),
+	                                 lkey_ptrs.empty() ? nullptr : lkey_ptrs.data(),
+	                                 lval_ptrs.empty() ? nullptr : lval_ptrs.data(), lkeys.size(), &err);
 	if (!op) {
 		ThrowIfError(err, "opendal: failed to create operator for '" + key + "'");
 		throw IOException("opendal: null operator for '" + key + "'");
@@ -482,6 +464,7 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 		}
 		ClearError(werr);
 		auto handle = make_uniq<OpenDalFileHandle>(*this, path, flags, writer);
+		handle->on_disk = (scheme == "fs");
 		if (opener) {
 			handle->TryAddLogger(*opener);
 		}
@@ -508,6 +491,7 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 
 	auto handle =
 	    make_uniq<OpenDalFileHandle>(*this, path, flags, reader, (int64_t)meta.content_length, meta.last_modified_ms);
+	handle->on_disk = (scheme == "fs");
 	if (opener) {
 		handle->TryAddLogger(*opener);
 	}
@@ -565,8 +549,7 @@ void OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes,
 		throw IOException("opendal: read on closed handle: " + h.path);
 	}
 	OdError err = {};
-	int64_t n =
-	    od_reader_read(h.reader, (uint64_t)location, (uint64_t)nr_bytes, static_cast<uint8_t *>(buffer), &err);
+	int64_t n = od_reader_read(h.reader, (uint64_t)location, (uint64_t)nr_bytes, static_cast<uint8_t *>(buffer), &err);
 	if (n < 0) {
 		ThrowIfError(err, "opendal read: " + h.path);
 		throw IOException("opendal read failed: " + h.path);
@@ -594,8 +577,7 @@ int64_t OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_byt
 	int64_t to_read = nr_bytes < remaining ? nr_bytes : remaining;
 
 	OdError err = {};
-	int64_t n =
-	    od_reader_read(h.reader, (uint64_t)h.position, (uint64_t)to_read, static_cast<uint8_t *>(buffer), &err);
+	int64_t n = od_reader_read(h.reader, (uint64_t)h.position, (uint64_t)to_read, static_cast<uint8_t *>(buffer), &err);
 	if (n < 0) {
 		ThrowIfError(err, "opendal read: " + h.path);
 		throw IOException("opendal read failed: " + h.path);
@@ -818,12 +800,8 @@ idx_t OpenDalFileSystem::SeekPosition(FileHandle &handle) {
 }
 
 bool OpenDalFileSystem::OnDiskFile(FileHandle &handle) {
-	// Only the local `fs` scheme is on-disk; everything else is treated as remote.
-	std::string scheme, auth, rel;
-	if (ParseUrl(handle.path, scheme, auth, rel)) {
-		return scheme == "fs";
-	}
-	return false;
+	// Only the local `fs` scheme is on-disk; cached at open time (no re-parse).
+	return handle.Cast<OpenDalFileHandle>().on_disk;
 }
 
 // ─── Mutations ──────────────────────────────────────────────────────────────

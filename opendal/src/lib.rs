@@ -27,7 +27,7 @@ mod writer;
 // Re-export the FFI surface so cbindgen picks it up from the crate root.
 pub use capability::{
     od_capabilities, od_capabilities_entry, od_capabilities_free, od_capabilities_len,
-    OdCapability, OdCapabilityList,
+    od_operator_supports, OdCapability, OdCapabilityList,
 };
 pub use error::{OdError, OdErrorCode};
 pub use io::od_set_global_io_options;
@@ -589,6 +589,19 @@ mod tests {
         assert_eq!(caps.get("list"), Some(&true));
         assert_eq!(caps.get("rename"), Some(&false));
         assert_eq!(caps.get("copy"), Some(&false));
+
+        // od_operator_supports reads the same cached cap without materializing
+        // a list — must agree with the list above.
+        let probe = |name: &str| {
+            let c = CString::new(name).unwrap();
+            let rc = unsafe { crate::od_operator_supports(op, c.as_ptr()) };
+            rc == 1
+        };
+        assert!(probe("read"));
+        assert!(probe("write"));
+        assert!(!probe("rename"));
+        assert!(!probe("copy"));
+        assert!(!probe("definitely_not_a_capability"));
 
         // rename must fail-fast with Unsupported + a clear message, without
         // touching the backend.
