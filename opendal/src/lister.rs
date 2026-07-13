@@ -22,11 +22,13 @@ use crate::runtime::block_on;
 
 /// Opaque, index-addressable list of entries.
 ///
-/// `Entry::path()`/`name()` return non-NUL-terminated `&str`, so we lazily build
-/// and cache NUL-terminated `CString`s (whose lifetime matches the list) the
-/// first time an entry is requested. The cache lives in an `UnsafeCell` because
-/// entry access takes `&self` at the FFI layer; access is single-threaded per
-/// call (one DuckDB worker owns the list handle at a time).
+/// `Entry::path()`/`name()` are non-NUL-terminated `&str`, so NUL-terminated
+/// `CString`s are built and cached lazily (list-lifetime) on first access. The
+/// cache is an `UnsafeCell` (entry access takes `&self`); this is sound only
+/// because a list never escapes the function that created it — every `od_list`
+/// caller (`Glob`/`ListFiles`/`ls`/`du`) creates, consumes, and frees it in one
+/// scope, so the cache is never touched concurrently. Do not stash an
+/// `OdEntryList` in shared/scan state without a thread-safe cache.
 pub struct OdEntryList {
     entries: Vec<Entry>,
     strings: UnsafeCell<HashMap<usize, (CString, CString)>>,

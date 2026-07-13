@@ -17,6 +17,12 @@ use crate::operator::OdOperator;
 use crate::runtime::block_on;
 
 /// Opaque handle wrapping an `opendal::Reader`. Free with `od_reader_free`.
+///
+/// Not synchronized: DuckDB never issues concurrent reads against one
+/// `FileHandle` (readers open a handle per thread, or share one under their own
+/// lock), so `od_reader_read` takes `&mut` on the inner `Reader` safely
+/// (`read_into` is `&mut self`). Do not drive concurrent reads on one
+/// `OdReader` without adding a lock here.
 pub struct OdReader {
     reader: Reader,
 }
