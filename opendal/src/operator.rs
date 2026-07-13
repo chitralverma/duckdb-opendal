@@ -34,6 +34,7 @@ pub struct OdOperator {
     /// instead of re-deriving it (which clones the Arc-backed ServiceInfo) on
     /// every read/write/stat/list.
     pub(crate) cap: opendal::Capability,
+    pub(crate) warning: Option<std::ffi::CString>,
 }
 
 /// Build an Operator from `uri` (`scheme://authority`) plus `len` key/value
@@ -111,7 +112,8 @@ pub unsafe extern "C" fn od_operator_new(
 
         match Operator::from_uri(parsed) {
             Ok(op) => {
-                let op = config.apply_layers(op);
+                let applied = config.apply_layers(op);
+                let op = applied.op;
                 let cap = op.info().capability();
                 set_ok(err);
                 Box::into_raw(Box::new(OdOperator {
@@ -119,6 +121,9 @@ pub unsafe extern "C" fn od_operator_new(
                     scheme,
                     io: config.io,
                     cap,
+                    warning: applied
+                        .warning
+                        .and_then(|warning| std::ffi::CString::new(warning).ok()),
                 }))
             }
             Err(e) => {
@@ -127,6 +132,22 @@ pub unsafe extern "C" fn od_operator_new(
             }
         }
     })
+}
+
+/// Return an operator-construction warning, or null. Borrowed from `op`.
+#[no_mangle]
+pub unsafe extern "C" fn od_operator_warning(op: *const OdOperator) -> *const c_char {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if op.is_null() {
+            std::ptr::null()
+        } else {
+            (*op)
+                .warning
+                .as_ref()
+                .map_or(std::ptr::null(), |warning| warning.as_ptr())
+        }
+    }))
+    .unwrap_or(std::ptr::null())
 }
 
 /// Collect `len` parallel (key, value) C-string pairs into owned Rust strings.

@@ -18,6 +18,11 @@ pub(crate) struct OperatorConfig {
     cache_namespace: Option<String>,
 }
 
+pub(crate) struct AppliedConfig {
+    pub(crate) op: Operator,
+    pub(crate) warning: Option<String>,
+}
+
 impl OperatorConfig {
     pub(crate) fn parse(
         values: Vec<(String, String)>,
@@ -46,7 +51,7 @@ impl OperatorConfig {
         })
     }
 
-    pub(crate) fn apply_layers(&self, mut op: Operator) -> Operator {
+    pub(crate) fn apply_layers(&self, mut op: Operator) -> AppliedConfig {
         if let Some(config) = &self.retry {
             op = config.apply(op);
         }
@@ -54,10 +59,15 @@ impl OperatorConfig {
             op = config.apply(op);
         }
         op = self.io.apply_layer(op);
-        if let Some(config) = &self.cache {
-            op = config.apply(op, self.cache_namespace.as_deref());
-        }
-        op
+        let warning = match &self.cache {
+            Some(config) => {
+                let (layered, warning) = config.apply(op, self.cache_namespace.as_deref());
+                op = layered;
+                warning
+            }
+            None => None,
+        };
+        AppliedConfig { op, warning }
     }
 }
 

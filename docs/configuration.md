@@ -83,6 +83,16 @@ be invalid for other services.
 Changing a global or scoped section produces a new effective-config operator;
 existing open handles continue using the operator they were opened with.
 
+Size values accept bare bytes and case-sensitive unit strings:
+
+- SI bytes: `KB`, `MB`, `GB`, `TB` (powers of 1000)
+- IEC bytes: `KiB`, `MiB`, `GiB`, `TiB` (powers of 1024)
+- SI bits: `kb`, `Mb`, `Gb`, `Tb`
+- IEC bits: `Kib`, `Mib`, `Gib`, `Tib`
+
+Bit values must convert to a whole number of bytes. Duration values accept bare
+seconds or `ns`, `μs`, `ms`, `s`, `m`, `h`, and `d` suffixes.
+
 ## Option reference
 
 ### `io_config`
@@ -135,8 +145,8 @@ isolated cache namespace, including a derived subdirectory under `disk_path`.
 | `disk_path` | unset | Base directory for persistent cache namespaces |
 | `disk_size` | `1 GiB` | On-disk size |
 | `block_size` | `4 MiB` | On-disk block size |
-| `min_file_size` | `0` | Minimum cached object size in bytes |
-| `max_file_size` | unlimited | Maximum cached object size in bytes |
+| `min_file_size` | `0` | Minimum cached object size |
+| `max_file_size` | unlimited | Maximum cached object size |
 | `shards` | `4` | In-memory cache shards |
 
 This cache stores object data only. Unlike `cache_httpfs`, it does not cache

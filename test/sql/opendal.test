@@ -288,6 +288,32 @@ RESET opendal_timeout_config;
 statement ok
 RESET opendal_cache_config;
 
+# Best-effort cache build failures are DuckDB warnings, not stderr output. Use
+# an existing file as disk_path so cache directory creation fails predictably;
+# the filesystem operation still succeeds without cache.
+statement ok
+CALL enable_logging(level='warning', storage='memory');
+
+statement ok
+SET GLOBAL opendal_cache_config = MAP{'memory_size':'16 MB','disk_path':'__TEST_DIR__/w_out.parquet'};
+
+query I
+SELECT count(*) FROM opendal_stat('fs://__TEST_DIR__/w_out.parquet');
+----
+1
+
+query I
+SELECT count(*) FROM duckdb_logs()
+WHERE log_level = 'WARNING' AND message LIKE 'OpenDAL cache disabled:%';
+----
+1
+
+statement ok
+RESET opendal_cache_config;
+
+statement ok
+CALL disable_logging();
+
 # Invalid cross-service values are rejected when the effective operator is
 # built; they are never silently dropped to defaults.
 statement ok

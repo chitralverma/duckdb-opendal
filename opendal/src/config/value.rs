@@ -46,17 +46,14 @@ pub(crate) struct ByteSize(usize);
 
 impl ByteSize {
     pub(crate) fn parse(section: &str, key: &str, value: &str) -> Result<Self, String> {
-        let bytes = value
-            .parse::<u64>()
-            .or_else(|_| value.parse::<Byte>().map(|value| value.0))
-            .map_err(|_| {
-                invalid(
-                    section,
-                    key,
-                    value,
-                    "expected bytes or an IEC size such as '8 MiB'",
-                )
-            })?;
+        let bytes = parse_bytes(value).ok_or_else(|| {
+            invalid(
+                section,
+                key,
+                value,
+                "expected bytes or a size such as '8 MB', '8 MiB', or '64 Mib'",
+            )
+        })?;
         usize::try_from(bytes)
             .map(Self)
             .map_err(|_| format!("{section}.{key} exceeds the platform size limit"))
@@ -64,6 +61,47 @@ impl ByteSize {
 
     pub(crate) fn get(self) -> usize {
         self.0
+    }
+}
+
+fn parse_bytes(value: &str) -> Option<u64> {
+    let value = value.trim();
+    if let Ok(bytes) = value.parse::<u64>() {
+        return Some(bytes);
+    }
+    if let Ok(bytes) = value.parse::<Byte>() {
+        return Some(bytes.0);
+    }
+
+    let split = value.rfind(char::is_numeric)?;
+    let number = value[..=split].trim().parse::<u64>().ok()?;
+    let unit = value[split + 1..].trim();
+    let (factor, bits) = match unit {
+        "B" => (1, false),
+        "kB" | "KB" => (1_000, false),
+        "MB" => (1_000_000, false),
+        "GB" => (1_000_000_000, false),
+        "TB" => (1_000_000_000_000, false),
+        "PB" => (1_000_000_000_000_000, false),
+        "EB" => (1_000_000_000_000_000_000, false),
+        "b" => (1, true),
+        "kb" => (1_000, true),
+        "Mb" => (1_000_000, true),
+        "Gb" => (1_000_000_000, true),
+        "Tb" => (1_000_000_000_000, true),
+        "Kib" => (1_u64 << 10, true),
+        "Mib" => (1_u64 << 20, true),
+        "Gib" => (1_u64 << 30, true),
+        "Tib" => (1_u64 << 40, true),
+        "Pib" => (1_u64 << 50, true),
+        "Eib" => (1_u64 << 60, true),
+        _ => return None,
+    };
+    let value = number.checked_mul(factor)?;
+    if bits {
+        (value % 8 == 0).then_some(value / 8)
+    } else {
+        Some(value)
     }
 }
 
@@ -128,6 +166,19 @@ mod tests {
                 .get(),
             262_144
         );
+        assert_eq!(
+            ByteSize::parse("io", "chunk_size", "1 MB").unwrap().get(),
+            1_000_000
+        );
+        assert_eq!(
+            ByteSize::parse("io", "chunk_size", "8 Mb").unwrap().get(),
+            1_000_000
+        );
+        assert_eq!(
+            ByteSize::parse("io", "chunk_size", "8 Mib").unwrap().get(),
+            1_048_576
+        );
+        assert!(ByteSize::parse("io", "chunk_size", "1 b").is_err());
 
         assert_eq!(
             HumanDuration::parse("timeout", "io_timeout", "15")

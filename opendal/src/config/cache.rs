@@ -69,12 +69,15 @@ impl CacheConfig {
         Ok(Some(config))
     }
 
-    pub(crate) fn apply(&self, op: Operator, namespace: Option<&str>) -> Operator {
+    pub(crate) fn apply(
+        &self,
+        op: Operator,
+        namespace: Option<&str>,
+    ) -> (Operator, Option<String>) {
         let layer = match self.build_layer(namespace) {
             Ok(layer) => layer,
             Err(error) => {
-                eprintln!("[duckdb-opendal] cache disabled ({error})");
-                return op;
+                return (op, Some(format!("OpenDAL cache disabled: {error}")));
             }
         };
         let min = self.min_file_size.get();
@@ -89,7 +92,7 @@ impl CacheConfig {
             }
             None => layer.with_size_limit(min..),
         };
-        op.layer(layer)
+        (op.layer(layer), None)
     }
 
     fn build_layer(&self, namespace: Option<&str>) -> Result<opendal::layers::FoyerLayer, String> {

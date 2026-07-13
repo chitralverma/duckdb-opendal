@@ -3,6 +3,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 #include "duckdb/logging/file_system_logger.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/secret/secret.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
@@ -179,9 +180,16 @@ void OpenDalFileHandle::Close() {
 		if (!write_closed) {
 			OdError err = {};
 			if (od_writer_close(writer, &err) != 0) {
+				if (logger) {
+					DUCKDB_LOG_ERROR(logger, "OpenDAL writer close failed for '%s': %s", path,
+					                 err.message ? err.message : "unknown error");
+				}
 				// Best-effort: abort to release the multipart session.
 				OdError aerr = {};
-				od_writer_abort(writer, &aerr);
+				if (od_writer_abort(writer, &aerr) != 0 && logger) {
+					DUCKDB_LOG_ERROR(logger, "OpenDAL writer abort failed for '%s': %s", path,
+					                 aerr.message ? aerr.message : "unknown error");
+				}
 				if (aerr.message) {
 					od_string_free(aerr.message);
 				}
@@ -459,6 +467,13 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 		throw IOException("opendal: null operator for '" + uri + "'");
 	}
 	ClearError(err);
+	if (auto warning = od_operator_warning(op)) {
+		if (context) {
+			DUCKDB_LOG_WARNING(*context, warning);
+		} else if (db) {
+			DUCKDB_LOG_WARNING(*db, warning);
+		}
+	}
 
 	// Publish under the lock. If another thread built the same key concurrently,
 	// keep the first one and free ours (last-writer-loses, avoids a leak).

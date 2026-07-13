@@ -31,7 +31,9 @@ pub use capability::{
 pub use error::{OdError, OdErrorCode};
 pub use lister::{od_list, od_list_entry, od_list_free, od_list_len, OdEntry, OdEntryList};
 pub use mutate::{od_copy, od_create_dir, od_remove, od_rename};
-pub use operator::{od_operator_free, od_operator_new, od_scheme_supported, OdOperator};
+pub use operator::{
+    od_operator_free, od_operator_new, od_operator_warning, od_scheme_supported, OdOperator,
+};
 pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
 pub use stat::{od_exists, od_stat, OdMetadata};
 pub use writer::{
