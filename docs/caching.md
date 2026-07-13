@@ -42,13 +42,13 @@ globally or per secret; see [configuration.md](configuration.md) for all keys.
 
 ```sql
 -- Global in-memory cache for every OpenDAL service/path:
-SET GLOBAL opendal_cache_config = MAP{'memory_mb':'256','shards':'4'};
+SET GLOBAL opendal_cache_config = MAP{'memory_size':'256 MiB','shards':'4'};
 
 -- Scoped in-memory + on-disk cache:
 CREATE SECRET s3_cached_disk (
     TYPE s3, SCOPE 's3://bucket',
     config MAP{'access_key_id':'...','secret_access_key':'...','region':'us-east-1'},
-    cache_config MAP{'memory_mb':'256','disk_path':'/var/cache/opendal','disk_mb':'4096','block_mb':'4'}
+    cache_config MAP{'memory_size':'256 MiB','disk_path':'/var/cache/opendal','disk_size':'4 GiB','block_size':'4 MiB'}
 );
 
 -- Reads under s3://bucket now go through the foyer cache.

@@ -52,14 +52,13 @@ pub unsafe extern "C" fn od_writer_open(
                 return std::ptr::null_mut();
             }
         };
-        // Apply I/O tuning (concurrent/chunk) when configured; 0 = leave the
-        // OpenDAL per-service default. On s3 this drives multipart concurrency.
+        // Unset fields leave service defaults intact; on S3 these tune multipart writes.
         let mut b = odop.op.writer_with(path);
-        if odop.io.write.concurrent > 0 {
-            b = b.concurrent(odop.io.write.concurrent);
+        if let Some(concurrent) = odop.io.write.concurrent {
+            b = b.concurrent(concurrent.get());
         }
-        if odop.io.write.chunk > 0 {
-            b = b.chunk(odop.io.write.chunk);
+        if let Some(chunk) = odop.io.write_chunk() {
+            b = b.chunk(chunk);
         }
         match block_on(b.into_future()) {
             Ok(writer) => {

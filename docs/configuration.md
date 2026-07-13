@@ -20,29 +20,29 @@ CREATE SECRET warehouse (
     },
     io_config MAP{
         'read.concurrent': '4',
-        'read.chunk': '8388608',
+        'read.chunk_size': '8 MiB',
         'write.concurrent': '4',
-        'write.chunk': '8388608',
+        'write.chunk_size': '8 MiB',
         'concurrent_limit': '16'
     },
     retry_config MAP{
         'max_times': '5',
         'factor': '2',
         'jitter': 'true',
-        'min_delay_ms': '100',
-        'max_delay_ms': '10000'
+        'min_delay': '100ms',
+        'max_delay': '10s'
     },
     timeout_config MAP{
-        'seconds': '60',
-        'io_seconds': '15'
+        'operation_timeout': '1m',
+        'io_timeout': '15s'
     },
     cache_config MAP{
-        'memory_mb': '256',
+        'memory_size': '256 MiB',
         'disk_path': '/var/cache/opendal',
-        'disk_mb': '4096',
-        'block_mb': '4',
+        'disk_size': '4 GiB',
+        'block_size': '4 MiB',
         'min_file_size': '0',
-        'max_file_size': '1073741824',
+        'max_file_size': '1 GiB',
         'shards': '4'
     }
 );
@@ -67,10 +67,10 @@ valid keys. There are no convenience aliases or generic `layers` bag.
 The cross-service sections have matching global DuckDB settings:
 
 ```sql
-SET GLOBAL opendal_io_config = MAP{'read.concurrent':'4','read.chunk':'8388608'};
+SET GLOBAL opendal_io_config = MAP{'read.concurrent':'4','read.chunk_size':'8 MiB'};
 SET GLOBAL opendal_retry_config = MAP{'max_times':'5','jitter':'true'};
-SET GLOBAL opendal_timeout_config = MAP{'seconds':'60','io_seconds':'15'};
-SET GLOBAL opendal_cache_config = MAP{'memory_mb':'256','shards':'4'};
+SET GLOBAL opendal_timeout_config = MAP{'operation_timeout':'1m','io_timeout':'15s'};
+SET GLOBAL opendal_cache_config = MAP{'memory_size':'256 MiB','shards':'4'};
 ```
 
 Globals apply to every OpenDAL service and path. Secret sections merge over the
@@ -90,9 +90,9 @@ existing open handles continue using the operator they were opened with.
 | Key | Meaning |
 |---|---|
 | `read.concurrent` | Concurrent ranged-read requests |
-| `read.chunk` | Read request chunk size in bytes |
+| `read.chunk_size` | Read request chunk size |
 | `write.concurrent` | Concurrent multipart-write requests |
-| `write.chunk` | Multipart-write chunk size in bytes |
+| `write.chunk_size` | Multipart-write chunk size |
 | `concurrent_limit` | Maximum concurrent service requests |
 
 `read.concurrent` and `write.concurrent` control fan-out within each read or
@@ -108,8 +108,8 @@ you want across simultaneous DuckDB reads and writes.
 | `max_times` | Maximum retry attempts |
 | `factor` | Backoff multiplier |
 | `jitter` | Add random jitter (`true` or `1`) |
-| `min_delay_ms` | Minimum backoff delay |
-| `max_delay_ms` | Maximum backoff delay |
+| `min_delay` | Minimum backoff delay |
+| `max_delay` | Maximum backoff delay |
 
 These are all configurable `RetryLayer` backoff options in OpenDAL 0.58. The
 remaining Rust API, `with_notify`, installs a custom `RetryInterceptor` callback
@@ -119,8 +119,8 @@ and cannot be represented as a SQL setting.
 
 | Key | Meaning |
 |---|---|
-| `seconds` | Per-operation timeout |
-| `io_seconds` | Per-I/O-chunk timeout |
+| `operation_timeout` | Per-operation timeout |
+| `io_timeout` | Per-I/O-chunk timeout |
 
 These are the complete `TimeoutLayer` options in OpenDAL 0.58.
 
@@ -131,10 +131,10 @@ isolated cache namespace, including a derived subdirectory under `disk_path`.
 
 | Key | Default | Meaning |
 |---|---:|---|
-| `memory_mb` | `256` | In-memory capacity |
+| `memory_size` | `256 MiB` | In-memory size |
 | `disk_path` | unset | Base directory for persistent cache namespaces |
-| `disk_mb` | `1024` | On-disk capacity |
-| `block_mb` | `4` | On-disk block size |
+| `disk_size` | `1 GiB` | On-disk size |
+| `block_size` | `4 MiB` | On-disk block size |
 | `min_file_size` | `0` | Minimum cached object size in bytes |
 | `max_file_size` | unlimited | Maximum cached object size in bytes |
 | `shards` | `4` | In-memory cache shards |

@@ -486,6 +486,7 @@ dependencies = [
  "bytes",
  "cbindgen",
  "foyer",
+ "human-units",
  "opendal",
  "opendal-http-transport-reqwest",
  "rustls",
@@ -916,6 +917,26 @@ name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+
+[[package]]
+name = "human-units"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de83553769446dd944c447e8379c92872bd8d507a84053eeb0982529e809d59e"
+dependencies = [
+ "human-units-derive",
+ "pastey",
+]
+
+[[package]]
+name = "human-units-derive"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df5eefd8ef768af6001b5da388a31820eec1bc1fc63ee9ec2208830617e94fca"
+dependencies = [
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "hybrid-array"
@@ -1635,6 +1656,12 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
+name = "pastey"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "pbkdf2"

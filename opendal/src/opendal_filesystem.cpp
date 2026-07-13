@@ -416,9 +416,7 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	ApplySecret(context, db, scheme, url, config, options);
 	uint64_t config_hash;
 	std::string key = ConfigIdentity(scheme, authority, config, options, config_hash);
-	if (options.find("cache.disk_path") != options.end()) {
-		options["__cache_namespace"] = std::to_string(config_hash);
-	}
+	std::string cache_namespace = std::to_string(config_hash);
 
 	{
 		std::lock_guard<std::mutex> lk(mu_);
@@ -428,34 +426,34 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 		}
 	}
 
-	std::vector<std::string> keys, vals, lkeys, lvals;
+	std::vector<std::string> keys, vals, option_keys, option_vals;
 	for (auto &entry : config) {
 		keys.push_back(entry.first);
 		vals.push_back(entry.second);
 	}
 	for (auto &entry : options) {
-		lkeys.push_back(entry.first);
-		lvals.push_back(entry.second);
+		option_keys.push_back(entry.first);
+		option_vals.push_back(entry.second);
 	}
 
-	std::vector<const char *> key_ptrs, val_ptrs, lkey_ptrs, lval_ptrs;
+	std::vector<const char *> key_ptrs, val_ptrs, option_key_ptrs, option_val_ptrs;
 	for (size_t i = 0; i < keys.size(); i++) {
 		key_ptrs.push_back(keys[i].c_str());
 		val_ptrs.push_back(vals[i].c_str());
 	}
-	for (size_t i = 0; i < lkeys.size(); i++) {
-		lkey_ptrs.push_back(lkeys[i].c_str());
-		lval_ptrs.push_back(lvals[i].c_str());
+	for (size_t i = 0; i < option_keys.size(); i++) {
+		option_key_ptrs.push_back(option_keys[i].c_str());
+		option_val_ptrs.push_back(option_vals[i].c_str());
 	}
 
 	// Build the operator OUTSIDE the lock: od_operator_new may do DNS/network
 	// work, and holding mu_ across it would serialize operator creation for
 	// unrelated schemes/buckets.
 	OdError err = {};
-	OdOperator *op = od_operator_new(uri.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(),
-	                                 val_ptrs.empty() ? nullptr : val_ptrs.data(), keys.size(),
-	                                 lkey_ptrs.empty() ? nullptr : lkey_ptrs.data(),
-	                                 lval_ptrs.empty() ? nullptr : lval_ptrs.data(), lkeys.size(), &err);
+	OdOperator *op = od_operator_new(
+	    uri.c_str(), key_ptrs.empty() ? nullptr : key_ptrs.data(), val_ptrs.empty() ? nullptr : val_ptrs.data(),
+	    keys.size(), option_key_ptrs.empty() ? nullptr : option_key_ptrs.data(),
+	    option_val_ptrs.empty() ? nullptr : option_val_ptrs.data(), option_keys.size(), cache_namespace.c_str(), &err);
 	if (!op) {
 		ThrowIfError(err, "opendal: failed to create operator for '" + uri + "'");
 		throw IOException("opendal: null operator for '" + uri + "'");

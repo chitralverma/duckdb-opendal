@@ -109,7 +109,7 @@ CREATE SECRET s3_vault (
     TYPE s3, SCOPE 's3://vault',
     config MAP{'access_key_id':'minioadmin','secret_access_key':'minioadmin','region':'us-east-1','endpoint':'http://127.0.0.1:19100'},
     retry_config MAP{'max_times':'3'},
-    timeout_config MAP{'seconds':'30'}
+    timeout_config MAP{'operation_timeout':'30s'}
 );
 
 # The warehouse-scoped secret drives this read.
@@ -148,7 +148,7 @@ SELECT count(*), sum(v) FROM read_parquet('s3://warehouse/written/out.parquet');
 # I/O tuning: global config on the multipart write path. The write
 # must still round-trip correctly with tuning enabled.
 statement ok
-SET GLOBAL opendal_io_config = MAP{'write.concurrent':'4','write.chunk':'8388608','read.concurrent':'2'};
+SET GLOBAL opendal_io_config = MAP{'write.concurrent':'4','write.chunk_size':'8 MiB','read.concurrent':'2'};
 
 statement ok
 COPY (SELECT range AS id, range * 2 AS v FROM range(500))
@@ -168,7 +168,7 @@ statement ok
 CREATE SECRET s3_tuned (
     TYPE s3, SCOPE 's3://warehouse/perssecret',
     config MAP{'access_key_id':'minioadmin','secret_access_key':'minioadmin','region':'us-east-1','endpoint':'http://127.0.0.1:19100','enable_virtual_host_style':'false'},
-    io_config MAP{'write.concurrent':'4','write.chunk':'8388608'}
+    io_config MAP{'write.concurrent':'4','write.chunk_size':'8 MiB'}
 );
 
 statement ok
@@ -200,7 +200,7 @@ statement ok
 CREATE SECRET s3_cached_vault (
     TYPE s3, SCOPE 's3://vault/only.parquet',
     config MAP{'access_key_id':'minioadmin','secret_access_key':'minioadmin','region':'us-east-1','endpoint':'http://127.0.0.1:19100'},
-    cache_config MAP{'memory_mb':'64','max_file_size':'104857600'}
+    cache_config MAP{'memory_size':'64 MiB','max_file_size':'100 MiB'}
 );
 
 query I
@@ -213,7 +213,7 @@ statement ok
 CREATE SECRET s3_disk_cache_wh (
     TYPE s3, SCOPE 's3://warehouse/foyerdisk',
     config MAP{'access_key_id':'minioadmin','secret_access_key':'minioadmin','region':'us-east-1','endpoint':'http://127.0.0.1:19100'},
-    cache_config MAP{'memory_mb':'16','disk_path':'__TEST_DIR__/opendal_cache','disk_mb':'64','block_mb':'1'}
+    cache_config MAP{'memory_size':'16 MiB','disk_path':'__TEST_DIR__/opendal_cache','disk_size':'64 MiB','block_size':'1 MiB'}
 );
 
 statement ok

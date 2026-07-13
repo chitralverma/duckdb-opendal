@@ -56,14 +56,13 @@ pub unsafe extern "C" fn od_reader_open(
                 return std::ptr::null_mut();
             }
         };
-        // Apply I/O tuning (concurrent/chunk) when configured; 0 = leave the
-        // OpenDAL per-service default.
+        // Unset fields leave OpenDAL's service defaults intact.
         let mut b = odop.op.reader_with(path);
-        if odop.io.read.concurrent > 0 {
-            b = b.concurrent(odop.io.read.concurrent);
+        if let Some(concurrent) = odop.io.read.concurrent {
+            b = b.concurrent(concurrent.get());
         }
-        if odop.io.read.chunk > 0 {
-            b = b.chunk(odop.io.read.chunk);
+        if let Some(chunk) = odop.io.read_chunk() {
+            b = b.chunk(chunk);
         }
         match block_on(b.into_future()) {
             Ok(reader) => {

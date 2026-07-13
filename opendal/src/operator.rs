@@ -16,9 +16,9 @@ use std::sync::{Mutex, OnceLock};
 
 use opendal::{Operator, OperatorUri};
 
+use crate::config::OperatorConfig;
 use crate::error::{set_error, set_ok, set_opendal_error, OdError, OdErrorCode};
 use crate::ffi::{cstr, ffi_guard, free_handle};
-use crate::layers::{apply_layers, validate_options};
 
 /// Opaque handle wrapping an `opendal::Operator`.
 pub struct OdOperator {
@@ -28,7 +28,7 @@ pub struct OdOperator {
     pub(crate) scheme: String,
     /// Reader/writer I/O tuning (concurrent + chunk), resolved from per-operator
     /// `io.*` options merged over the process-global defaults.
-    pub(crate) io: crate::io::IoOptions,
+    pub(crate) io: crate::config::IoConfig,
     /// The operator's capability, cached at construction. It is immutable for
     /// the operator's lifetime, so the fail-fast guards read it from here
     /// instead of re-deriving it (which clones the Arc-backed ServiceInfo) on
@@ -37,22 +37,21 @@ pub struct OdOperator {
 }
 
 /// Build an Operator from `uri` (`scheme://authority`) plus `len` key/value
-/// config pairs, then apply optional layers described by `layer_len` pairs.
+/// config pairs, then parse cross-service options described by `option_len` pairs.
 ///
 /// Construction goes through `Operator::from_uri((uri, extra_opts))`: OpenDAL's
 /// per-service URI parsing maps the authority to the right config key (bucket /
 /// container / …); `keys`/`values` are extra OpenDAL config (typically a
 /// SCOPE-matched secret) that override URI-parsed values.
-/// `layer_keys`/`layer_values` configure layers (retry/timeout/… — see
-/// `layers.rs`).
+/// `option_keys`/`option_values` configure typed I/O/retry/timeout/cache sections.
 /// On success returns a non-null `*mut OdOperator` and sets `*err` to Ok.
 /// On failure returns null and populates `*err`.
 ///
 /// # Safety
-/// - `uri`, and each config/layer `keys[i]`/`values[i]`, must be valid
+/// - `uri`, and each config/option `keys[i]`/`values[i]`, must be valid
 ///   NUL-terminated C strings for the duration of the call.
 /// - `keys`/`values` must each point to `len` valid pointers (or be null iff
-///   `len == 0`); likewise `layer_keys`/`layer_values` and `layer_len`.
+///   `len == 0`); likewise `option_keys`/`option_values` and `option_len`.
 /// - The returned handle must be freed exactly once with `od_operator_free`.
 #[no_mangle]
 pub unsafe extern "C" fn od_operator_new(
@@ -60,9 +59,10 @@ pub unsafe extern "C" fn od_operator_new(
     keys: *const *const c_char,
     values: *const *const c_char,
     len: usize,
-    layer_keys: *const *const c_char,
-    layer_values: *const *const c_char,
-    layer_len: usize,
+    option_keys: *const *const c_char,
+    option_values: *const *const c_char,
+    option_len: usize,
+    cache_namespace: *const c_char,
     err: *mut OdError,
 ) -> *mut OdOperator {
     ffi_guard!(err, std::ptr::null_mut(), "od_operator_new", {
@@ -74,7 +74,7 @@ pub unsafe extern "C" fn od_operator_new(
             }
         };
 
-        // Extra config (secret) + layer options from the parallel arrays.
+        // Service config + cross-service options from parallel arrays.
         let cfg = match collect_pairs(keys, values, len) {
             Ok(v) => v,
             Err(msg) => {
@@ -82,17 +82,21 @@ pub unsafe extern "C" fn od_operator_new(
                 return std::ptr::null_mut();
             }
         };
-        let layer_opts = match collect_pairs(layer_keys, layer_values, layer_len) {
+        let options = match collect_pairs(option_keys, option_values, option_len) {
             Ok(v) => v,
             Err(msg) => {
                 set_error(err, OdErrorCode::InvalidInput, msg);
                 return std::ptr::null_mut();
             }
         };
-        if let Err(msg) = validate_options(&layer_opts) {
-            set_error(err, OdErrorCode::InvalidInput, msg);
-            return std::ptr::null_mut();
-        }
+        let cache_namespace = cstr(cache_namespace).map(ToOwned::to_owned);
+        let config = match OperatorConfig::parse(options, cache_namespace) {
+            Ok(config) => config,
+            Err(msg) => {
+                set_error(err, OdErrorCode::InvalidInput, msg);
+                return std::ptr::null_mut();
+            }
+        };
 
         // Parse the URI once (folding the secret config in as extra options),
         // then reuse it for both the scheme and operator construction.
@@ -105,17 +109,15 @@ pub unsafe extern "C" fn od_operator_new(
         };
         let scheme = parsed.scheme().to_owned();
 
-        let io = crate::io::IoOptions::from_opts(&layer_opts);
-
         match Operator::from_uri(parsed) {
             Ok(op) => {
-                let op = apply_layers(op, &layer_opts);
+                let op = config.apply_layers(op);
                 let cap = op.info().capability();
                 set_ok(err);
                 Box::into_raw(Box::new(OdOperator {
                     op,
                     scheme,
-                    io,
+                    io: config.io,
                     cap,
                 }))
             }

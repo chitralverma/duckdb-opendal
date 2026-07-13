@@ -12,10 +12,9 @@
 //!   - strings handed out are owned C strings, freed via `od_string_free`.
 
 mod capability;
+mod config;
 mod error;
 mod ffi;
-mod io;
-mod layers;
 mod lister;
 mod mutate;
 mod operator;
@@ -144,6 +143,7 @@ mod tests {
                 std::ptr::null(),
                 std::ptr::null(),
                 0,
+                std::ptr::null(),
                 &mut err,
             )
         };
@@ -199,6 +199,7 @@ mod tests {
                 std::ptr::null(),
                 std::ptr::null(),
                 0,
+                std::ptr::null(),
                 &mut err,
             )
         };
@@ -260,6 +261,7 @@ mod tests {
                 std::ptr::null(),
                 std::ptr::null(),
                 0,
+                std::ptr::null(),
                 &mut err,
             )
         };
@@ -327,14 +329,18 @@ mod tests {
     }
 
     #[test]
-    fn memory_operator_with_layers() {
+    fn memory_operator_with_config_sections() {
         // Build a memory operator with retry + timeout + concurrent-limit layers
         // and confirm it still reads/writes (layers are transparent to callers).
         let scheme = CString::new("memory").unwrap();
-        let lk: Vec<CString> = ["retry.max_times", "timeout.seconds", "io.concurrent_limit"]
-            .iter()
-            .map(|s| CString::new(*s).unwrap())
-            .collect();
+        let lk: Vec<CString> = [
+            "retry.max_times",
+            "timeout.operation_timeout",
+            "io.concurrent_limit",
+        ]
+        .iter()
+        .map(|s| CString::new(*s).unwrap())
+        .collect();
         let lv: Vec<CString> = ["3", "30", "8"]
             .iter()
             .map(|s| CString::new(*s).unwrap())
@@ -352,6 +358,7 @@ mod tests {
                 lk_ptrs.as_ptr(),
                 lv_ptrs.as_ptr(),
                 lk_ptrs.len(),
+                std::ptr::null(),
                 &mut err,
             )
         };
@@ -384,7 +391,7 @@ mod tests {
         let scheme = CString::new("memory").unwrap();
         // Section presence enables the cache; no implementation-specific
         // `enable` key is required.
-        let lk: Vec<CString> = ["cache.memory_mb"]
+        let lk: Vec<CString> = ["cache.memory_size"]
             .iter()
             .map(|s| CString::new(*s).unwrap())
             .collect();
@@ -402,6 +409,7 @@ mod tests {
                 lk_ptrs.as_ptr(),
                 lv_ptrs.as_ptr(),
                 lk_ptrs.len(),
+                std::ptr::null(),
                 &mut err,
             )
         };
@@ -459,6 +467,7 @@ mod tests {
                 std::ptr::null(),
                 std::ptr::null(),
                 0,
+                std::ptr::null(),
                 &mut err,
             )
         };
@@ -481,13 +490,12 @@ mod tests {
 
         let scheme = CString::new("memory").unwrap();
         let keys = [
-            "cache.memory_mb",
+            "cache.memory_size",
             "cache.disk_path",
-            "__cache_namespace",
-            "cache.disk_mb",
-            "cache.block_mb",
+            "cache.disk_size",
+            "cache.block_size",
         ];
-        let vals = ["16", disk_path.as_str(), "test", "64", "1"];
+        let vals = ["16 MiB", disk_path.as_str(), "64 MiB", "1 MiB"];
         let lk: Vec<CString> = keys.iter().map(|s| CString::new(*s).unwrap()).collect();
         let lv: Vec<CString> = vals.iter().map(|s| CString::new(*s).unwrap()).collect();
         let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
@@ -503,6 +511,7 @@ mod tests {
                 lk_ptrs.as_ptr(),
                 lv_ptrs.as_ptr(),
                 lk_ptrs.len(),
+                std::ptr::null(),
                 &mut err,
             )
         };
@@ -553,6 +562,7 @@ mod tests {
                 std::ptr::null(),
                 std::ptr::null(),
                 0,
+                std::ptr::null(),
                 &mut err,
             )
         };
@@ -645,6 +655,7 @@ mod tests {
                 std::ptr::null(),
                 std::ptr::null(),
                 0,
+                std::ptr::null(),
                 &mut err,
             )
         };
@@ -677,9 +688,9 @@ mod tests {
         let scheme = CString::new("memory").unwrap();
         let lk: Vec<CString> = [
             "io.write.concurrent",
-            "io.write.chunk",
+            "io.write.chunk_size",
             "io.read.concurrent",
-            "io.read.chunk",
+            "io.read.chunk_size",
         ]
         .iter()
         .map(|s| CString::new(*s).unwrap())
@@ -701,6 +712,7 @@ mod tests {
                 lk_ptrs.as_ptr(),
                 lv_ptrs.as_ptr(),
                 lk_ptrs.len(),
+                std::ptr::null(),
                 &mut err,
             )
         };
@@ -711,10 +723,10 @@ mod tests {
         );
         // The parsed options are stored on the operator.
         unsafe {
-            assert_eq!((*op).io.write.concurrent, 4);
-            assert_eq!((*op).io.write.chunk, 1048576);
-            assert_eq!((*op).io.read.concurrent, 2);
-            assert_eq!((*op).io.read.chunk, 262144);
+            assert_eq!((*op).io.write.concurrent.map(|value| value.get()), Some(4));
+            assert_eq!((*op).io.write_chunk(), Some(1048576));
+            assert_eq!((*op).io.read.concurrent.map(|value| value.get()), Some(2));
+            assert_eq!((*op).io.read_chunk(), Some(262144));
         }
 
         // Round-trip a write + read through the tuned writer/reader.
@@ -760,6 +772,7 @@ mod tests {
                     keys.as_ptr(),
                     values.as_ptr(),
                     1,
+                    std::ptr::null(),
                     &mut err,
                 )
             };
@@ -799,6 +812,7 @@ mod tests {
                 std::ptr::null(),
                 std::ptr::null(),
                 0,
+                std::ptr::null(),
                 &mut err,
             )
         };
