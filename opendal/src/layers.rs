@@ -9,12 +9,14 @@
 //!   retry.max_delay_ms        u64     — max backoff delay
 //!   timeout.seconds           u64     — per-operation timeout
 //!   timeout.io_seconds        u64     — per-IO-chunk timeout
-//!   concurrent_limit          usize   — max concurrent requests
-//!   foyer.enable              bool    — enable the foyer hybrid read cache
-//!   foyer.memory_mb           usize   — in-memory cache capacity (default 256)
-//!   foyer.disk_path           string  — directory for the on-disk cache (opt)
-//!   foyer.disk_mb             usize   — on-disk cache capacity (default 1024)
-//!   foyer.block_mb            usize   — on-disk block size (default 4)
+//!   io.concurrent_limit       usize   — max concurrent service requests
+//!   cache.memory_mb           usize   — in-memory cache capacity (default 256)
+//!   cache.disk_path           string  — base directory for on-disk caches
+//!   cache.disk_mb             usize   — on-disk cache capacity (default 1024)
+//!   cache.block_mb            usize   — on-disk block size (default 4)
+//!   cache.min_file_size       usize   — minimum cached object size in bytes
+//!   cache.max_file_size       usize   — maximum cached object size in bytes
+//!   cache.shards              usize   — in-memory cache shards (default 4)
 //!
 //! I/O tuning (`io.*`) keys are also carried on this map but consumed by
 //! `io.rs` (not a layer): `io.read.concurrent`, `io.read.chunk`,
@@ -82,26 +84,47 @@ pub(crate) fn apply_layers(mut op: Operator, opts: &[(String, String)]) -> Opera
     }
 
     // ── Concurrent limit ─────────────────────────────────────────────────────
-    if let Some(v) = get("concurrent_limit").and_then(|s| s.parse::<usize>().ok()) {
+    if let Some(v) = get("io.concurrent_limit").and_then(|s| s.parse::<usize>().ok()) {
         op = op.layer(ConcurrentLimitLayer::new(v));
     }
 
-    // ── Foyer hybrid read cache ──────────────────────────────────────────────
-    // In-memory tier always; on-disk tier when `foyer.disk_path` is set (a
-    // persistent cache comparable to external caching extensions).
-    if matches!(get("foyer.enable"), Some("true" | "1")) {
-        let memory_mb = get("foyer.memory_mb")
+    // A non-empty cache section enables the OpenDAL data-cache layer.
+    if opts
+        .iter()
+        .any(|(k, _)| k.starts_with("cache.") && k != "cache.namespace")
+    {
+        let memory_mb = get("cache.memory_mb")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(256);
-        let disk_path = get("foyer.disk_path").map(|s| s.to_string());
-        let disk_mb = get("foyer.disk_mb")
+        let disk_path = get("cache.disk_path").map(|s| {
+            let namespace = get("cache.namespace").unwrap_or("default");
+            std::path::Path::new(s)
+                .join(namespace)
+                .to_string_lossy()
+                .into_owned()
+        });
+        let disk_mb = get("cache.disk_mb")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(1024);
-        let block_mb = get("foyer.block_mb")
+        let block_mb = get("cache.block_mb")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(4);
-        match build_foyer(memory_mb, disk_path, disk_mb, block_mb) {
-            Ok(layer) => op = op.layer(layer),
+        let shards = get("cache.shards")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(4)
+            .max(1);
+        let min_size = get("cache.min_file_size")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0);
+        let max_size = get("cache.max_file_size").and_then(|s| s.parse::<usize>().ok());
+        match build_foyer(memory_mb, disk_path, disk_mb, block_mb, shards) {
+            Ok(layer) => {
+                let layer = match max_size {
+                    Some(max) if max < usize::MAX => layer.with_size_limit(min_size..max + 1),
+                    _ => layer.with_size_limit(min_size..),
+                };
+                op = op.layer(layer);
+            }
             Err(e) => {
                 // Caching is best-effort: log and continue without it rather than
                 // failing the whole operator.
@@ -121,6 +144,7 @@ fn build_foyer(
     disk_path: Option<String>,
     disk_mb: usize,
     block_mb: usize,
+    shards: usize,
 ) -> Result<opendal::layers::FoyerLayer, String> {
     // `DeviceBuilder` brings `FsDeviceBuilder::build()` into scope.
     use foyer::{
@@ -131,7 +155,9 @@ fn build_foyer(
     let mem_bytes = memory_mb.max(1) * MIB;
 
     let cache = block_on(async move {
-        let mem = HybridCacheBuilder::new().memory(mem_bytes).with_shards(4);
+        let mem = HybridCacheBuilder::new()
+            .memory(mem_bytes)
+            .with_shards(shards);
         match disk_path {
             Some(dir) => {
                 std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {dir}: {e}"))?;

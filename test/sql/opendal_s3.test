@@ -101,16 +101,15 @@ SELECT count(*) FROM opendal_stat('s3://warehouse/f1.parquet');
 statement ok
 CREATE SECRET s3_warehouse (
     TYPE s3, SCOPE 's3://warehouse',
-    key_id 'minioadmin', secret 'minioadmin',
-    region 'us-east-1', endpoint 'http://127.0.0.1:19100'
+    config MAP{'access_key_id':'minioadmin','secret_access_key':'minioadmin','region':'us-east-1','endpoint':'http://127.0.0.1:19100'}
 );
 
 statement ok
 CREATE SECRET s3_vault (
     TYPE s3, SCOPE 's3://vault',
-    key_id 'minioadmin', secret 'minioadmin',
-    region 'us-east-1', endpoint 'http://127.0.0.1:19100',
-    layers MAP{'retry.max_times':'3','timeout.seconds':'30'}
+    config MAP{'access_key_id':'minioadmin','secret_access_key':'minioadmin','region':'us-east-1','endpoint':'http://127.0.0.1:19100'},
+    retry_config MAP{'max_times':'3'},
+    timeout_config MAP{'seconds':'30'}
 );
 
 # The warehouse-scoped secret drives this read.
@@ -146,16 +145,10 @@ SELECT count(*), sum(v) FROM read_parquet('s3://warehouse/written/out.parquet');
 ----
 333	552780
 
-# I/O tuning: global concurrent + chunk on the multipart write path. The write
+# I/O tuning: global config on the multipart write path. The write
 # must still round-trip correctly with tuning enabled.
 statement ok
-SET opendal_write_concurrent=4;
-
-statement ok
-SET opendal_write_chunk=8388608;
-
-statement ok
-SET opendal_read_concurrent=2;
+SET GLOBAL opendal_io_config = MAP{'write.concurrent':'4','write.chunk':'8388608','read.concurrent':'2'};
 
 statement ok
 COPY (SELECT range AS id, range * 2 AS v FROM range(500))
@@ -166,24 +159,16 @@ SELECT count(*), sum(v) FROM read_parquet('s3://warehouse/tuned/out.parquet');
 ----
 500	249500
 
-# Reset globals so later cases use service defaults.
+# Reset the global so later cases use service defaults.
 statement ok
-SET opendal_write_concurrent=0;
+RESET opendal_io_config;
 
-statement ok
-SET opendal_write_chunk=0;
-
-statement ok
-SET opendal_read_concurrent=0;
-
-# Per-secret I/O tuning via the layers map (io.* keys) — scoped to one bucket.
+# Per-secret I/O tuning is scoped to one path.
 statement ok
 CREATE SECRET s3_tuned (
     TYPE s3, SCOPE 's3://warehouse/perssecret',
-    key_id 'minioadmin', secret 'minioadmin', region 'us-east-1',
-    endpoint 'http://127.0.0.1:19100',
-    config MAP{'enable_virtual_host_style':'false'},
-    layers MAP{'io.write.concurrent':'4','io.write.chunk':'8388608'}
+    config MAP{'access_key_id':'minioadmin','secret_access_key':'minioadmin','region':'us-east-1','endpoint':'http://127.0.0.1:19100','enable_virtual_host_style':'false'},
+    io_config MAP{'write.concurrent':'4','write.chunk':'8388608'}
 );
 
 statement ok
@@ -208,40 +193,27 @@ GROUP BY p ORDER BY p;
 1	100
 2	100
 
-# ── Foyer cache layer over S3 (Phase 5) ─────────────────────────────────────
-# Read through a foyer-enabled operator. We use the `vault` bucket with a
-# foyer-enabled secret; because operators are cached per scheme://authority for
-# the lifetime of the process, this secret must be created before the first
-# vault read for the layer to take effect. (The earlier vault reads used the
-# non-foyer s3_vault secret, so here we target a distinct object under vault via
-# a longer-scoped, foyer-enabled secret that wins the match.)
+# ── OpenDAL data cache over S3 ───────────────────────────────────────────────
+# A longer-scoped secret creates a distinct effective-config operator, so cache
+# settings take effect even after the authority-level operator was used.
 statement ok
-CREATE SECRET s3_foyer_vault (
+CREATE SECRET s3_cached_vault (
     TYPE s3, SCOPE 's3://vault/only.parquet',
-    key_id 'minioadmin', secret 'minioadmin',
-    region 'us-east-1', endpoint 'http://127.0.0.1:19100',
-    layers MAP{'foyer.enable':'true','foyer.memory_mb':'64'}
+    config MAP{'access_key_id':'minioadmin','secret_access_key':'minioadmin','region':'us-east-1','endpoint':'http://127.0.0.1:19100'},
+    cache_config MAP{'memory_mb':'64','max_file_size':'104857600'}
 );
 
-# The foyer-enabled read works (cache is transparent). Note: the operator for
-# s3://vault may already be cached from earlier reads; correctness (not cache
-# residency) is what this asserts.
 query I
 SELECT count(*) FROM read_parquet('s3://vault/only.parquet');
 ----
 42
 
-# On-disk foyer cache configured via a secret also drives a working read. We
-# write a fresh object under warehouse and read it back through the foyer-disk
-# operator (the s3://warehouse operator is cached from earlier reads, so this
-# asserts correctness rather than disk residency; disk residency is covered by
-# the Rust unit test).
+# On-disk cache configured via a scoped secret drives a distinct operator.
 statement ok
-CREATE SECRET s3_foyer_disk_wh (
+CREATE SECRET s3_disk_cache_wh (
     TYPE s3, SCOPE 's3://warehouse/foyerdisk',
-    key_id 'minioadmin', secret 'minioadmin',
-    region 'us-east-1', endpoint 'http://127.0.0.1:19100',
-    layers MAP{'foyer.enable':'true','foyer.disk_path':'__TEST_DIR__/foyer_s3_cache','foyer.disk_mb':'64','foyer.block_mb':'1'}
+    config MAP{'access_key_id':'minioadmin','secret_access_key':'minioadmin','region':'us-east-1','endpoint':'http://127.0.0.1:19100'},
+    cache_config MAP{'memory_mb':'16','disk_path':'__TEST_DIR__/opendal_cache','disk_mb':'64','block_mb':'1'}
 );
 
 statement ok

@@ -5,6 +5,7 @@
 #include "duckdb/common/open_file_info.hpp"
 
 #include <memory>
+#include <map>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -89,6 +90,7 @@ public:
 	// filesystems. `csv` is a comma-separated list (e.g. "s3,gcs"); empty
 	// disables all overrides. Thread-safe; process-global.
 	static void SetOverrideSchemes(const std::string &csv);
+	static void SetGlobalConfig(const std::string &section, std::map<std::string, std::string> values);
 
 	string GetName() const override {
 		return "OpenDalFileSystem";

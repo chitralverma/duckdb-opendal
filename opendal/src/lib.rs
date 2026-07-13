@@ -30,7 +30,6 @@ pub use capability::{
     od_operator_supports, OdCapability, OdCapabilityList,
 };
 pub use error::{OdError, OdErrorCode};
-pub use io::od_set_global_io_options;
 pub use lister::{od_list, od_list_entry, od_list_free, od_list_len, OdEntry, OdEntryList};
 pub use mutate::{od_copy, od_create_dir, od_remove, od_rename};
 pub use operator::{od_operator_free, od_operator_new, od_scheme_supported, OdOperator};
@@ -332,7 +331,7 @@ mod tests {
         // Build a memory operator with retry + timeout + concurrent-limit layers
         // and confirm it still reads/writes (layers are transparent to callers).
         let scheme = CString::new("memory").unwrap();
-        let lk: Vec<CString> = ["retry.max_times", "timeout.seconds", "concurrent_limit"]
+        let lk: Vec<CString> = ["retry.max_times", "timeout.seconds", "io.concurrent_limit"]
             .iter()
             .map(|s| CString::new(*s).unwrap())
             .collect();
@@ -381,18 +380,15 @@ mod tests {
     }
 
     #[test]
-    fn memory_operator_with_foyer_cache() {
-        // Enable the foyer read cache layer and confirm reads still work
-        // (the cache is transparent to callers).
+    fn memory_operator_with_cache() {
         let scheme = CString::new("memory").unwrap();
-        let lk: Vec<CString> = ["foyer.enable", "foyer.memory_mb"]
+        // Section presence enables the cache; no implementation-specific
+        // `enable` key is required.
+        let lk: Vec<CString> = ["cache.memory_mb"]
             .iter()
             .map(|s| CString::new(*s).unwrap())
             .collect();
-        let lv: Vec<CString> = ["true", "16"]
-            .iter()
-            .map(|s| CString::new(*s).unwrap())
-            .collect();
+        let lv: Vec<CString> = ["16"].iter().map(|s| CString::new(*s).unwrap()).collect();
         let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
         let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
 
@@ -479,21 +475,19 @@ mod tests {
     }
 
     #[test]
-    fn memory_operator_with_foyer_disk_cache() {
-        // Enable the foyer on-disk (hybrid) cache and confirm reads work and the
-        // cache directory is populated.
+    fn memory_operator_with_disk_cache() {
         let dir = tempfile::tempdir().unwrap();
         let disk_path = dir.path().to_str().unwrap().to_string();
 
         let scheme = CString::new("memory").unwrap();
         let keys = [
-            "foyer.enable",
-            "foyer.memory_mb",
-            "foyer.disk_path",
-            "foyer.disk_mb",
-            "foyer.block_mb",
+            "cache.memory_mb",
+            "cache.disk_path",
+            "cache.namespace",
+            "cache.disk_mb",
+            "cache.block_mb",
         ];
-        let vals = ["true", "16", disk_path.as_str(), "64", "1"];
+        let vals = ["16", disk_path.as_str(), "test", "64", "1"];
         let lk: Vec<CString> = keys.iter().map(|s| CString::new(*s).unwrap()).collect();
         let lv: Vec<CString> = vals.iter().map(|s| CString::new(*s).unwrap()).collect();
         let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
@@ -746,36 +740,6 @@ mod tests {
         unsafe { od_reader_free(r) };
 
         unsafe { od_operator_free(op) };
-    }
-
-    #[test]
-    fn global_io_options_apply_as_defaults() {
-        // A global default fills in unset per-operator fields.
-        unsafe { od_set_global_io_options(3, 131072, 5, 524288) };
-        let scheme = CString::new("memory").unwrap();
-        let mut err = OdError::ok();
-        let op = unsafe {
-            od_operator_new(
-                scheme.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                0,
-                std::ptr::null(),
-                std::ptr::null(),
-                0,
-                &mut err,
-            )
-        };
-        assert!(!op.is_null());
-        unsafe {
-            assert_eq!((*op).io.read.concurrent, 3);
-            assert_eq!((*op).io.read.chunk, 131072);
-            assert_eq!((*op).io.write.concurrent, 5);
-            assert_eq!((*op).io.write.chunk, 524288);
-        }
-        unsafe { od_operator_free(op) };
-        // Reset globals so other tests are unaffected.
-        unsafe { od_set_global_io_options(0, 0, 0, 0) };
     }
 
     #[test]

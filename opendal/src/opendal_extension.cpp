@@ -29,32 +29,31 @@ static void SetOverrideNativeFilesystems(ClientContext &, SetScope, Value &param
 	OpenDalFileSystem::SetOverrideSchemes(parameter.IsNull() ? std::string() : parameter.ToString());
 }
 
-// Process-global I/O tuning defaults, mirrored to the Rust core. Each setting's
-// callback re-pushes the full set (the FFI takes all four at once). 0 = unset
-// (OpenDAL per-service default).
-static uint64_t g_io_read_concurrent = 0;
-static uint64_t g_io_read_chunk = 0;
-static uint64_t g_io_write_concurrent = 0;
-static uint64_t g_io_write_chunk = 0;
+static std::map<std::string, std::string> ConfigMap(const Value &value) {
+	std::map<std::string, std::string> result;
+	if (value.IsNull()) {
+		return result;
+	}
+	for (auto &entry : ListValue::GetChildren(value)) {
+		auto &kv = StructValue::GetChildren(entry);
+		if (kv.size() == 2) {
+			result[kv[0].ToString()] = kv[1].ToString();
+		}
+	}
+	return result;
+}
 
-static void PushGlobalIoOptions() {
-	od_set_global_io_options(g_io_read_concurrent, g_io_read_chunk, g_io_write_concurrent, g_io_write_chunk);
+static void SetIoConfig(ClientContext &, SetScope, Value &v) {
+	OpenDalFileSystem::SetGlobalConfig("io", ConfigMap(v));
 }
-static void SetIoReadConcurrent(ClientContext &, SetScope, Value &v) {
-	g_io_read_concurrent = v.IsNull() ? 0 : (uint64_t)v.GetValue<int64_t>();
-	PushGlobalIoOptions();
+static void SetRetryConfig(ClientContext &, SetScope, Value &v) {
+	OpenDalFileSystem::SetGlobalConfig("retry", ConfigMap(v));
 }
-static void SetIoReadChunk(ClientContext &, SetScope, Value &v) {
-	g_io_read_chunk = v.IsNull() ? 0 : (uint64_t)v.GetValue<int64_t>();
-	PushGlobalIoOptions();
+static void SetTimeoutConfig(ClientContext &, SetScope, Value &v) {
+	OpenDalFileSystem::SetGlobalConfig("timeout", ConfigMap(v));
 }
-static void SetIoWriteConcurrent(ClientContext &, SetScope, Value &v) {
-	g_io_write_concurrent = v.IsNull() ? 0 : (uint64_t)v.GetValue<int64_t>();
-	PushGlobalIoOptions();
-}
-static void SetIoWriteChunk(ClientContext &, SetScope, Value &v) {
-	g_io_write_chunk = v.IsNull() ? 0 : (uint64_t)v.GetValue<int64_t>();
-	PushGlobalIoOptions();
+static void SetCacheConfig(ClientContext &, SetScope, Value &v) {
+	OpenDalFileSystem::SetGlobalConfig("cache", ConfigMap(v));
 }
 
 // opendal_version() -> VARCHAR
@@ -114,20 +113,15 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "extensions in DuckDB's filesystem dispatch. Empty disables all overrides.",
 	    LogicalType::VARCHAR, Value(""), SetOverrideNativeFilesystems);
 
-	// Global I/O tuning (applied to every operator unless a secret sets its own
-	// io.* option). concurrent = parallel range reads / multipart writes; chunk
-	// = per-request size in bytes. 0 (default) = OpenDAL per-service default.
-	db.config.AddExtensionOption("opendal_read_concurrent",
-	                             "Global default for concurrent range reads (0 = service default).",
-	                             LogicalType::BIGINT, Value::BIGINT(0), SetIoReadConcurrent);
-	db.config.AddExtensionOption("opendal_read_chunk", "Global default read chunk size in bytes (0 = service default).",
-	                             LogicalType::BIGINT, Value::BIGINT(0), SetIoReadChunk);
-	db.config.AddExtensionOption("opendal_write_concurrent",
-	                             "Global default for concurrent multipart writes (0 = service default).",
-	                             LogicalType::BIGINT, Value::BIGINT(0), SetIoWriteConcurrent);
-	db.config.AddExtensionOption("opendal_write_chunk",
-	                             "Global default write chunk size in bytes (0 = service default).", LogicalType::BIGINT,
-	                             Value::BIGINT(0), SetIoWriteChunk);
+	auto map_type = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR);
+	db.config.AddExtensionOption("opendal_io_config", "Global OpenDAL reader/writer options.", map_type, Value(),
+	                             SetIoConfig, SetScope::GLOBAL);
+	db.config.AddExtensionOption("opendal_retry_config", "Global OpenDAL retry-layer options.", map_type, Value(),
+	                             SetRetryConfig, SetScope::GLOBAL);
+	db.config.AddExtensionOption("opendal_timeout_config", "Global OpenDAL timeout-layer options.", map_type, Value(),
+	                             SetTimeoutConfig, SetScope::GLOBAL);
+	db.config.AddExtensionOption("opendal_cache_config", "Global OpenDAL data-cache options.", map_type, Value(),
+	                             SetCacheConfig, SetScope::GLOBAL);
 }
 
 void OpendalExtension::Load(ExtensionLoader &loader) {

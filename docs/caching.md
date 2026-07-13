@@ -34,48 +34,32 @@ GROUP BY path;
 
 This is the recommended default for most workloads — nothing to configure.
 
-## 2. OpenDAL foyer layer (internal, opt-in per secret)
+## 2. OpenDAL data cache (internal, global or scoped)
 
-`opendal` can attach OpenDAL's [foyer](https://github.com/foyer-rs/foyer)
-cache **inside** the operator, configured per secret via the `layers` map. This
-caches at the OpenDAL layer (below DuckDB), uniformly across every service, and
-supports both an in-memory tier and a **persistent on-disk tier**.
+`opendal` can attach a data cache inside each operator. It works for every
+service and supports memory plus an optional persistent disk tier. Configure it
+globally or per secret; see [configuration.md](configuration.md) for all keys.
 
 ```sql
--- In-memory only:
-CREATE SECRET s3_cached (
-    TYPE s3, SCOPE 's3://bucket',
-    key_id '...', secret '...', region 'us-east-1',
-    layers MAP{
-        'foyer.enable'    : 'true',
-        'foyer.memory_mb' : '256'         -- in-memory tier (default 256)
-    }
-);
+-- Global in-memory cache for every OpenDAL service/path:
+SET GLOBAL opendal_cache_config = MAP{'memory_mb':'256','shards':'4'};
 
--- In-memory + on-disk (persistent across sessions):
+-- Scoped in-memory + on-disk cache:
 CREATE SECRET s3_cached_disk (
     TYPE s3, SCOPE 's3://bucket',
-    key_id '...', secret '...', region 'us-east-1',
-    layers MAP{
-        'foyer.enable'    : 'true',
-        'foyer.memory_mb' : '256',
-        'foyer.disk_path' : '/var/cache/opendal',  -- enables the on-disk tier
-        'foyer.disk_mb'   : '4096',                   -- on-disk capacity (default 1024)
-        'foyer.block_mb'  : '4'                        -- on-disk block size (default 4)
-    }
+    config MAP{'access_key_id':'...','secret_access_key':'...','region':'us-east-1'},
+    cache_config MAP{'memory_mb':'256','disk_path':'/var/cache/opendal','disk_mb':'4096','block_mb':'4'}
 );
 
 -- Reads under s3://bucket now go through the foyer cache.
 SELECT * FROM read_parquet('s3://bucket/data.parquet');
 ```
 
-- **Tiers:** in-memory always; the on-disk tier is enabled by setting
-  `foyer.disk_path` (a directory; created if missing). The disk tier is
+- **Tiers:** in-memory always; `disk_path` adds a persistent on-disk tier. It is
   persistent and evicts by capacity.
-- **Where it lives:** attached to the operator built for that secret's
-  `scheme://authority`, so it is scoped to the buckets that secret matches.
-- **Only for secret-backed schemes** (e.g. `s3://`). `fs://`/`memory://` don't
-  use secrets, so they don't carry a foyer layer.
+- **Scope:** global defaults apply to every service/path; secret cache options
+  merge over them for matching scopes. Effective operators use isolated cache
+  namespaces so identical paths in different services/buckets cannot collide.
 - Best used *instead of* the DuckDB external cache to avoid double-caching; if
   you enable foyer, consider `SET enable_external_file_cache = false;`.
 - Best-effort: if the cache fails to build (e.g. an unwritable disk path), the
@@ -111,13 +95,12 @@ SELECT * FROM read_parquet('fs:///data/big.parquet');
 
 | | DuckDB external cache | foyer layer | cache_httpfs |
 |---|---|---|---|
-| Setup | none (default on) | per-secret `layers` | `LOAD` + wrap |
+| Setup | none (default on) | global or scoped `cache_config` | `LOAD` + wrap |
 | Persistence | memory (buffer pool) | memory **and/or on-disk** | on-disk (default) |
-| Applies to | all seekable FS | secret-backed schemes | any FS (by name) |
+| Applies to | all seekable FS | all OpenDAL schemes | any FS (by name) |
 | Best for | general default | uniform per-service internal cache | large, repeated remote reads |
 
 Start with option 1 (nothing to do). Reach for foyer when you want an internal,
 per-service cache that ships with the extension — including a persistent on-disk
-tier via `foyer.disk_path`. Reach for `cache_httpfs` when you want an external,
+tier via `disk_path`. Reach for `cache_httpfs` when you want an external,
 profiled on-disk cache — keeping the `s3://` scheme caveat (below) in mind.
-

@@ -56,6 +56,9 @@ static std::mutex g_override_mu;
 static std::unordered_set<std::string> g_override_schemes;
 static thread_local std::string t_last_scheme;
 
+static std::mutex g_config_mu;
+static std::map<std::string, std::map<std::string, std::string>> g_global_config;
+
 static bool SchemeIsOverridden(const std::string &scheme) {
 	std::lock_guard<std::mutex> lk(g_override_mu);
 	return g_override_schemes.find(scheme) != g_override_schemes.end();
@@ -79,6 +82,22 @@ void OpenDalFileSystem::SetOverrideSchemes(const std::string &csv) {
 	}
 	std::lock_guard<std::mutex> lk(g_override_mu);
 	g_override_schemes = std::move(set);
+}
+
+void OpenDalFileSystem::SetGlobalConfig(const std::string &section, std::map<std::string, std::string> values) {
+	std::lock_guard<std::mutex> lk(g_config_mu);
+	g_global_config[section] = std::move(values);
+}
+
+static std::map<std::string, std::string> GlobalConfigSnapshot() {
+	std::lock_guard<std::mutex> lk(g_config_mu);
+	std::map<std::string, std::string> result;
+	for (auto &section : g_global_config) {
+		for (auto &entry : section.second) {
+			result[section.first + "." + entry.first] = entry.second;
+		}
+	}
+	return result;
 }
 
 // Resolve a possibly-relative `fs` path to an absolute one against the current
@@ -289,17 +308,13 @@ bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_sch
 	return IsSupportedScheme(out_scheme);
 }
 
-// Look up a SCOPE-matched secret for `url` of type `scheme`, appending its
-// config entries into `keys`/`vals` (OpenDAL config) and `lkeys`/`lvals`
-// (layer options, from "layer." prefixed entries). Convenience/config keys were
-// already normalized to OpenDAL keys at CREATE SECRET time. Returns true if a
-// secret was found and applied.
-static bool ApplySecret(optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db,
-                        const std::string &scheme, const std::string &url, std::vector<std::string> &keys,
-                        std::vector<std::string> &vals, std::vector<std::string> &lkeys,
-                        std::vector<std::string> &lvals) {
+// Merge a SCOPE-matched secret over global options. Backend config is separate;
+// section prefixes (`io.`/`retry.`/`timeout.`/`cache.`) stay intact for Rust.
+static void ApplySecret(optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db,
+                        const std::string &scheme, const std::string &url, std::map<std::string, std::string> &config,
+                        std::map<std::string, std::string> &options) {
 	if (!context && !db) {
-		return false;
+		return;
 	}
 	try {
 		SecretManager *sm = context ? &SecretManager::Get(*context) : &SecretManager::Get(*db);
@@ -307,7 +322,7 @@ static bool ApplySecret(optional_ptr<ClientContext> context, optional_ptr<Databa
 		                                 : CatalogTransaction::GetSystemTransaction(*db);
 		auto match = sm->LookupSecret(txn, url, scheme);
 		if (!match.HasMatch()) {
-			return false;
+			return;
 		}
 		const auto &base = *match.secret_entry->secret;
 		const auto &kv = dynamic_cast<const KeyValueSecret &>(base);
@@ -317,18 +332,40 @@ static bool ApplySecret(optional_ptr<ClientContext> context, optional_ptr<Databa
 				continue;
 			}
 			std::string v = entry.second.ToString();
-			if (k.rfind("layer.", 0) == 0) {
-				lkeys.push_back(k.substr(6));
-				lvals.push_back(v);
+			if (k.rfind("config.", 0) == 0) {
+				config[k.substr(7)] = v;
 			} else {
-				keys.push_back(k);
-				vals.push_back(v);
+				options[k] = v;
 			}
 		}
-		return true;
 	} catch (...) {
-		return false;
+		return;
 	}
+}
+
+static std::string ConfigIdentity(const std::string &scheme, const std::string &authority,
+                                  const std::map<std::string, std::string> &config,
+                                  const std::map<std::string, std::string> &options, uint64_t &hash) {
+	hash = 1469598103934665603ULL;
+	std::string identity = scheme + "://" + authority;
+	auto add = [&](const std::string &value) {
+		identity += "|" + std::to_string(value.size()) + ":" + value;
+		for (auto c : value) {
+			hash ^= static_cast<uint8_t>(c);
+			hash *= 1099511628211ULL;
+		}
+		hash ^= 0xff;
+		hash *= 1099511628211ULL;
+	};
+	auto append = [&](const std::map<std::string, std::string> &values) {
+		for (auto &entry : values) {
+			add(entry.first);
+			add(entry.second);
+		}
+	};
+	append(config);
+	append(options);
+	return identity;
 }
 
 OdOperator *OpenDalFileSystem::OperatorFor(const std::string &scheme, const std::string &authority,
@@ -350,17 +387,6 @@ OdOperator *OpenDalFileSystem::OperatorForCtx(const std::string &scheme, const s
 OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const std::string &authority,
                                              const std::string &url, optional_ptr<ClientContext> context,
                                              optional_ptr<DatabaseInstance> db) {
-	std::string key = scheme + "://" + authority;
-
-	// Fast path: return a cached operator without blocking other schemes.
-	{
-		std::lock_guard<std::mutex> lk(mu_);
-		auto it = operators_.find(key);
-		if (it != operators_.end()) {
-			return it->second;
-		}
-	}
-
 	// The operator URI: scheme://authority (no path). OpenDAL's per-service
 	// from_uri parsing maps the authority to the right config key — s3 bucket,
 	// gcs bucket, azblob container, etc. — so we do not special-case it here.
@@ -368,17 +394,14 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	// the operator root (which stays default), unaffected by this URI.
 	std::string uri = scheme + "://" + authority;
 
-	std::vector<std::string> keys;
-	std::vector<std::string> vals;
-	std::vector<std::string> lkeys; // layer keys
-	std::vector<std::string> lvals; // layer values
+	std::map<std::string, std::string> config;
+	std::map<std::string, std::string> options = GlobalConfigSnapshot();
 
 	// The local `fs` service treats the URI path as its root; we instead root it
 	// at "/" and pass absolute paths per call (see AbsolutizeFsPath). Set it
 	// explicitly as an override since the fs:// URI carries no path.
 	if (scheme == "fs") {
-		keys.push_back("root");
-		vals.push_back("/");
+		config["root"] = "/";
 	}
 
 	// Merge a SCOPE-matched secret's config (if any). These override any config
@@ -390,7 +413,30 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	// (AWS_ENDPOINT_URL/AWS_ENDPOINT/AWS_S3_ENDPOINT) and the full credential
 	// chain (env -> shared profile -> IMDS) via DefaultCredentialProvider.
 	// Injecting a partial subset here would only shadow that richer resolution.
-	ApplySecret(context, db, scheme, url, keys, vals, lkeys, lvals);
+	ApplySecret(context, db, scheme, url, config, options);
+	uint64_t config_hash;
+	std::string key = ConfigIdentity(scheme, authority, config, options, config_hash);
+	if (options.find("cache.disk_path") != options.end()) {
+		options["cache.namespace"] = std::to_string(config_hash);
+	}
+
+	{
+		std::lock_guard<std::mutex> lk(mu_);
+		auto it = operators_.find(key);
+		if (it != operators_.end()) {
+			return it->second;
+		}
+	}
+
+	std::vector<std::string> keys, vals, lkeys, lvals;
+	for (auto &entry : config) {
+		keys.push_back(entry.first);
+		vals.push_back(entry.second);
+	}
+	for (auto &entry : options) {
+		lkeys.push_back(entry.first);
+		lvals.push_back(entry.second);
+	}
 
 	std::vector<const char *> key_ptrs, val_ptrs, lkey_ptrs, lval_ptrs;
 	for (size_t i = 0; i < keys.size(); i++) {
@@ -411,8 +457,8 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	                                 lkey_ptrs.empty() ? nullptr : lkey_ptrs.data(),
 	                                 lval_ptrs.empty() ? nullptr : lval_ptrs.data(), lkeys.size(), &err);
 	if (!op) {
-		ThrowIfError(err, "opendal: failed to create operator for '" + key + "'");
-		throw IOException("opendal: null operator for '" + key + "'");
+		ThrowIfError(err, "opendal: failed to create operator for '" + uri + "'");
+		throw IOException("opendal: null operator for '" + uri + "'");
 	}
 	ClearError(err);
 

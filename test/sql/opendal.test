@@ -216,72 +216,77 @@ GROUP BY part ORDER BY part;
 
 # ── Phase 3: secret registration (no live backend needed) ───────────────────
 
-# A per-service secret type is registered (TYPE s3) with SCOPE + config.
-statement ok
-CREATE SECRET s3_convenience (
-    TYPE s3, SCOPE 's3://bucket-a',
-    key_id 'AKIA', secret 'shhh', region 'us-west-2', endpoint 'http://localhost:9000'
-);
-
-# The generic `config` MAP accepts arbitrary OpenDAL keys (no per-key allowlist).
+# One generic service secret separates backend, I/O, retry, timeout and cache
+# options. Section presence applies that behavior; no `enable` key is needed.
 statement ok
 CREATE SECRET s3_generic (
     TYPE s3, SCOPE 's3://bucket-b',
     config MAP{'access_key_id':'k','secret_access_key':'s','enable_virtual_host_style':'false'},
-    layers MAP{'retry.max_times':'5','timeout.seconds':'60'}
+    io_config MAP{'read.concurrent':'2','write.chunk':'8388608'},
+    retry_config MAP{'max_times':'5','jitter':'true'},
+    timeout_config MAP{'seconds':'60','io_seconds':'15'},
+    cache_config MAP{'memory_mb':'128','disk_path':'/tmp/odfs_cache','disk_mb':'512'}
 );
 
-# Both secrets are visible and correctly typed/scoped.
+# The secret is visible and correctly typed/scoped.
 query III
 SELECT name, type, scope FROM duckdb_secrets() WHERE name LIKE 's3_%' ORDER BY name;
 ----
-s3_convenience	s3	['s3://bucket-a']
 s3_generic	s3	['s3://bucket-b']
 
-# The convenience params were normalized to OpenDAL config keys in the secret.
+# Sections remain distinct in secret storage.
 query I
-SELECT secret_string LIKE '%access_key_id=AKIA%' AND secret_string LIKE '%secret_access_key=shhh%'
-FROM duckdb_secrets() WHERE name = 's3_convenience';
-----
-true
-
-# The generic config keys and layer options are stored (layers under layer.*).
-query I
-SELECT secret_string LIKE '%enable_virtual_host_style=false%'
-   AND secret_string LIKE '%layer.retry.max_times=5%'
+SELECT secret_string LIKE '%config.enable_virtual_host_style=false%'
+   AND secret_string LIKE '%io.read.concurrent=2%'
+   AND secret_string LIKE '%retry.max_times=5%'
+   AND secret_string LIKE '%timeout.seconds=60%'
+   AND secret_string LIKE '%cache.memory_mb=128%'
 FROM duckdb_secrets() WHERE name = 's3_generic';
 ----
 true
 
-# Foyer cache options are accepted and stored as layer.* entries (Phase 5).
+# Removed convenience and generic-layer parameters are rejected.
+statement error
+CREATE SECRET s3_old_convenience (TYPE s3, key_id 'k');
+----
+Unknown parameter
+
+statement error
+CREATE SECRET s3_old_layers (TYPE s3, layers MAP{'retry.max_times':'5'});
+----
+Unknown parameter
+
+# Global sections use the same names as secret sections and apply to every
+# service/path. A missing section means no layer/cache is applied.
 statement ok
-CREATE SECRET s3_foyer (
-    TYPE s3, SCOPE 's3://bucket-cache',
-    key_id 'k', secret 's',
-    layers MAP{'foyer.enable':'true','foyer.memory_mb':'128'}
-);
+SET GLOBAL opendal_io_config = MAP{'read.concurrent':'2','read.chunk':'262144'};
+
+statement ok
+SET GLOBAL opendal_retry_config = MAP{'max_times':'4'};
+
+statement ok
+SET GLOBAL opendal_timeout_config = MAP{'seconds':'30'};
+
+# Global cache applies to fs:// too; section presence enables it.
+statement ok
+SET GLOBAL opendal_cache_config = MAP{'memory_mb':'16','shards':'2','min_file_size':'0'};
 
 query I
-SELECT secret_string LIKE '%layer.foyer.enable=true%'
-   AND secret_string LIKE '%layer.foyer.memory_mb=128%'
-FROM duckdb_secrets() WHERE name = 's3_foyer';
+SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/w_out.parquet');
 ----
-true
+1000
 
-# Foyer on-disk cache options are accepted and stored (Phase 5 hardening).
 statement ok
-CREATE SECRET s3_foyer_disk (
-    TYPE s3, SCOPE 's3://bucket-disk',
-    key_id 'k', secret 's',
-    layers MAP{'foyer.enable':'true','foyer.disk_path':'/tmp/odfs_cache','foyer.disk_mb':'512'}
-);
+RESET opendal_io_config;
 
-query I
-SELECT secret_string LIKE '%layer.foyer.disk_path=/tmp/odfs_cache%'
-   AND secret_string LIKE '%layer.foyer.disk_mb=512%'
-FROM duckdb_secrets() WHERE name = 's3_foyer_disk';
-----
-true
+statement ok
+RESET opendal_retry_config;
+
+statement ok
+RESET opendal_timeout_config;
+
+statement ok
+RESET opendal_cache_config;
 
 # ── Native-filesystem override setting (Phase 5 hardening) ───────────────────
 
@@ -312,7 +317,7 @@ SET opendal_override_native_filesystems = '';
 
 # SCOPE matching resolves the right secret for a URL prefix.
 query I
-SELECT count(*) FROM which_secret('s3://bucket-a/data/x.parquet', 's3');
+SELECT count(*) FROM which_secret('s3://bucket-b/data/x.parquet', 's3');
 ----
 1
 

@@ -101,8 +101,7 @@ pub unsafe extern "C" fn od_operator_new(
         };
         let scheme = parsed.scheme().to_owned();
 
-        // Resolve I/O tuning: per-operator io.* options over global defaults.
-        let io = crate::io::IoOptions::from_opts(&layer_opts).with_defaults(&crate::io::global());
+        let io = crate::io::IoOptions::from_opts(&layer_opts);
 
         match Operator::from_uri(parsed) {
             Ok(op) => {
