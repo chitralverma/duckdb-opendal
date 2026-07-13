@@ -52,6 +52,12 @@ Sections are independent. A missing `retry_config`, `timeout_config`, or
 `cache_config` means that layer is not applied. `cache_config` presence enables
 the cache; there is no `enable` key.
 
+Cross-service sections reject unknown keys, malformed values, and invalid
+relationships (for example `retry.factor < 1` or cache min size above max size)
+when the effective operator is built. Service `config` remains an arbitrary
+passthrough: OpenDAL validates typed values for the selected service, while
+unknown service keys may be accepted for forward compatibility.
+
 `config` is passed directly to the selected OpenDAL service. Use the service's
 [OpenDAL configuration reference](https://opendal.apache.org/services/) for
 valid keys. There are no convenience aliases or generic `layers` bag.

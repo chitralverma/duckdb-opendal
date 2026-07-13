@@ -76,7 +76,8 @@ pub(crate) unsafe fn set_opendal_error(out: *mut OdError, err: &opendal::Error) 
         ErrorKind::NotADirectory => OdErrorCode::NotADirectory,
         ErrorKind::IsADirectory => OdErrorCode::IsADirectory,
         ErrorKind::AlreadyExists => OdErrorCode::AlreadyExists,
-        ErrorKind::ConfigInvalid | ErrorKind::Unsupported => OdErrorCode::Unsupported,
+        ErrorKind::ConfigInvalid => OdErrorCode::InvalidInput,
+        ErrorKind::Unsupported => OdErrorCode::Unsupported,
         _ => OdErrorCode::Unexpected,
     };
     set_error(out, code, err.to_string());

@@ -18,7 +18,7 @@ use opendal::{Operator, OperatorUri};
 
 use crate::error::{set_error, set_ok, set_opendal_error, OdError, OdErrorCode};
 use crate::ffi::{cstr, ffi_guard, free_handle};
-use crate::layers::apply_layers;
+use crate::layers::{apply_layers, validate_options};
 
 /// Opaque handle wrapping an `opendal::Operator`.
 pub struct OdOperator {
@@ -89,6 +89,10 @@ pub unsafe extern "C" fn od_operator_new(
                 return std::ptr::null_mut();
             }
         };
+        if let Err(msg) = validate_options(&layer_opts) {
+            set_error(err, OdErrorCode::InvalidInput, msg);
+            return std::ptr::null_mut();
+        }
 
         // Parse the URI once (folding the secret config in as extra options),
         // then reuse it for both the scheme and operator construction.

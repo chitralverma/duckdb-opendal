@@ -32,6 +32,112 @@ use opendal::Operator;
 
 use crate::runtime::block_on;
 
+fn parse<T: std::str::FromStr>(opts: &[(String, String)], key: &str) -> Result<Option<T>, String> {
+    let Some((_, value)) = opts.iter().find(|(name, _)| name == key) else {
+        return Ok(None);
+    };
+    value
+        .parse::<T>()
+        .map(Some)
+        .map_err(|_| format!("invalid {key}='{value}'"))
+}
+
+/// Validate the effective cross-service option map before building an operator.
+/// Service `config` is deliberately excluded: OpenDAL validates typed service
+/// values and accepts service-specific/forward-compatible keys.
+pub(crate) fn validate_options(opts: &[(String, String)]) -> Result<(), String> {
+    const KEYS: &[&str] = &[
+        "io.read.concurrent",
+        "io.read.chunk",
+        "io.write.concurrent",
+        "io.write.chunk",
+        "io.concurrent_limit",
+        "retry.max_times",
+        "retry.factor",
+        "retry.jitter",
+        "retry.min_delay_ms",
+        "retry.max_delay_ms",
+        "timeout.seconds",
+        "timeout.io_seconds",
+        "cache.memory_mb",
+        "cache.disk_path",
+        "cache.disk_mb",
+        "cache.block_mb",
+        "cache.min_file_size",
+        "cache.max_file_size",
+        "cache.shards",
+        "__cache_namespace",
+    ];
+    for (key, _) in opts {
+        if !KEYS.contains(&key.as_str()) {
+            return Err(format!("unknown OpenDAL option '{key}'"));
+        }
+    }
+
+    for key in [
+        "io.read.concurrent",
+        "io.read.chunk",
+        "io.write.concurrent",
+        "io.write.chunk",
+        "io.concurrent_limit",
+        "cache.memory_mb",
+        "cache.disk_mb",
+        "cache.block_mb",
+        "cache.shards",
+    ] {
+        if matches!(parse::<usize>(opts, key)?, Some(0)) {
+            return Err(format!("invalid {key}='0': expected a positive integer"));
+        }
+    }
+    for key in [
+        "retry.max_times",
+        "retry.min_delay_ms",
+        "retry.max_delay_ms",
+        "timeout.seconds",
+        "timeout.io_seconds",
+        "cache.min_file_size",
+        "cache.max_file_size",
+    ] {
+        parse::<usize>(opts, key)?;
+    }
+
+    if let Some(factor) = parse::<f32>(opts, "retry.factor")? {
+        if !factor.is_finite() || factor < 1.0 {
+            return Err(format!(
+                "invalid retry.factor='{factor}': expected a finite number >= 1"
+            ));
+        }
+    }
+    if let Some((_, jitter)) = opts.iter().find(|(key, _)| key == "retry.jitter") {
+        if !matches!(jitter.as_str(), "true" | "false" | "1" | "0") {
+            return Err(format!(
+                "invalid retry.jitter='{jitter}': expected true, false, 1, or 0"
+            ));
+        }
+    }
+    if let (Some(min), Some(max)) = (
+        parse::<usize>(opts, "retry.min_delay_ms")?,
+        parse::<usize>(opts, "retry.max_delay_ms")?,
+    ) {
+        if min > max {
+            return Err("retry.min_delay_ms must not exceed retry.max_delay_ms".to_string());
+        }
+    }
+    if let (Some(min), Some(max)) = (
+        parse::<usize>(opts, "cache.min_file_size")?,
+        parse::<usize>(opts, "cache.max_file_size")?,
+    ) {
+        if min > max {
+            return Err("cache.min_file_size must not exceed cache.max_file_size".to_string());
+        }
+    }
+    if matches!(opts.iter().find(|(key, _)| key == "cache.disk_path"), Some((_, path)) if path.is_empty())
+    {
+        return Err("cache.disk_path must not be empty".to_string());
+    }
+    Ok(())
+}
+
 /// Apply layers described by `opts` (key → value) to `op`, returning the
 /// layered operator. Keys are parsed leniently; a malformed value for a key
 /// causes that single option to be skipped.
@@ -89,15 +195,12 @@ pub(crate) fn apply_layers(mut op: Operator, opts: &[(String, String)]) -> Opera
     }
 
     // A non-empty cache section enables the OpenDAL data-cache layer.
-    if opts
-        .iter()
-        .any(|(k, _)| k.starts_with("cache.") && k != "cache.namespace")
-    {
+    if opts.iter().any(|(k, _)| k.starts_with("cache.")) {
         let memory_mb = get("cache.memory_mb")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(256);
         let disk_path = get("cache.disk_path").map(|s| {
-            let namespace = get("cache.namespace").unwrap_or("default");
+            let namespace = get("__cache_namespace").unwrap_or("default");
             std::path::Path::new(s)
                 .join(namespace)
                 .to_string_lossy()

@@ -417,7 +417,7 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	uint64_t config_hash;
 	std::string key = ConfigIdentity(scheme, authority, config, options, config_hash);
 	if (options.find("cache.disk_path") != options.end()) {
-		options["cache.namespace"] = std::to_string(config_hash);
+		options["__cache_namespace"] = std::to_string(config_hash);
 	}
 
 	{

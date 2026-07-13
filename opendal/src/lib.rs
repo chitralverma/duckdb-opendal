@@ -483,7 +483,7 @@ mod tests {
         let keys = [
             "cache.memory_mb",
             "cache.disk_path",
-            "cache.namespace",
+            "__cache_namespace",
             "cache.disk_mb",
             "cache.block_mb",
         ];
@@ -740,6 +740,71 @@ mod tests {
         unsafe { od_reader_free(r) };
 
         unsafe { od_operator_free(op) };
+    }
+
+    #[test]
+    fn operator_rejects_invalid_cross_service_options() {
+        let build = |key: &str, value: &str| {
+            let uri = CString::new("memory://").unwrap();
+            let key = CString::new(key).unwrap();
+            let value = CString::new(value).unwrap();
+            let keys = [key.as_ptr()];
+            let values = [value.as_ptr()];
+            let mut err = OdError::ok();
+            let op = unsafe {
+                od_operator_new(
+                    uri.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    0,
+                    keys.as_ptr(),
+                    values.as_ptr(),
+                    1,
+                    &mut err,
+                )
+            };
+            (op, err)
+        };
+
+        for (key, value) in [
+            ("retry.max_times", "banana"),
+            ("retry.factor", "0.5"),
+            ("retry.jitter", "yes"),
+            ("io.read.concurrent", "0"),
+            ("cache.shards", "0"),
+            ("cache.unknown", "1"),
+        ] {
+            let (op, err) = build(key, value);
+            assert!(op.is_null(), "accepted {key}={value}");
+            assert_eq!(err.code as i32, OdErrorCode::InvalidInput as i32);
+            unsafe { od_string_free(err.message) };
+        }
+    }
+
+    #[test]
+    fn service_config_validation_is_propagated() {
+        od_init();
+        let uri = CString::new("s3://bucket").unwrap();
+        let key = CString::new("enable_virtual_host_style").unwrap();
+        let value = CString::new("banana").unwrap();
+        let keys = [key.as_ptr()];
+        let values = [value.as_ptr()];
+        let mut err = OdError::ok();
+        let op = unsafe {
+            od_operator_new(
+                uri.as_ptr(),
+                keys.as_ptr(),
+                values.as_ptr(),
+                1,
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                &mut err,
+            )
+        };
+        assert!(op.is_null());
+        assert_eq!(err.code as i32, OdErrorCode::InvalidInput as i32);
+        unsafe { od_string_free(err.message) };
     }
 
     #[test]

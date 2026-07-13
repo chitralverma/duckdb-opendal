@@ -288,6 +288,42 @@ RESET opendal_timeout_config;
 statement ok
 RESET opendal_cache_config;
 
+# Invalid cross-service values are rejected when the effective operator is
+# built; they are never silently dropped to defaults.
+statement ok
+SET GLOBAL opendal_retry_config = MAP{'max_times':'banana'};
+
+statement error
+SELECT * FROM opendal_stat('fs://__TEST_DIR__/w_out.parquet');
+----
+invalid retry.max_times='banana'
+
+statement ok
+RESET opendal_retry_config;
+
+statement ok
+SET GLOBAL opendal_cache_config = MAP{'shradz':'4'};
+
+statement error
+SELECT * FROM opendal_stat('fs://__TEST_DIR__/w_out.parquet');
+----
+unknown OpenDAL option 'cache.shradz'
+
+statement ok
+RESET opendal_cache_config;
+
+# Typed service values are validated by OpenDAL and propagated as input errors.
+statement ok
+CREATE SECRET s3_invalid_config (
+    TYPE s3, SCOPE 's3://invalid-config-bucket',
+    config MAP{'enable_virtual_host_style':'banana'}
+);
+
+statement error
+SELECT * FROM opendal_stat('s3://invalid-config-bucket/file');
+----
+failed to deserialize config
+
 # ── Native-filesystem override setting (Phase 5 hardening) ───────────────────
 
 # The setting exists and defaults to empty (no override).
