@@ -38,9 +38,11 @@ pub use operator::{
 pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
 pub use stat::{od_exists, od_stat, OdMetadata};
 pub use table::{
-    od_du_cursor_free, od_du_cursor_next, od_table_cursor_free, od_table_cursor_next,
-    od_table_du_open, od_table_glob_open, od_table_list_open, od_table_stat_open, OdDuCursor,
-    OdDuRow, OdEntryMetadata, OdEntryRow, OdListOptions, OdStatOptions, OdTableCursor,
+    od_copy_cursor_free, od_copy_cursor_next, od_du_cursor_free, od_du_cursor_next,
+    od_table_copy_open, od_table_cursor_free, od_table_cursor_next, od_table_du_open,
+    od_table_glob_open, od_table_list_open, od_table_stat_open, OdCopyCursor, OdCopyOptions,
+    OdCopyRow, OdDuCursor, OdDuRow, OdEntryMetadata, OdEntryRow, OdListOptions, OdStatOptions,
+    OdTableCursor,
 };
 pub use writer::{
     od_writer_abort, od_writer_close, od_writer_free, od_writer_open, od_writer_write, OdWriter,

@@ -68,3 +68,31 @@ recursively from the static prefix before the first wildcard.
 `opendal_du` retains per-parent-directory rollups and accepts a file, directory,
 or glob target. Files and glob matches are grouped by parent. It accepts
 `"limit"`, `start_after`, `versions`, and `deleted` list options.
+
+## `opendal_copy`
+
+```sql
+SELECT * FROM opendal_copy(
+    's3://source-bucket/input.parquet',
+    'azblob://destination/output.parquet',
+    if_not_exists := true,
+    source_version := 'version-id',
+    concurrent := 4,
+    chunk_size := 8388608
+);
+```
+
+When both URLs resolve to the same effective operator and native copy is
+supported, the function drains OpenDAL's server-side `Copier`. Otherwise it
+streams bounded chunks from an OpenDAL `Reader` into an OpenDAL `Writer`, using
+each URL's independently scoped secret. Transfer failures abort the destination
+writer. One row is returned only after destination commit:
+
+`source`, `destination`, `bytes_copied`, `metadata`.
+
+`source_content_length_hint` is validated against a version-aware source stat.
+A mismatch fails instead of risking a truncated segmented copy.
+
+Copy is a side effect, not a DuckDB transaction. Query rollback cannot undo a
+completed remote copy. Mutation starts only when the table function is scanned;
+an optimized-away function or `LIMIT 0` does not copy.

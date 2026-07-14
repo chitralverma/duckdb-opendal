@@ -151,6 +151,58 @@ SELECT sum(file_count) FROM opendal_du('fs://__TEST_DIR__/odtree/**/*.parquet');
 ----
 3
 
+# Same-operator copy uses OpenDAL Copier where supported and falls back to a
+# Reader->Writer transfer otherwise. Success emits one row after commit.
+query II
+SELECT bytes_copied > 0, metadata.mode
+FROM opendal_copy(
+    'fs://__TEST_DIR__/opendal_read.parquet',
+    'fs://__TEST_DIR__/opendal_copy.parquet'
+);
+----
+true	file
+
+query I
+SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/opendal_copy.parquet');
+----
+1000
+
+statement error
+SELECT * FROM opendal_copy(
+    'fs://__TEST_DIR__/opendal_read.parquet',
+    'fs://__TEST_DIR__/opendal_copy.parquet',
+    if_not_exists := true
+);
+----
+exist
+
+# Mutation happens in the scan callback, not bind/init. LIMIT 0 must not copy.
+statement ok
+SELECT count(*) FROM opendal_copy(
+    'fs://__TEST_DIR__/opendal_read.parquet',
+    'fs://__TEST_DIR__/opendal_not_copied.parquet'
+) LIMIT 0;
+
+query I
+SELECT count(*) FROM opendal_glob('fs://__TEST_DIR__/opendal_not_copied*.parquet');
+----
+0
+
+# Content length is a validated planning hint and must never truncate transfer.
+statement error
+SELECT * FROM opendal_copy(
+    'fs://__TEST_DIR__/opendal_read.parquet',
+    'fs://__TEST_DIR__/opendal_hint_copy.parquet',
+    source_content_length_hint := 1
+);
+----
+does not match source size
+
+query I
+SELECT count(*) FROM opendal_glob('fs://__TEST_DIR__/opendal_hint_copy*.parquet');
+----
+0
+
 # ── DuckDB's built-in glob() table function routes through opendal ─────────
 
 # Exact path.

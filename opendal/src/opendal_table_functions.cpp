@@ -363,6 +363,116 @@ static void DuFunc(ClientContext &, TableFunctionInput &data, DataChunk &output)
 	output.SetCardinality(count);
 }
 
+struct CopyBindData : public TableFunctionData {
+	OpenDalFileSystem *fs;
+	std::string source;
+	std::string destination;
+	std::string if_match;
+	std::string source_version;
+	idx_t source_content_length_hint = 0;
+	idx_t concurrent = 0;
+	idx_t chunk_size = 0;
+	bool if_not_exists = false;
+	bool has_source_content_length_hint = false;
+	bool has_concurrent = false;
+	bool has_chunk_size = false;
+};
+
+struct CopyGlobalState : public GlobalTableFunctionState {
+	bool finished = false;
+};
+
+static unique_ptr<FunctionData> CopyBind(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
+                                         vector<string> &names) {
+	auto result = make_uniq<CopyBindData>();
+	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
+	result->source = input.inputs[0].GetValue<string>();
+	result->destination = input.inputs[1].GetValue<string>();
+	result->if_not_exists = BoolParameter(input.named_parameters, "if_not_exists");
+	result->if_match = StringParameter(input.named_parameters, "if_match");
+	result->source_version = StringParameter(input.named_parameters, "source_version");
+	auto read_size = [&](const std::string &name, idx_t &value, bool &present, bool allow_zero) {
+		auto entry = input.named_parameters.find(name);
+		if (entry == input.named_parameters.end() || entry->second.IsNull()) {
+			return;
+		}
+		present = true;
+		value = entry->second.GetValue<idx_t>();
+		if (value == 0 && !allow_zero) {
+			throw InvalidInputException("opendal copy: " + name + " must be positive");
+		}
+	};
+	read_size("source_content_length_hint", result->source_content_length_hint, result->has_source_content_length_hint,
+	          true);
+	read_size("concurrent", result->concurrent, result->has_concurrent, false);
+	read_size("chunk_size", result->chunk_size, result->has_chunk_size, false);
+	names = {"source", "destination", "bytes_copied", "metadata"};
+	types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::UBIGINT, MetadataType()};
+	return std::move(result);
+}
+
+static unique_ptr<GlobalTableFunctionState> CopyInit(ClientContext &context, TableFunctionInitInput &input) {
+	return make_uniq<CopyGlobalState>();
+}
+
+static void CopyFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+	auto &state = data.global_state->Cast<CopyGlobalState>();
+	if (state.finished) {
+		output.SetCardinality(0);
+		return;
+	}
+	auto &bind = data.bind_data->Cast<CopyBindData>();
+	if (!bind.fs) {
+		throw InvalidInputException("opendal copy: filesystem not available");
+	}
+	std::string source_scheme, source_authority, source_path;
+	std::string destination_scheme, destination_authority, destination_path;
+	if (!bind.fs->ParsePublic(bind.source, source_scheme, source_authority, source_path)) {
+		throw InvalidInputException("opendal copy: unsupported or invalid source URL: " + bind.source);
+	}
+	if (!bind.fs->ParsePublic(bind.destination, destination_scheme, destination_authority, destination_path)) {
+		throw InvalidInputException("opendal copy: unsupported or invalid destination URL: " + bind.destination);
+	}
+	auto *source_op = bind.fs->OperatorForPublic(source_scheme, source_authority, bind.source, &context);
+	auto *destination_op =
+	    bind.fs->OperatorForPublic(destination_scheme, destination_authority, bind.destination, &context);
+	OdCopyOptions options = {};
+	options.if_not_exists = bind.if_not_exists;
+	options.if_match = bind.if_match.empty() ? nullptr : bind.if_match.c_str();
+	options.source_version = bind.source_version.empty() ? nullptr : bind.source_version.c_str();
+	options.source_content_length_hint = bind.source_content_length_hint;
+	options.has_source_content_length_hint = bind.has_source_content_length_hint;
+	options.concurrent = bind.concurrent;
+	options.has_concurrent = bind.has_concurrent;
+	options.chunk_size = bind.chunk_size;
+	options.has_chunk_size = bind.has_chunk_size;
+	OdError err = {};
+	std::unique_ptr<OdCopyCursor, void (*)(OdCopyCursor *)> cursor(
+	    od_table_copy_open(source_op, source_path.c_str(), destination_op, destination_path.c_str(), options, &err),
+	    od_copy_cursor_free);
+	if (!cursor) {
+		ThrowIfError(err, "copy", bind.source + "' -> '" + bind.destination);
+		throw IOException("opendal copy: null cursor");
+	}
+	ClearError(err);
+	OdCopyRow row = {};
+	auto result = od_copy_cursor_next(cursor.get(), &row, &err);
+	if (result < 0) {
+		ThrowIfError(err, "copy", bind.source + "' -> '" + bind.destination);
+	}
+	ClearError(err);
+	state.finished = true;
+	if (result == 0) {
+		output.SetCardinality(0);
+		return;
+	}
+	output.SetValue(0, 0, Value(bind.source));
+	output.SetValue(1, 0, Value(bind.destination));
+	output.SetValue(2, 0, Value::UBIGINT(row.bytes_copied));
+	output.SetValue(3, 0, MetadataValue(row.metadata));
+	output.SetCardinality(1);
+}
+
 static void AddStatOptions(TableFunction &function) {
 	function.named_parameters["version"] = LogicalType::VARCHAR;
 	function.named_parameters["if_match"] = LogicalType::VARCHAR;
@@ -403,6 +513,16 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	du.named_parameters["deleted"] = LogicalType::BOOLEAN;
 	du.function_info = info;
 	loader.RegisterFunction(du);
+
+	TableFunction copy("opendal_copy", {LogicalType::VARCHAR, LogicalType::VARCHAR}, CopyFunc, CopyBind, CopyInit);
+	copy.named_parameters["if_not_exists"] = LogicalType::BOOLEAN;
+	copy.named_parameters["if_match"] = LogicalType::VARCHAR;
+	copy.named_parameters["source_version"] = LogicalType::VARCHAR;
+	copy.named_parameters["source_content_length_hint"] = LogicalType::UBIGINT;
+	copy.named_parameters["concurrent"] = LogicalType::UBIGINT;
+	copy.named_parameters["chunk_size"] = LogicalType::UBIGINT;
+	copy.function_info = info;
+	loader.RegisterFunction(copy);
 }
 
 } // namespace duckdb

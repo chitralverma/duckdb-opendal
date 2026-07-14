@@ -98,6 +98,31 @@ SELECT file_count, total_size > 0 FROM opendal_du('s3://warehouse/f1.parquet');
 ----
 1	true
 
+# Native same-operator S3 copy uses OpenDAL Copier.
+query I
+SELECT bytes_copied > 0
+FROM opendal_copy('s3://warehouse/f1.parquet', 's3://warehouse/copied/f1.parquet');
+----
+true
+
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/copied/f1.parquet');
+----
+100
+
+# Different operators use bounded Reader->Writer transfer with each URL's
+# independently scoped operator/secret.
+query I
+SELECT bytes_copied > 0
+FROM opendal_copy('s3://warehouse/f1.parquet', 'fs://__TEST_DIR__/s3_to_fs.parquet', chunk_size := 1048576);
+----
+true
+
+query I
+SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/s3_to_fs.parquet');
+----
+100
+
 # opendal_stat on a single S3 object returns exactly one row.
 query I
 SELECT count(*) FROM opendal_stat('s3://warehouse/f1.parquet');
@@ -113,7 +138,7 @@ f1.parquet	true
 query I
 SELECT count(*) FROM opendal_glob('s3://warehouse/**/*.parquet') WHERE metadata.mode = 'file';
 ----
-3
+4
 
 # ── Secret-backed access (SCOPE-matched CREATE SECRET) ──────────────────────
 # These mirror the reads above but drive the S3 config from CREATE SECRET rather
