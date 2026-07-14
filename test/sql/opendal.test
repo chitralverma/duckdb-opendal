@@ -139,6 +139,18 @@ SELECT sum(file_count) FROM opendal_du('fs://__TEST_DIR__/odtree/');
 ----
 3
 
+# Files and globs use the same Rust target resolver and retain parent grouping.
+query II
+SELECT file_count, total_size > 0
+FROM opendal_du('fs://__TEST_DIR__/opendal_read.parquet');
+----
+1	true
+
+query I
+SELECT sum(file_count) FROM opendal_du('fs://__TEST_DIR__/odtree/**/*.parquet');
+----
+3
+
 # ── DuckDB's built-in glob() table function routes through opendal ─────────
 
 # Exact path.

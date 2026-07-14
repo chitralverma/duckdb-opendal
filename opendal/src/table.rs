@@ -64,6 +64,24 @@ pub struct OdEntryRow {
     pub metadata: OdEntryMetadata,
 }
 
+#[repr(C)]
+pub struct OdDuRow {
+    pub directory: *const c_char,
+    pub file_count: u64,
+    pub total_size: u64,
+}
+
+struct OwnedDuRow {
+    directory: CString,
+    file_count: u64,
+    total_size: u64,
+}
+
+pub struct OdDuCursor {
+    rows: std::vec::IntoIter<OwnedDuRow>,
+    current: Option<OwnedDuRow>,
+}
+
 struct OwnedRow {
     path: CString,
     name: CString,
@@ -518,6 +536,188 @@ pub unsafe extern "C" fn od_table_cursor_next(
 
 #[no_mangle]
 pub unsafe extern "C" fn od_table_cursor_free(cursor: *mut OdTableCursor) {
+    free_handle(cursor);
+}
+
+fn has_glob(path: &str) -> bool {
+    path.bytes()
+        .any(|value| matches!(value, b'*' | b'?' | b'['))
+}
+
+fn glob_root(pattern: &str) -> &str {
+    let wildcard = pattern
+        .bytes()
+        .position(|value| matches!(value, b'*' | b'?' | b'['))
+        .unwrap_or(pattern.len());
+    pattern[..wildcard]
+        .rfind('/')
+        .map_or("", |slash| &pattern[..=slash])
+}
+
+fn parent(path: &str) -> &str {
+    path.trim_end_matches('/')
+        .rfind('/')
+        .map_or("", |slash| &path[..slash])
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn od_table_du_open(
+    op: *const OdOperator,
+    target: *const c_char,
+    mut raw_options: OdListOptions,
+    err: *mut OdError,
+) -> *mut OdDuCursor {
+    ffi_guard!(err, std::ptr::null_mut(), "od_table_du_open", {
+        if op.is_null() {
+            set_error(err, OdErrorCode::InvalidInput, "null operator");
+            return std::ptr::null_mut();
+        }
+        let target = match cstr(target) {
+            Some(target) => target,
+            None => {
+                set_error(
+                    err,
+                    OdErrorCode::InvalidInput,
+                    "target is null or not UTF-8",
+                );
+                return std::ptr::null_mut();
+            }
+        };
+        let odop = &*op;
+        let options = match list_options(raw_options) {
+            Ok(options) => options,
+            Err(message) => {
+                set_error(err, OdErrorCode::InvalidInput, message);
+                return std::ptr::null_mut();
+            }
+        };
+        let entries: Result<Vec<(String, Metadata)>, opendal::Error> = if has_glob(target) {
+            raw_options.recursive = 1;
+            match block_on(odop.op.list_options(
+                glob_root(target),
+                ListOptions {
+                    recursive: true,
+                    ..options
+                },
+            )) {
+                Ok(entries) => Ok(entries
+                    .into_iter()
+                    .filter(|entry| {
+                        glob_matches(
+                            target.trim_start_matches('/').as_bytes(),
+                            entry.path().as_bytes(),
+                        )
+                    })
+                    .map(Entry::into_parts)
+                    .collect()),
+                Err(error) => Err(error),
+            }
+        } else {
+            match block_on(odop.op.stat(target)) {
+                Ok(metadata) if metadata.is_file() => Ok(vec![(target.to_owned(), metadata)]),
+                Ok(_) => {
+                    let directory = if target.ends_with('/') {
+                        target.to_owned()
+                    } else {
+                        format!("{target}/")
+                    };
+                    block_on(odop.op.list_options(
+                        &directory,
+                        ListOptions {
+                            recursive: true,
+                            ..options
+                        },
+                    ))
+                    .map(|entries| entries.into_iter().map(Entry::into_parts).collect())
+                }
+                Err(error) => Err(error),
+            }
+        };
+        let entries = match entries {
+            Ok(entries) => entries,
+            Err(error) => {
+                set_opendal_error(err, &error);
+                return std::ptr::null_mut();
+            }
+        };
+        let mut groups: std::collections::BTreeMap<String, (u64, u64)> = Default::default();
+        for (path, metadata) in entries {
+            if !metadata.is_file() {
+                continue;
+            }
+            let group = groups.entry(parent(&path).to_owned()).or_default();
+            group.0 = match group.0.checked_add(1) {
+                Some(value) => value,
+                None => {
+                    set_error(err, OdErrorCode::Unexpected, "du file count overflow");
+                    return std::ptr::null_mut();
+                }
+            };
+            group.1 = match group.1.checked_add(metadata.content_length()) {
+                Some(value) => value,
+                None => {
+                    set_error(err, OdErrorCode::Unexpected, "du byte count overflow");
+                    return std::ptr::null_mut();
+                }
+            };
+        }
+        let mut rows = Vec::with_capacity(groups.len());
+        for (directory, (file_count, total_size)) in groups {
+            let directory = match cstring(&directory, "du directory") {
+                Ok(directory) => directory,
+                Err(message) => {
+                    set_error(err, OdErrorCode::Unexpected, message);
+                    return std::ptr::null_mut();
+                }
+            };
+            rows.push(OwnedDuRow {
+                directory,
+                file_count,
+                total_size,
+            });
+        }
+        set_ok(err);
+        Box::into_raw(Box::new(OdDuCursor {
+            rows: rows.into_iter(),
+            current: None,
+        }))
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn od_du_cursor_next(
+    cursor: *mut OdDuCursor,
+    out: *mut OdDuRow,
+    err: *mut OdError,
+) -> i8 {
+    ffi_guard!(err, -1, "od_du_cursor_next", {
+        if cursor.is_null() || out.is_null() {
+            set_error(
+                err,
+                OdErrorCode::InvalidInput,
+                "null du cursor or row output",
+            );
+            return -1;
+        }
+        let cursor = &mut *cursor;
+        let Some(row) = cursor.rows.next() else {
+            set_ok(err);
+            return 0;
+        };
+        cursor.current = Some(row);
+        let row = cursor.current.as_ref().unwrap();
+        *out = OdDuRow {
+            directory: row.directory.as_ptr(),
+            file_count: row.file_count,
+            total_size: row.total_size,
+        };
+        set_ok(err);
+        1
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn od_du_cursor_free(cursor: *mut OdDuCursor) {
     free_handle(cursor);
 }
 

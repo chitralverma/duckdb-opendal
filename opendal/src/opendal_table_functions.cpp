@@ -271,53 +271,46 @@ static void EntryFunc(ClientContext &, TableFunctionInput &data, DataChunk &outp
 struct DuBindData : public TableFunctionData {
 	OpenDalFileSystem *fs;
 	std::string url;
-};
-
-struct DuRow {
-	std::string directory;
-	int64_t file_count;
-	int64_t total_size;
+	idx_t limit = 0;
+	std::string start_after;
+	bool has_limit = false;
+	bool versions = false;
+	bool deleted = false;
 };
 
 struct DuGlobalState : public GlobalTableFunctionState {
-	std::vector<DuRow> rows;
-	idx_t offset = 0;
+	std::unique_ptr<OdDuCursor, void (*)(OdDuCursor *)> cursor {nullptr, od_du_cursor_free};
+	std::string scheme;
+	std::string authority;
+	std::string target;
+	bool finished = false;
 };
 
 static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context, TableFunctionInitInput &input) {
 	auto &bind = input.bind_data->Cast<DuBindData>();
-	auto state = make_uniq<DuGlobalState>();
 	std::string scheme, authority, path;
 	if (!bind.fs || !bind.fs->ParsePublic(bind.url, scheme, authority, path)) {
 		throw InvalidInputException("opendal du: unsupported or invalid URL: " + bind.url);
 	}
 	auto *op = bind.fs->OperatorForPublic(scheme, authority, bind.url, &context);
-	if (path.empty() || path.back() != '/') {
-		path += "/";
-	}
+	OdListOptions options = {};
+	options.limit = bind.limit;
+	options.has_limit = bind.has_limit;
+	options.start_after = bind.start_after.empty() ? nullptr : bind.start_after.c_str();
+	options.versions = bind.versions;
+	options.deleted = bind.deleted;
 	OdError err = {};
-	auto *list = od_list(op, path.c_str(), 1, &err);
-	if (!list) {
+	auto *cursor = od_table_du_open(op, path.c_str(), options, &err);
+	if (!cursor) {
 		ThrowIfError(err, "du", bind.url);
+		throw IOException("opendal du: null cursor for '" + bind.url + "'");
 	}
 	ClearError(err);
-	std::unique_ptr<OdEntryList, void (*)(OdEntryList *)> guard(list, od_list_free);
-	std::map<std::string, std::pair<int64_t, int64_t>> rollup;
-	for (idx_t index = 0; index < od_list_len(list); index++) {
-		OdEntry entry = {};
-		if (!od_list_entry(list, index, &entry) || entry.is_dir) {
-			continue;
-		}
-		std::string entry_path(entry.path);
-		auto slash = entry_path.find_last_of('/');
-		auto &aggregate = rollup[slash == std::string::npos ? "" : entry_path.substr(0, slash)];
-		aggregate.first++;
-		aggregate.second += entry.content_length;
-	}
-	for (auto &entry : rollup) {
-		state->rows.push_back({OpenDalFileSystem::BuildUrlPublic(scheme, authority, entry.first), entry.second.first,
-		                       entry.second.second});
-	}
+	auto state = make_uniq<DuGlobalState>();
+	state->cursor.reset(cursor);
+	state->scheme = scheme;
+	state->authority = authority;
+	state->target = bind.url;
 	return std::move(state);
 }
 
@@ -326,19 +319,45 @@ static unique_ptr<FunctionData> DuBind(ClientContext &, TableFunctionBindInput &
 	auto result = make_uniq<DuBindData>();
 	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
 	result->url = input.inputs[0].GetValue<string>();
+	auto limit = input.named_parameters.find("limit");
+	if (limit != input.named_parameters.end() && !limit->second.IsNull()) {
+		result->has_limit = true;
+		result->limit = limit->second.GetValue<idx_t>();
+		if (result->limit == 0) {
+			throw InvalidInputException("opendal du: limit must be positive");
+		}
+	}
+	result->start_after = StringParameter(input.named_parameters, "start_after");
+	result->versions = BoolParameter(input.named_parameters, "versions");
+	result->deleted = BoolParameter(input.named_parameters, "deleted");
 	names = {"directory", "file_count", "total_size"};
-	types = {LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT};
+	types = {LogicalType::VARCHAR, LogicalType::UBIGINT, LogicalType::UBIGINT};
 	return std::move(result);
 }
 
 static void DuFunc(ClientContext &, TableFunctionInput &data, DataChunk &output) {
 	auto &state = data.global_state->Cast<DuGlobalState>();
+	if (state.finished) {
+		output.SetCardinality(0);
+		return;
+	}
 	idx_t count = 0;
-	while (count < STANDARD_VECTOR_SIZE && state.offset < state.rows.size()) {
-		auto &row = state.rows[state.offset++];
-		output.SetValue(0, count, Value(row.directory));
-		output.SetValue(1, count, Value::BIGINT(row.file_count));
-		output.SetValue(2, count, Value::BIGINT(row.total_size));
+	while (count < STANDARD_VECTOR_SIZE) {
+		OdDuRow row = {};
+		OdError err = {};
+		auto result = od_du_cursor_next(state.cursor.get(), &row, &err);
+		if (result < 0) {
+			ThrowIfError(err, "du", state.target);
+		}
+		ClearError(err);
+		if (result == 0) {
+			state.finished = true;
+			break;
+		}
+		output.SetValue(0, count,
+		                Value(OpenDalFileSystem::BuildUrlPublic(state.scheme, state.authority, row.directory)));
+		output.SetValue(1, count, Value::UBIGINT(row.file_count));
+		output.SetValue(2, count, Value::UBIGINT(row.total_size));
 		count++;
 	}
 	output.SetCardinality(count);
@@ -378,6 +397,10 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	loader.RegisterFunction(glob);
 
 	TableFunction du("opendal_du", {LogicalType::VARCHAR}, DuFunc, DuBind, DuInit);
+	du.named_parameters["limit"] = LogicalType::UBIGINT;
+	du.named_parameters["start_after"] = LogicalType::VARCHAR;
+	du.named_parameters["versions"] = LogicalType::BOOLEAN;
+	du.named_parameters["deleted"] = LogicalType::BOOLEAN;
 	du.function_info = info;
 	loader.RegisterFunction(du);
 }

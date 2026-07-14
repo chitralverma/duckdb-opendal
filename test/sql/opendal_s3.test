@@ -88,6 +88,16 @@ SELECT count(*) FROM opendal_du('s3://warehouse/');
 ----
 2
 
+query I
+SELECT sum(file_count) FROM opendal_du('s3://warehouse/**/*.parquet');
+----
+3
+
+query II
+SELECT file_count, total_size > 0 FROM opendal_du('s3://warehouse/f1.parquet');
+----
+1	true
+
 # opendal_stat on a single S3 object returns exactly one row.
 query I
 SELECT count(*) FROM opendal_stat('s3://warehouse/f1.parquet');

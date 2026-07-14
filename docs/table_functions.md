@@ -65,5 +65,6 @@ recursively from the static prefix before the first wildcard.
 
 ## `opendal_du`
 
-`opendal_du` retains per-parent-directory rollups. It will be moved onto the
-same Rust target resolver in the next table-function slice.
+`opendal_du` retains per-parent-directory rollups and accepts a file, directory,
+or glob target. Files and glob matches are grouped by parent. It accepts
+`"limit"`, `start_after`, `versions`, and `deleted` list options.
