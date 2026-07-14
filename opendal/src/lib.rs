@@ -285,6 +285,20 @@ mod tests {
             0
         );
         assert_eq!(unsafe { od_writer_close(w, &mut werr) }, 0);
+        assert_eq!(
+            unsafe { od_writer_write(w, p2.as_ptr(), p2.len() as u64, &mut werr) },
+            -1
+        );
+        assert_eq!(werr.code as i32, OdErrorCode::InvalidInput as i32);
+        unsafe { od_string_free(werr.message) };
+        werr = OdError::ok();
+        assert_eq!(unsafe { od_writer_close(w, &mut werr) }, -1);
+        assert_eq!(werr.code as i32, OdErrorCode::InvalidInput as i32);
+        unsafe { od_string_free(werr.message) };
+        werr = OdError::ok();
+        assert_eq!(unsafe { od_writer_abort(w, &mut werr) }, -1);
+        assert_eq!(werr.code as i32, OdErrorCode::InvalidInput as i32);
+        unsafe { od_string_free(werr.message) };
         unsafe { od_writer_free(w) };
 
         // Read it back and verify content + size.
@@ -300,11 +314,19 @@ mod tests {
 
         let r = unsafe { od_reader_open(op, path.as_ptr(), &mut serr) };
         assert!(!r.is_null());
+        assert_eq!(
+            unsafe { od_reader_read(r, 0, 0, std::ptr::null_mut(), &mut serr) },
+            0
+        );
         let mut buf = vec![0u8; 11];
         let n = unsafe { od_reader_read(r, 0, 11, buf.as_mut_ptr(), &mut serr) };
         assert_eq!(n, 11);
         assert_eq!(&buf, b"hello world");
         unsafe { od_reader_free(r) };
+
+        unsafe { od_stat(op, path.as_ptr(), std::ptr::null_mut(), &mut serr) };
+        assert_eq!(serr.code as i32, OdErrorCode::InvalidInput as i32);
+        unsafe { od_string_free(serr.message) };
 
         // rename → if the backend supports it, the old path is gone and the new
         // one exists. The memory service does not support server-side rename, so

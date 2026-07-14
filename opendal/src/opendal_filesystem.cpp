@@ -142,6 +142,17 @@ static void ClearError(OdError &err) {
 	}
 }
 
+static void FreeReader(OdReader *reader) {
+	od_reader_free(reader);
+}
+
+static void AbortAndFreeWriter(OdWriter *writer) {
+	OdError err = {};
+	od_writer_abort(writer, &err);
+	ClearError(err);
+	od_writer_free(writer);
+}
+
 // Whether `op` reports support for capability `name` (e.g. "rename", "copy").
 // Reads the operator's cached capability flag over a single FFI call. Names
 // match OpenDAL's Capability field names.
@@ -177,26 +188,20 @@ void OpenDalFileHandle::CloseInternal(bool throw_on_error) {
 	}
 	if (writer) {
 		std::string close_error;
-		if (!write_closed) {
+		if (!write_finished) {
 			OdError err = {};
-			if (od_writer_close(writer, &err) != 0) {
+			int result = write_committable ? od_writer_close(writer, &err) : od_writer_abort(writer, &err);
+			if (result != 0) {
 				close_error = err.message ? err.message : "unknown error";
 				if (logger) {
-					DUCKDB_LOG_ERROR(logger, "OpenDAL writer close failed for '%s': %s", path, close_error);
-				}
-				OdError aerr = {};
-				if (od_writer_abort(writer, &aerr) != 0 && logger) {
-					DUCKDB_LOG_ERROR(logger, "OpenDAL writer abort failed for '%s': %s", path,
-					                 aerr.message ? aerr.message : "unknown error");
-				}
-				if (aerr.message) {
-					od_string_free(aerr.message);
+					DUCKDB_LOG_ERROR(logger, "OpenDAL writer %s failed for '%s': %s",
+					                 write_committable ? "close" : "abort", path, close_error);
 				}
 			}
 			if (err.message) {
 				od_string_free(err.message);
 			}
-			write_closed = true;
+			write_finished = true;
 		}
 		od_writer_free(writer);
 		writer = nullptr;
@@ -523,12 +528,15 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 			throw IOException("opendal: null writer for " + path);
 		}
 		ClearError(werr);
+		std::unique_ptr<OdWriter, void (*)(OdWriter *)> writer_guard(writer, AbortAndFreeWriter);
 		auto handle = make_uniq<OpenDalFileHandle>(*this, path, flags, writer);
+		writer_guard.release();
 		handle->on_disk = (scheme == "fs");
 		if (opener) {
 			handle->TryAddLogger(*opener);
 		}
 		DUCKDB_LOG_FILE_SYSTEM_OPEN((*handle));
+		handle->write_committable = true;
 		return std::move(handle);
 	}
 
@@ -548,9 +556,11 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 		throw IOException("opendal: null reader for " + path);
 	}
 	ClearError(rerr);
+	std::unique_ptr<OdReader, void (*)(OdReader *)> reader_guard(reader, FreeReader);
 
 	auto handle =
 	    make_uniq<OpenDalFileHandle>(*this, path, flags, reader, (int64_t)meta.content_length, meta.last_modified_ms);
+	reader_guard.release();
 	handle->on_disk = (scheme == "fs");
 	if (opener) {
 		handle->TryAddLogger(*opener);
@@ -565,6 +575,9 @@ void OpenDalFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes
 	if (!h.writer) {
 		throw IOException("opendal: write on a non-writable handle: " + h.path);
 	}
+	if (h.write_finished) {
+		throw IOException("opendal write: writer is already finalized: " + h.path);
+	}
 	// OpenDAL writers are append-only. DuckDB's Parquet/CSV writers emit data
 	// sequentially, so `location` must equal the running byte count.
 	if ((int64_t)location != h.bytes_written) {
@@ -574,6 +587,7 @@ void OpenDalFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes
 	}
 	OdError err = {};
 	if (od_writer_write(h.writer, static_cast<const uint8_t *>(buffer), (uint64_t)nr_bytes, &err) != 0) {
+		h.write_finished = true;
 		ThrowIfError(err, "opendal write: " + h.path);
 		throw IOException("opendal write failed: " + h.path);
 	}
@@ -590,16 +604,17 @@ int64_t OpenDalFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_by
 
 void OpenDalFileSystem::FileSync(FileHandle &handle) {
 	auto &h = handle.Cast<OpenDalFileHandle>();
-	if (!h.writer || h.write_closed) {
+	if (!h.writer || h.write_finished) {
 		return;
 	}
 	OdError err = {};
 	if (od_writer_close(h.writer, &err) != 0) {
+		h.write_finished = true;
 		ThrowIfError(err, "opendal close (write): " + h.path);
 		throw IOException("opendal close failed: " + h.path);
 	}
 	ClearError(err);
-	h.write_closed = true;
+	h.write_finished = true;
 }
 
 // Positioned read — one FFI call → one OpenDAL ranged read into DuckDB's buffer.

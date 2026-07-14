@@ -133,6 +133,7 @@ static unique_ptr<GlobalTableFunctionState> LsInit(ClientContext &context, Table
 		throw IOException("opendal ls: " + bind.url + ": " + ErrText(err));
 	}
 	ClearErr(err);
+	std::unique_ptr<OdEntryList, void (*)(OdEntryList *)> list_guard(list, od_list_free);
 	// Normalized directory path (no trailing slash, no leading slash) used to
 	// skip the self-entry. OpenDAL returns entry paths without a leading slash.
 	std::string self_path = dir;
@@ -174,8 +175,6 @@ static unique_ptr<GlobalTableFunctionState> LsInit(ClientContext &context, Table
 		row.modified_ms = ent.last_modified_ms;
 		state->rows.push_back(std::move(row));
 	}
-	od_list_free(list);
-
 	std::sort(state->rows.begin(), state->rows.end(), [](const FsRow &a, const FsRow &b) { return a.url < b.url; });
 	return std::move(state);
 }
@@ -251,6 +250,7 @@ static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context, Table
 		throw IOException("opendal du: " + bind.url + ": " + ErrText(err));
 	}
 	ClearErr(err);
+	std::unique_ptr<OdEntryList, void (*)(OdEntryList *)> list_guard(list, od_list_free);
 
 	// Roll up sizes per immediate parent directory.
 	std::map<std::string, std::pair<int64_t, int64_t>> rollup; // dir -> (count, size)
@@ -267,8 +267,6 @@ static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context, Table
 		agg.first += 1;
 		agg.second += (int64_t)ent.content_length;
 	}
-	od_list_free(list);
-
 	for (auto &kv : rollup) {
 		DuRow row;
 		row.directory = OpenDalFileSystem::BuildUrlPublic(scheme, auth, kv.first);

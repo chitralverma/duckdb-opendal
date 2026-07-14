@@ -17,9 +17,44 @@ use crate::ffi::{cstr, ffi_guard, free_handle};
 use crate::operator::OdOperator;
 use crate::runtime::block_on;
 
-/// Opaque handle wrapping an `opendal::Writer`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WriterState {
+    Open,
+    Closed,
+    Aborted,
+    Failed,
+}
+
+/// Opaque handle wrapping an `opendal::Writer` and its terminal state.
 pub struct OdWriter {
     writer: Writer,
+    state: WriterState,
+}
+
+impl OdWriter {
+    fn require_open(&self, operation: &str) -> Result<(), String> {
+        if self.state == WriterState::Open {
+            Ok(())
+        } else {
+            Err(format!(
+                "cannot {operation} writer in {:?} state",
+                self.state
+            ))
+        }
+    }
+
+    fn abort_after_failure(&mut self, primary: &opendal::Error) -> String {
+        match block_on(self.writer.abort()) {
+            Ok(()) => {
+                self.state = WriterState::Aborted;
+                primary.to_string()
+            }
+            Err(abort_error) => {
+                self.state = WriterState::Failed;
+                format!("{primary}; abort after failure also failed: {abort_error}")
+            }
+        }
+    }
 }
 
 /// Open a writer for `path` on `op`. Any existing object at `path` is
@@ -63,7 +98,10 @@ pub unsafe extern "C" fn od_writer_open(
         match block_on(b.into_future()) {
             Ok(writer) => {
                 set_ok(err);
-                Box::into_raw(Box::new(OdWriter { writer }))
+                Box::into_raw(Box::new(OdWriter {
+                    writer,
+                    state: WriterState::Open,
+                }))
             }
             Err(e) => {
                 set_opendal_error(err, &e);
@@ -95,16 +133,22 @@ pub unsafe extern "C" fn od_writer_write(
             set_ok(err);
             return 0;
         }
-        let writer = &mut (*writer).writer;
+        let writer = &mut *writer;
+        if let Err(message) = writer.require_open("write to") {
+            set_error(err, OdErrorCode::InvalidInput, message);
+            return -1;
+        }
         // Copy the caller's bytes into an owned buffer for the async write.
         let bytes = std::slice::from_raw_parts(data, len as usize).to_vec();
-        match block_on(writer.write(bytes)) {
+        match block_on(writer.writer.write(bytes)) {
             Ok(()) => {
                 set_ok(err);
                 0
             }
             Err(e) => {
-                set_opendal_error(err, &e);
+                let code = crate::error::opendal_error_code(&e);
+                let message = writer.abort_after_failure(&e);
+                set_error(err, code, message);
                 -1
             }
         }
@@ -124,13 +168,21 @@ pub unsafe extern "C" fn od_writer_close(writer: *mut OdWriter, err: *mut OdErro
             set_error(err, OdErrorCode::InvalidInput, "null writer");
             return -1;
         }
-        match block_on((*writer).writer.close()) {
+        let writer = &mut *writer;
+        if let Err(message) = writer.require_open("close") {
+            set_error(err, OdErrorCode::InvalidInput, message);
+            return -1;
+        }
+        match block_on(writer.writer.close()) {
             Ok(_meta) => {
+                writer.state = WriterState::Closed;
                 set_ok(err);
                 0
             }
             Err(e) => {
-                set_opendal_error(err, &e);
+                let code = crate::error::opendal_error_code(&e);
+                let message = writer.abort_after_failure(&e);
+                set_error(err, code, message);
                 -1
             }
         }
@@ -149,12 +201,19 @@ pub unsafe extern "C" fn od_writer_abort(writer: *mut OdWriter, err: *mut OdErro
             set_error(err, OdErrorCode::InvalidInput, "null writer");
             return -1;
         }
-        match block_on((*writer).writer.abort()) {
+        let writer = &mut *writer;
+        if let Err(message) = writer.require_open("abort") {
+            set_error(err, OdErrorCode::InvalidInput, message);
+            return -1;
+        }
+        match block_on(writer.writer.abort()) {
             Ok(()) => {
+                writer.state = WriterState::Aborted;
                 set_ok(err);
                 0
             }
             Err(e) => {
+                writer.state = WriterState::Failed;
                 set_opendal_error(err, &e);
                 -1
             }

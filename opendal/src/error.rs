@@ -67,10 +67,9 @@ pub(crate) unsafe fn set_ok(out: *mut OdError) {
     *out = OdError::ok();
 }
 
-/// Map an `opendal::Error` to our error code + message and store it.
-pub(crate) unsafe fn set_opendal_error(out: *mut OdError, err: &opendal::Error) {
+pub(crate) fn opendal_error_code(err: &opendal::Error) -> OdErrorCode {
     use opendal::ErrorKind;
-    let code = match err.kind() {
+    match err.kind() {
         ErrorKind::NotFound => OdErrorCode::NotFound,
         ErrorKind::PermissionDenied => OdErrorCode::PermissionDenied,
         ErrorKind::NotADirectory => OdErrorCode::NotADirectory,
@@ -79,6 +78,10 @@ pub(crate) unsafe fn set_opendal_error(out: *mut OdError, err: &opendal::Error) 
         ErrorKind::ConfigInvalid => OdErrorCode::InvalidInput,
         ErrorKind::Unsupported => OdErrorCode::Unsupported,
         _ => OdErrorCode::Unexpected,
-    };
-    set_error(out, code, err.to_string());
+    }
+}
+
+/// Map an `opendal::Error` to our error code + message and store it.
+pub(crate) unsafe fn set_opendal_error(out: *mut OdError, err: &opendal::Error) {
+    set_error(out, opendal_error_code(err), err.to_string());
 }

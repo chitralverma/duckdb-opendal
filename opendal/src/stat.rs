@@ -49,13 +49,15 @@ pub unsafe extern "C" fn od_stat(
     err: *mut OdError,
 ) {
     ffi_guard!(err, (), "od_stat", {
-        if !out_meta.is_null() {
-            *out_meta = OdMetadata::empty();
-        }
-        if op.is_null() || path.is_null() {
-            set_error(err, OdErrorCode::InvalidInput, "null operator or path");
+        if op.is_null() || path.is_null() || out_meta.is_null() {
+            set_error(
+                err,
+                OdErrorCode::InvalidInput,
+                "null operator, path, or metadata output",
+            );
             return;
         }
+        *out_meta = OdMetadata::empty();
         let odop = &*op;
         if let Err((code, msg)) = require(&odop.scheme, odop.cap.stat, "stat") {
             set_error(err, code, msg);
@@ -71,17 +73,15 @@ pub unsafe extern "C" fn od_stat(
 
         match block_on(odop.op.stat(path)) {
             Ok(meta) => {
-                if !out_meta.is_null() {
-                    let last_modified_ms = meta
-                        .last_modified()
-                        .map(|t| t.into_inner().as_millisecond())
-                        .unwrap_or(-1);
-                    *out_meta = OdMetadata {
-                        content_length: meta.content_length(),
-                        last_modified_ms,
-                        is_dir: if meta.is_dir() { 1 } else { 0 },
-                    };
-                }
+                let last_modified_ms = meta
+                    .last_modified()
+                    .map(|t| t.into_inner().as_millisecond())
+                    .unwrap_or(-1);
+                *out_meta = OdMetadata {
+                    content_length: meta.content_length(),
+                    last_modified_ms,
+                    is_dir: if meta.is_dir() { 1 } else { 0 },
+                };
                 set_ok(err);
             }
             Err(e) => set_opendal_error(err, &e),

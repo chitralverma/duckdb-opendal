@@ -95,7 +95,7 @@ pub unsafe extern "C" fn od_reader_read(
     err: *mut OdError,
 ) -> i64 {
     ffi_guard!(err, -1, "od_reader_read", {
-        if reader.is_null() || buf.is_null() {
+        if reader.is_null() || (buf.is_null() && len != 0) {
             set_error(err, OdErrorCode::InvalidInput, "null reader or buffer");
             return -1;
         }

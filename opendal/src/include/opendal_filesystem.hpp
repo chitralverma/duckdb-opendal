@@ -170,7 +170,8 @@ public:
 	// Write state (append-only streaming).
 	OdWriter *writer = nullptr;
 	int64_t bytes_written = 0;
-	bool write_closed = false;
+	bool write_committable = false;
+	bool write_finished = false;
 
 	// Whether the backing scheme is local/on-disk (only `fs`). Cached at open
 	// time so OnDiskFile() need not re-parse the path per call.
