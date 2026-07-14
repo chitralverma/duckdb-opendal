@@ -91,6 +91,9 @@ public:
 	// disables all overrides. Thread-safe; process-global.
 	static void SetOverrideSchemes(const std::string &csv);
 	static void SetGlobalConfig(const std::string &section, std::map<std::string, std::string> values);
+	bool IsManuallySetForPath(const std::string &path) {
+		return CanHandleFile(path) && IsManuallySet();
+	}
 
 	string GetName() const override {
 		return "OpenDalFileSystem";

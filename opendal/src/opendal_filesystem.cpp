@@ -10,7 +10,6 @@
 #include "duckdb/catalog/catalog_transaction.hpp"
 
 #include <algorithm>
-#include <unistd.h>
 #include <unordered_set>
 
 // Portable glob wildcard match (POSIX fnmatch replacement, Windows-safe).
@@ -104,19 +103,18 @@ static std::map<std::string, std::string> GlobalConfigSnapshot() {
 // Resolve a possibly-relative `fs` path to an absolute one against the current
 // working directory. OpenDAL's fs operator is configured with root "/", so it
 // expects absolute paths; DuckDB may hand us relative paths (e.g. test dirs).
+// Uses DuckDB's cross-platform, dynamically-sized working-directory lookup
+// rather than a fixed stack buffer. Note: OpenDAL's fs backend canonicalizes
+// its root, so working directories longer than the OS PATH_MAX are unsupported.
 static std::string AbsolutizeFsPath(const std::string &path) {
 	if (!path.empty() && path[0] == '/') {
 		return path;
 	}
-	char cwd[4096];
-	if (getcwd(cwd, sizeof(cwd)) != nullptr) {
-		std::string base(cwd);
-		if (!base.empty() && base.back() == '/') {
-			base.pop_back();
-		}
-		return base + "/" + path;
+	std::string base = FileSystem::GetWorkingDirectory();
+	if (!base.empty() && base.back() == '/') {
+		base.pop_back();
 	}
-	return "/" + path;
+	return base + "/" + path;
 }
 
 // ─── Error helper ────────────────────────────────────────────────────────────
@@ -328,30 +326,29 @@ static void ApplySecret(optional_ptr<ClientContext> context, optional_ptr<Databa
 	if (!context && !db) {
 		return;
 	}
-	try {
-		SecretManager *sm = context ? &SecretManager::Get(*context) : &SecretManager::Get(*db);
-		CatalogTransaction txn = context ? CatalogTransaction::GetSystemCatalogTransaction(*context)
-		                                 : CatalogTransaction::GetSystemTransaction(*db);
-		auto match = sm->LookupSecret(txn, url, scheme);
-		if (!match.HasMatch()) {
-			return;
-		}
-		const auto &base = *match.secret_entry->secret;
-		const auto &kv = dynamic_cast<const KeyValueSecret &>(base);
-		for (auto &entry : kv.secret_map) {
-			const std::string &k = entry.first;
-			if (k == "__scheme") {
-				continue;
-			}
-			std::string v = entry.second.ToString();
-			if (k.rfind("config.", 0) == 0) {
-				config[k.substr(7)] = v;
-			} else {
-				options[k] = v;
-			}
-		}
-	} catch (...) {
+	SecretManager *sm = context ? &SecretManager::Get(*context) : &SecretManager::Get(*db);
+	CatalogTransaction txn = context ? CatalogTransaction::GetSystemCatalogTransaction(*context)
+	                                 : CatalogTransaction::GetSystemTransaction(*db);
+	auto match = sm->LookupSecret(txn, url, scheme);
+	if (!match.HasMatch()) {
 		return;
+	}
+	const auto &base = *match.secret_entry->secret;
+	auto kv = dynamic_cast<const KeyValueSecret *>(&base);
+	if (!kv) {
+		throw IOException("opendal: matched secret for '" + url + "' is not a key-value secret");
+	}
+	for (auto &entry : kv->secret_map) {
+		const std::string &k = entry.first;
+		if (k == "__scheme") {
+			continue;
+		}
+		std::string v = entry.second.ToString();
+		if (k.rfind("config.", 0) == 0) {
+			config[k.substr(7)] = v;
+		} else {
+			options[k] = v;
+		}
 	}
 }
 

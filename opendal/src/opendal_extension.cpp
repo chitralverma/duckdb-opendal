@@ -79,6 +79,15 @@ inline void OpendalVersionScalarFun(DataChunk &args, ExpressionState &state, Vec
 	result.SetValue(0, Value(version));
 }
 
+static OpenDalFileSystem *g_opendal_filesystem = nullptr;
+
+inline void OpendalIsManuallySetScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto &input = args.data[0];
+	UnaryExecutor::Execute<string_t, bool>(input, result, args.size(), [&](string_t path) {
+		return g_opendal_filesystem && g_opendal_filesystem->IsManuallySetForPath(path.GetString());
+	});
+}
+
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &db = loader.GetDatabaseInstance();
 
@@ -92,11 +101,14 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// the Rust core. Keep a raw pointer (owned by the VFS) for table functions.
 	auto fs_uptr = make_uniq<OpenDalFileSystem>();
 	auto *fs_ptr = fs_uptr.get();
+	g_opendal_filesystem = fs_ptr;
 	db.GetFileSystem().RegisterSubSystem(std::move(fs_uptr));
 
 	// opendal_version() — returns the linked duckdb-opendal / OpenDAL version.
 	auto version_fn = ScalarFunction("opendal_version", {}, LogicalType::VARCHAR, OpendalVersionScalarFun);
 	loader.RegisterFunction(version_fn);
+	loader.RegisterFunction(ScalarFunction("opendal_is_manually_set", {LogicalType::VARCHAR}, LogicalType::BOOLEAN,
+	                                       OpendalIsManuallySetScalarFun));
 
 	// Table functions: opendal_ls(), opendal_stat(), opendal_du().
 	RegisterOpenDalTableFunctions(loader, fs_ptr);
