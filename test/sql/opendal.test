@@ -92,13 +92,13 @@ SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/odtree/part=0/*.parquet');
 
 # opendal_ls (non-recursive) on the tree lists the partition directories.
 query I
-SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/') WHERE type = 'directory';
+SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/') WHERE metadata.mode = 'directory';
 ----
 3
 
 # opendal_ls (recursive) sees the leaf parquet files (one per partition).
 query I
-SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/', recursive := true) WHERE type = 'file';
+SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/', recursive := true) WHERE metadata.mode = 'file';
 ----
 3
 
@@ -107,6 +107,25 @@ query I
 SELECT count(*) FROM opendal_stat('fs://__TEST_DIR__/opendal_read.parquet');
 ----
 1
+
+query II
+SELECT name, metadata.content_length > 0
+FROM opendal_stat('fs://__TEST_DIR__/opendal_read.parquet');
+----
+opendal_read.parquet	true
+
+# OpenDAL list options are typed named arguments; backend order is intentionally
+# preserved, so tests sort only when order matters.
+query I
+SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/', recursive := true, "limit" := 1);
+----
+6
+
+query I
+SELECT count(*) FROM opendal_glob('fs://__TEST_DIR__/odtree/**/*.parquet')
+WHERE metadata.mode = 'file';
+----
+3
 
 # opendal_du rolls up sizes recursively across the partitions (3 groups, 60 files? no —
 # one file per partition dir, so 3 groups each with 1 file).

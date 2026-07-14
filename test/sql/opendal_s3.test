@@ -78,7 +78,7 @@ true	2024
 
 # opendal_ls (recursive) over the bucket lists all objects.
 query I
-SELECT count(*) FROM opendal_ls('s3://warehouse/', recursive := true) WHERE type = 'file';
+SELECT count(*) FROM opendal_ls('s3://warehouse/', recursive := true) WHERE metadata.mode = 'file';
 ----
 4
 
@@ -93,6 +93,17 @@ query I
 SELECT count(*) FROM opendal_stat('s3://warehouse/f1.parquet');
 ----
 1
+
+query II
+SELECT name, metadata.content_length > 0
+FROM opendal_stat('s3://warehouse/f1.parquet');
+----
+f1.parquet	true
+
+query I
+SELECT count(*) FROM opendal_glob('s3://warehouse/**/*.parquet') WHERE metadata.mode = 'file';
+----
+3
 
 # ── Secret-backed access (SCOPE-matched CREATE SECRET) ──────────────────────
 # These mirror the reads above but drive the S3 config from CREATE SECRET rather

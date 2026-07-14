@@ -486,6 +486,7 @@ dependencies = [
  "bytes",
  "cbindgen",
  "foyer",
+ "futures",
  "human-units",
  "opendal",
  "opendal-http-transport-reqwest",

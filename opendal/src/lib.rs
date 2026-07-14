@@ -21,6 +21,7 @@ mod operator;
 mod reader;
 mod runtime;
 mod stat;
+mod table;
 mod writer;
 
 // Re-export the FFI surface so cbindgen picks it up from the crate root.
@@ -36,6 +37,10 @@ pub use operator::{
 };
 pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
 pub use stat::{od_exists, od_stat, OdMetadata};
+pub use table::{
+    od_table_cursor_free, od_table_cursor_next, od_table_glob_open, od_table_list_open,
+    od_table_stat_open, OdEntryMetadata, OdEntryRow, OdListOptions, OdStatOptions, OdTableCursor,
+};
 pub use writer::{
     od_writer_abort, od_writer_close, od_writer_free, od_writer_open, od_writer_write, OdWriter,
 };
