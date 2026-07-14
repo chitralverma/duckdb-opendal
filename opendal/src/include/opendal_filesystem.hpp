@@ -172,6 +172,9 @@ public:
 	// Whether the backing scheme is local/on-disk (only `fs`). Cached at open
 	// time so OnDiskFile() need not re-parse the path per call.
 	bool on_disk = false;
+
+private:
+	void CloseInternal(bool throw_on_error);
 };
 
 } // namespace duckdb

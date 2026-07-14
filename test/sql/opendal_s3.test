@@ -223,3 +223,19 @@ query I
 SELECT count(*) FROM read_parquet('s3://warehouse/foyerdisk/f.parquet');
 ----
 123
+
+# Force CompleteMultipartUpload to fail while allowing AbortMultipartUpload.
+# The seed helper's `assert-no-incomplete` action verifies cleanup after this
+# SQL test finishes.
+statement ok
+CREATE SECRET s3_abort_test (
+    TYPE s3, SCOPE 's3://warehouse/abort-test',
+    config MAP{'access_key_id':'minioadmin','secret_access_key':'minioadmin','region':'us-east-1','endpoint':'http://127.0.0.1:19101','enable_virtual_host_style':'false'},
+    io_config MAP{'write.chunk_size':'5 MiB'}
+);
+
+statement error
+COPY (SELECT range AS id, repeat(md5(range::VARCHAR), 16) AS payload FROM range(500000))
+TO 's3://warehouse/abort-test/forced-close-failure.parquet' (FORMAT parquet, COMPRESSION uncompressed);
+----
+forced completion failure

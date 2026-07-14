@@ -18,3 +18,4 @@ target/
 
 # uv formatting/tooling venv
 .venv/
+scripts/__pycache__/

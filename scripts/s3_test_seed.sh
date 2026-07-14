@@ -19,7 +19,10 @@ set -euo pipefail
 
 CONTAINER=opendal-minio-test
 PORT=19100
+PROXY_PORT=19101
 ENDPOINT="http://127.0.0.1:${PORT}"
+PROXY_ENDPOINT="http://127.0.0.1:${PROXY_PORT}"
+PROXY_PID_FILE="${TMPDIR:-/tmp}/opendal-s3-fault-proxy.pid"
 USER=minioadmin
 PASS=minioadmin
 BUCKET=warehouse
@@ -64,6 +67,15 @@ up() {
 	"
 	rm -rf "$seed"
 
+	python3 "${REPO_ROOT}/scripts/s3_fault_proxy.py" >"${TMPDIR:-/tmp}/opendal-s3-fault-proxy.log" 2>&1 &
+	echo $! >"$PROXY_PID_FILE"
+	for _ in $(seq 1 30); do
+		if curl -sf "${PROXY_ENDPOINT}/minio/health/live" >/dev/null 2>&1; then
+			break
+		fi
+		sleep 0.1
+	done
+
 	echo "MinIO seeded. Export the following, then run the S3 test:" >&2
 	cat <<EOF
 export OPENDAL_S3_TEST=1
@@ -74,16 +86,35 @@ export AWS_REGION=us-east-1
 EOF
 }
 
+assert_no_incomplete() {
+	local output
+	output="$(docker run --rm --network host --entrypoint sh minio/mc -c "
+		mc alias set local ${ENDPOINT} ${USER} ${PASS} >/dev/null 2>&1
+		mc ls --recursive --incomplete local/${BUCKET}/abort-test
+	")"
+	if [[ -n "$output" ]]; then
+		echo "incomplete multipart uploads remain:" >&2
+		echo "$output" >&2
+		exit 1
+	fi
+	echo "No incomplete multipart uploads remain."
+}
+
 down() {
+	if [[ -f "$PROXY_PID_FILE" ]]; then
+		kill "$(cat "$PROXY_PID_FILE")" >/dev/null 2>&1 || true
+		rm -f "$PROXY_PID_FILE"
+	fi
 	docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 	echo "MinIO stopped." >&2
 }
 
 case "${1:-}" in
 up) up ;;
+assert-no-incomplete) assert_no_incomplete ;;
 down) down ;;
 *)
-	echo "usage: $0 {up|down}" >&2
+	echo "usage: $0 {up|assert-no-incomplete|down}" >&2
 	exit 1
 	;;
 esac

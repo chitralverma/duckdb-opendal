@@ -162,10 +162,14 @@ OpenDalFileHandle::OpenDalFileHandle(FileSystem &fs, const std::string &path, Fi
 }
 
 OpenDalFileHandle::~OpenDalFileHandle() {
-	Close();
+	CloseInternal(false);
 }
 
 void OpenDalFileHandle::Close() {
+	CloseInternal(true);
+}
+
+void OpenDalFileHandle::CloseInternal(bool throw_on_error) {
 	if (reader || writer) {
 		DUCKDB_LOG_FILE_SYSTEM_CLOSE((*this));
 	}
@@ -174,17 +178,14 @@ void OpenDalFileHandle::Close() {
 		reader = nullptr;
 	}
 	if (writer) {
-		// If the handle is closed without an explicit FileSync (e.g. on error
-		// unwinding), finalize the upload so partial data isn't silently lost;
-		// OpenDAL flushes buffered/multipart state on close.
+		std::string close_error;
 		if (!write_closed) {
 			OdError err = {};
 			if (od_writer_close(writer, &err) != 0) {
+				close_error = err.message ? err.message : "unknown error";
 				if (logger) {
-					DUCKDB_LOG_ERROR(logger, "OpenDAL writer close failed for '%s': %s", path,
-					                 err.message ? err.message : "unknown error");
+					DUCKDB_LOG_ERROR(logger, "OpenDAL writer close failed for '%s': %s", path, close_error);
 				}
-				// Best-effort: abort to release the multipart session.
 				OdError aerr = {};
 				if (od_writer_abort(writer, &aerr) != 0 && logger) {
 					DUCKDB_LOG_ERROR(logger, "OpenDAL writer abort failed for '%s': %s", path,
@@ -201,6 +202,9 @@ void OpenDalFileHandle::Close() {
 		}
 		od_writer_free(writer);
 		writer = nullptr;
+		if (throw_on_error && !close_error.empty()) {
+			throw IOException("opendal close (write): " + path + ": " + close_error);
+		}
 	}
 }
 
@@ -670,18 +674,16 @@ bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpen
 	if (!ParseUrl(filename, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
-	OdOperator *op;
-	try {
-		op = OperatorFor(scheme, auth, filename, opener);
-	} catch (...) {
-		return false;
-	}
+	OdOperator *op = OperatorFor(scheme, auth, filename, opener);
 	OdMetadata meta = {};
 	OdError err = {};
 	od_stat(op, rel.c_str(), &meta, &err);
-	bool ok = (err.code == OdErrorCode::Ok) && !meta.is_dir;
-	ClearError(err);
-	return ok;
+	if (err.code == OdErrorCode::NotFound) {
+		ClearError(err);
+		return false;
+	}
+	ThrowIfError(err, "opendal stat: " + filename);
+	return !meta.is_dir;
 }
 
 bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<FileOpener> opener) {
@@ -689,18 +691,16 @@ bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<Fi
 	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
-	OdOperator *op;
-	try {
-		op = OperatorFor(scheme, auth, directory, opener);
-	} catch (...) {
-		return false;
-	}
+	OdOperator *op = OperatorFor(scheme, auth, directory, opener);
 	OdMetadata meta = {};
 	OdError err = {};
 	od_stat(op, rel.c_str(), &meta, &err);
-	bool ok = (err.code == OdErrorCode::Ok) && meta.is_dir;
-	ClearError(err);
-	return ok;
+	if (err.code == OdErrorCode::NotFound) {
+		ClearError(err);
+		return false;
+	}
+	ThrowIfError(err, "opendal stat: " + directory);
+	return meta.is_dir;
 }
 
 void OpenDalFileSystem::Seek(FileHandle &handle, idx_t location) {
@@ -714,12 +714,7 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
 		return false;
 	}
-	OdOperator *op;
-	try {
-		op = OperatorFor(scheme, auth, directory, opener);
-	} catch (...) {
-		return false;
-	}
+	OdOperator *op = OperatorFor(scheme, auth, directory, opener);
 	// OpenDAL expects a trailing slash to list a directory's children.
 	std::string dir = rel;
 	if (dir.empty() || dir.back() != '/') {
@@ -729,10 +724,15 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 	OdError err = {};
 	OdEntryList *list = od_list(op, dir.c_str(), /*recursive=*/0, &err);
 	if (!list) {
-		ClearError(err);
-		return false;
+		if (err.code == OdErrorCode::NotFound) {
+			ClearError(err);
+			return false;
+		}
+		ThrowIfError(err, "opendal list: " + directory);
+		throw IOException("opendal: null list for " + directory);
 	}
 	ClearError(err);
+	std::unique_ptr<OdEntryList, void (*)(OdEntryList *)> list_guard(list, od_list_free);
 
 	std::string self_path = dir;
 	if (!self_path.empty() && self_path.back() == '/') {
@@ -766,7 +766,6 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 		}
 		callback(name, ent.is_dir != 0);
 	}
-	od_list_free(list);
 	return true;
 }
 
@@ -787,20 +786,15 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 		// and return the path: the subsequent context-aware OpenFile validates
 		// it (and surfaces a real error if it truly does not exist).
 		bool have_ctx = opener && FileOpener::TryGetClientContext(opener);
-		if (FileExists(path, opener)) {
+		if (!have_ctx && SchemeNeedsSecret(scheme)) {
 			results.emplace_back(path);
-		} else if (!have_ctx && SchemeNeedsSecret(scheme)) {
+		} else if (FileExists(path, opener)) {
 			results.emplace_back(path);
 		}
 		return results;
 	}
 
-	OdOperator *op;
-	try {
-		op = OperatorFor(scheme, auth, path, opener);
-	} catch (...) {
-		return results;
-	}
+	OdOperator *op = OperatorFor(scheme, auth, path, opener);
 
 	// Split `rel` into a static directory prefix (up to the last '/' before the
 	// first wildcard) and the pattern portion.
@@ -827,10 +821,15 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 	OdError err = {};
 	OdEntryList *list = od_list(op, list_dir.c_str(), recursive ? 1 : 0, &err);
 	if (!list) {
-		ClearError(err);
-		return results;
+		if (err.code == OdErrorCode::NotFound) {
+			ClearError(err);
+			return results;
+		}
+		ThrowIfError(err, "opendal glob: " + path);
+		throw IOException("opendal: null list for glob " + path);
 	}
 	ClearError(err);
+	std::unique_ptr<OdEntryList, void (*)(OdEntryList *)> list_guard(list, od_list_free);
 
 	size_t n = od_list_len(list);
 	for (size_t i = 0; i < n; i++) {
@@ -844,8 +843,6 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 			results.emplace_back(BuildUrl(scheme, auth, epath));
 		}
 	}
-	od_list_free(list);
-
 	std::sort(results.begin(), results.end(),
 	          [](const OpenFileInfo &a, const OpenFileInfo &b) { return a.path < b.path; });
 	results.erase(std::unique(results.begin(), results.end(),
