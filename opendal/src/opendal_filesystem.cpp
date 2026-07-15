@@ -210,19 +210,9 @@ std::string OpenDalFileSystem::BuildUrl(const std::string &scheme, const std::st
 	return result;
 }
 
-// Whether this build serves `scheme`. Not hardcoded: we ask the Rust core,
-// which reads OpenDAL's operator registry, so the set
-// tracks exactly the services compiled in via Cargo features.
-static bool IsSupportedScheme(const std::string &scheme) {
-	return od_scheme_supported(scheme.c_str()) != 0;
-}
-
 bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_scheme, std::string &out_authority,
                                     std::string &out_path) {
-	if (!ParseUrl(url, out_scheme, out_authority, out_path)) {
-		return false;
-	}
-	return IsSupportedScheme(out_scheme);
+	return ParseUrl(url, out_scheme, out_authority, out_path);
 }
 
 // Merge a SCOPE-matched secret over global options. Backend config is separate;
@@ -395,9 +385,6 @@ bool OpenDalFileSystem::CanHandleFile(const string &path) {
 	t_last_scheme.clear();
 	std::string scheme, auth, rel;
 	if (!ParseUrl(path, scheme, auth, rel)) {
-		return false;
-	}
-	if (!IsSupportedScheme(scheme)) {
 		return false;
 	}
 	// Record the matched scheme for IsManuallySet() (called next, same thread).
@@ -583,7 +570,7 @@ FileType OpenDalFileSystem::GetFileType(FileHandle &handle) {
 
 bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
-	if (!ParseUrl(filename, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
+	if (!ParseUrl(filename, scheme, auth, rel)) {
 		return false;
 	}
 	OdOperator *op = OperatorFor(scheme, auth, filename, opener);
@@ -600,7 +587,7 @@ bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpen
 
 bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
-	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
+	if (!ParseUrl(directory, scheme, auth, rel)) {
 		return false;
 	}
 	OdOperator *op = OperatorFor(scheme, auth, directory, opener);
@@ -623,7 +610,7 @@ void OpenDalFileSystem::Seek(FileHandle &handle, idx_t location) {
 bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<void(const string &, bool)> &callback,
                                   FileOpener *opener) {
 	std::string scheme, auth, rel;
-	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
+	if (!ParseUrl(directory, scheme, auth, rel)) {
 		return false;
 	}
 	OdOperator *op = OperatorFor(scheme, auth, directory, opener);
@@ -686,7 +673,7 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *opener) {
 	vector<OpenFileInfo> results;
 	std::string scheme, auth, rel;
-	if (!ParseUrl(path, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
+	if (!ParseUrl(path, scheme, auth, rel)) {
 		return results;
 	}
 
@@ -773,7 +760,7 @@ bool OpenDalFileSystem::OnDiskFile(FileHandle &handle) {
 // ─── Mutations ──────────────────────────────────────────────────────────────
 void OpenDalFileSystem::CreateDirectory(const string &directory, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
-	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
+	if (!ParseUrl(directory, scheme, auth, rel)) {
 		throw IOException("opendal: unsupported or invalid URL: " + directory);
 	}
 	auto *op = OperatorFor(scheme, auth, directory, opener);
@@ -787,7 +774,7 @@ void OpenDalFileSystem::CreateDirectory(const string &directory, optional_ptr<Fi
 
 void OpenDalFileSystem::RemoveFile(const string &filename, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
-	if (!ParseUrl(filename, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
+	if (!ParseUrl(filename, scheme, auth, rel)) {
 		throw IOException("opendal: unsupported or invalid URL: " + filename);
 	}
 	auto *op = OperatorFor(scheme, auth, filename, opener);
@@ -801,7 +788,7 @@ void OpenDalFileSystem::RemoveFile(const string &filename, optional_ptr<FileOpen
 
 void OpenDalFileSystem::RemoveDirectory(const string &directory, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
-	if (!ParseUrl(directory, scheme, auth, rel) || !IsSupportedScheme(scheme)) {
+	if (!ParseUrl(directory, scheme, auth, rel)) {
 		throw IOException("opendal: unsupported or invalid URL: " + directory);
 	}
 	auto *op = OperatorFor(scheme, auth, directory, opener);
@@ -820,10 +807,10 @@ void OpenDalFileSystem::RemoveDirectory(const string &directory, optional_ptr<Fi
 
 void OpenDalFileSystem::MoveFile(const string &source, const string &target, optional_ptr<FileOpener> opener) {
 	std::string s_scheme, s_auth, s_rel, t_scheme, t_auth, t_rel;
-	if (!ParseUrl(source, s_scheme, s_auth, s_rel) || !IsSupportedScheme(s_scheme)) {
+	if (!ParseUrl(source, s_scheme, s_auth, s_rel)) {
 		throw IOException("opendal: unsupported or invalid source URL: " + source);
 	}
-	if (!ParseUrl(target, t_scheme, t_auth, t_rel) || !IsSupportedScheme(t_scheme)) {
+	if (!ParseUrl(target, t_scheme, t_auth, t_rel)) {
 		throw IOException("opendal: unsupported or invalid target URL: " + target);
 	}
 	auto *op = OperatorFor(s_scheme, s_auth, source, opener);
