@@ -62,6 +62,16 @@ unknown service keys may be accepted for forward compatibility.
 [OpenDAL configuration reference](https://opendal.apache.org/services/) for
 valid keys. There are no convenience aliases or generic `layers` bag.
 
+Secret types are registered from OpenDAL's runtime `OperatorRegistry`. Every
+scheme compiled into this extension receives the same generic sections; adding
+or removing a Cargo `services-*` feature updates dispatch and secret registration
+without a C++ service list.
+
+OpenDAL is pinned to upstream commit
+`318051086ba99a2c02ac2492105faf4aceb73815`, which contains
+`OperatorRegistry::schemes()` from PR #7908. Cargo.lock pins the facade, core,
+service, layer, and HTTP-transport crates to that same workspace commit.
+
 ## Global defaults
 
 The cross-service sections have matching global DuckDB settings:

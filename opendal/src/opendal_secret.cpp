@@ -1,4 +1,5 @@
 #include "opendal_secret.hpp"
+#include "rust.h"
 
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/database.hpp"
@@ -69,9 +70,23 @@ static void RegisterOneService(ExtensionLoader &loader, const std::string &schem
 }
 
 void RegisterOpenDalSecrets(ExtensionLoader &loader) {
-	// Object-store / remote services that use secrets. (fs/memory need none.)
-	// Expanded as more services are enabled in later phases.
-	for (const char *scheme : {"s3"}) {
+	OdError err = {};
+	std::unique_ptr<OdSchemeList, void (*)(OdSchemeList *)> schemes(od_schemes(&err), od_schemes_free);
+	if (!schemes) {
+		std::string message = err.message ? std::string(err.message) : std::string("unknown error");
+		if (err.message) {
+			od_string_free(err.message);
+		}
+		throw IOException("opendal: failed to enumerate registered schemes: " + message);
+	}
+	if (err.message) {
+		od_string_free(err.message);
+	}
+	for (idx_t index = 0; index < od_schemes_len(schemes.get()); index++) {
+		auto scheme = od_schemes_entry(schemes.get(), index);
+		if (!scheme) {
+			throw IOException("opendal: registered scheme entry is null");
+		}
 		RegisterOneService(loader, scheme);
 	}
 }

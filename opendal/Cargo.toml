@@ -22,7 +22,7 @@ strip = true
 [dependencies]
 # default-features off so we pick the rustls crypto provider (ring, not the
 # default aws-lc-rs — aws-lc-sys fails its ARMv8 asm build under MSVC on
-opendal = { version = "0.58.0", default-features = false, features = [
+opendal = { git = "https://github.com/apache/opendal.git", rev = "318051086ba99a2c02ac2492105faf4aceb73815", default-features = false, features = [
     "executors-tokio",
     "http-transport-reqwest-rustls-no-provider",
 
@@ -38,7 +38,7 @@ opendal = { version = "0.58.0", default-features = false, features = [
     "services-s3",
 ] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-opendal-http-transport-reqwest = { version = "0.58.0", default-features = false, features = ["rustls-no-provider"] }
+opendal-http-transport-reqwest = { git = "https://github.com/apache/opendal.git", rev = "318051086ba99a2c02ac2492105faf4aceb73815", default-features = false, features = ["rustls-no-provider"] }
 # Match opendal-layer-foyer's transitive foyer version.
 foyer = "0.22"
 tokio = { version = "1", features = ["rt-multi-thread"] }

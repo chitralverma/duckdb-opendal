@@ -11,8 +11,8 @@
 //! from it.
 
 use std::collections::HashSet;
-use std::ffi::c_char;
-use std::sync::{Mutex, OnceLock};
+use std::ffi::{c_char, CString};
+use std::sync::OnceLock;
 
 use opendal::{Operator, OperatorUri};
 
@@ -183,42 +183,106 @@ pub unsafe extern "C" fn od_operator_free(op: *mut OdOperator) {
     free_handle(op);
 }
 
-/// Cache of schemes already confirmed registered in OpenDAL's operator
-/// registry. The registered set is fixed for the process. Only positives are
-/// cached; probing an unregistered scheme is a cheap in-memory registry miss.
-static REGISTERED_SCHEMES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+static REGISTERED_SCHEMES: OnceLock<(HashSet<String>, Vec<String>)> = OnceLock::new();
 
-/// Whether `scheme` is compiled into this build (registered in the registry).
-///
-/// `Operator::via_iter(scheme, [])` resolves the scheme through the registry
-/// with no config and no I/O. `ErrorKind::Unsupported` ("scheme is not
-/// registered") ⇒ not compiled; `Ok` or any other error ⇒ registered.
-fn scheme_is_registered(scheme: &str) -> bool {
-    let cache = REGISTERED_SCHEMES.get_or_init(|| Mutex::new(HashSet::new()));
-    if cache.lock().unwrap().contains(scheme) {
-        return true;
-    }
-    let registered = match Operator::via_iter(scheme, []) {
-        Ok(_) => true,
-        Err(e) => e.kind() != opendal::ErrorKind::Unsupported,
-    };
-    if registered {
-        cache.lock().unwrap().insert(scheme.to_owned());
-    }
-    registered
+fn registered_schemes() -> &'static (HashSet<String>, Vec<String>) {
+    REGISTERED_SCHEMES.get_or_init(|| {
+        // Static-library consumers cannot rely on OpenDAL's ctor registration.
+        // Initialize here too so enumeration is correct even before `od_init`.
+        opendal::init_default_registry();
+        let set = opendal::OperatorRegistry::get().schemes();
+        let mut sorted: Vec<_> = set.iter().cloned().collect();
+        sorted.sort();
+        (set, sorted)
+    })
 }
 
 /// Whether `scheme` is a service compiled into this build (i.e. registered in
 /// OpenDAL's operator registry), so we don't hardcode the supported set.
-/// Cached; requires `od_init()` to have populated the registry first. Returns 1/0.
+/// Initializes the default registry on first use. Returns 1/0.
 ///
 /// # Safety
 /// `scheme` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn od_scheme_supported(scheme: *const c_char) -> u8 {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match cstr(scheme) {
-        Some(s) => scheme_is_registered(s) as u8,
+        Some(s) => registered_schemes().0.contains(s) as u8,
         None => 0,
     }))
     .unwrap_or(0)
+}
+
+pub struct OdSchemeList {
+    schemes: Vec<CString>,
+}
+
+/// Return every scheme registered in OpenDAL's global operator registry.
+///
+/// # Safety
+/// `err` must be null or a valid, writable pointer.
+#[no_mangle]
+pub unsafe extern "C" fn od_schemes(err: *mut OdError) -> *mut OdSchemeList {
+    ffi_guard!(err, std::ptr::null_mut(), "od_schemes", {
+        let schemes = match registered_schemes()
+            .1
+            .iter()
+            .cloned()
+            .map(CString::new)
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(schemes) => schemes,
+            Err(_) => {
+                set_error(
+                    err,
+                    OdErrorCode::Unexpected,
+                    "registered scheme contains a NUL byte",
+                );
+                return std::ptr::null_mut();
+            }
+        };
+        set_ok(err);
+        Box::into_raw(Box::new(OdSchemeList { schemes }))
+    })
+}
+
+/// Number of registered schemes. Returns 0 for null.
+///
+/// # Safety
+/// `list` must be null or a live handle returned by `od_schemes`.
+#[no_mangle]
+pub unsafe extern "C" fn od_schemes_len(list: *const OdSchemeList) -> usize {
+    if list.is_null() {
+        0
+    } else {
+        std::panic::catch_unwind(|| (*list).schemes.len()).unwrap_or(0)
+    }
+}
+
+/// Borrow registered scheme `index` until `od_schemes_free`.
+///
+/// # Safety
+/// `list` must be a live handle returned by `od_schemes`.
+#[no_mangle]
+pub unsafe extern "C" fn od_schemes_entry(
+    list: *const OdSchemeList,
+    index: usize,
+) -> *const c_char {
+    std::panic::catch_unwind(|| {
+        if list.is_null() {
+            return std::ptr::null();
+        }
+        (&(*list).schemes)
+            .get(index)
+            .map_or(std::ptr::null(), |scheme| scheme.as_ptr())
+    })
+    .unwrap_or(std::ptr::null())
+}
+
+#[no_mangle]
+/// Free a scheme list. Null is a no-op.
+///
+/// # Safety
+/// `list` must be null or a live handle returned by `od_schemes`, not already freed.
+pub unsafe extern "C" fn od_schemes_free(list: *mut OdSchemeList) {
+    free_handle(list);
 }

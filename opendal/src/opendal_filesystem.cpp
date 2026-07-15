@@ -10,6 +10,7 @@
 #include "duckdb/catalog/catalog_transaction.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <unordered_set>
 
 // Portable glob wildcard match (POSIX fnmatch replacement, Windows-safe).
@@ -224,24 +225,14 @@ OpenDalFileSystem::~OpenDalFileSystem() {
 	operators_.clear();
 }
 
-// Whether a scheme is "path-style": the whole component after :// is a path and
-// there is no authority (local/embedded backends like fs, memory). All other
-// schemes are "authority-style" — the authority carries a name (bucket for s3,
-// container for azblob, …) that OpenDAL's from_uri maps to the right config key.
-//
-// This distinction is irreducible and mirrors OpenDAL itself: a service's
-// from_uri either consumes the authority (s3 → bucket) or ignores it and reads
-// the path as root (fs). We only need it to decide how to split the URL and
-// whether a SCOPE-matched secret applies; the config mapping is OpenDAL's job.
-// Extend this set as path-style schemes are enabled.
-static bool SchemeIsPathStyle(const std::string &scheme) {
-	return scheme == "fs" || scheme == "memory";
+static bool IsLocalFsScheme(const std::string &scheme) {
+	return scheme == "fs" || scheme == "file";
 }
 
-// Authority-style schemes carry credentials via a SCOPE-matched secret (or env);
-// path-style local schemes (fs/memory) need none.
-static bool SchemeNeedsSecret(const std::string &scheme) {
-	return !SchemeIsPathStyle(scheme);
+static bool IsPathOnlyScheme(const std::string &scheme) {
+	// Memory's Configurator consumes URI root but not authority. Preserve the
+	// existing memory://path UX; fs/file additionally need local-root handling.
+	return IsLocalFsScheme(scheme) || scheme == "memory";
 }
 
 bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme, std::string &out_authority,
@@ -250,7 +241,7 @@ bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme
 	// not round-trip through the FFI/OperatorUri here. The canonical OpenDAL
 	// parse happens once, operator-side, at construction (see od_operator_new).
 	// The split itself is mechanical: scheme, then either an authority (first
-	// segment, for object stores) or the whole remainder as a path (fs/memory).
+	// segment) or the local fs path.
 	auto pos = url.find("://");
 	if (pos == std::string::npos) {
 		return false;
@@ -259,22 +250,22 @@ bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme
 	if (out_scheme.empty()) {
 		return false;
 	}
+	std::transform(out_scheme.begin(), out_scheme.end(), out_scheme.begin(),
+	               [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
 	std::string rest = url.substr(pos + 3);
 	out_authority.clear();
 
-	if (SchemeIsPathStyle(out_scheme)) {
-		// fs / memory: no authority; everything after :// is the path.
+	if (IsPathOnlyScheme(out_scheme)) {
 		out_path = rest.empty() ? "/" : rest;
-		if (out_scheme == "fs") {
+		if (IsLocalFsScheme(out_scheme)) {
+			// Local fs is rooted at "/" so DuckDB-relative paths stay process-relative.
 			out_path = AbsolutizeFsPath(out_path);
 		}
 		return true;
 	}
 
-	// Authority-style (object stores): scheme://<authority>/<key>. The authority
-	// (bucket/container) is mapped to service config by OpenDAL's from_uri; here
-	// we only split it off so per-call paths are the object key (leading slash
-	// kept; OpenDAL normalizes it).
+	// Generic URI split. OpenDAL's Configurator::from_uri decides what authority
+	// means for each registered service.
 	auto slash = rest.find('/');
 	if (slash == std::string::npos) {
 		out_authority = rest;
@@ -295,21 +286,20 @@ bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme
 std::string OpenDalFileSystem::BuildUrl(const std::string &scheme, const std::string &authority,
                                         const std::string &entry_path) {
 	std::string p = entry_path;
-	if (!SchemeIsPathStyle(scheme)) {
-		// entry paths are object keys relative to the bucket root (no leading /).
+	if (!IsPathOnlyScheme(scheme)) {
 		while (!p.empty() && p.front() == '/') {
 			p.erase(p.begin());
 		}
-		return scheme + "://" + authority + "/" + p;
+		return scheme + "://" + (authority.empty() ? std::string() : authority) + "/" + p;
 	}
-	if (scheme == "fs" && (p.empty() || p[0] != '/')) {
+	if (IsLocalFsScheme(scheme) && (p.empty() || p[0] != '/')) {
 		p = "/" + p;
 	}
 	return scheme + "://" + p;
 }
 
 // Whether this build serves `scheme`. Not hardcoded: we ask the Rust core,
-// which probes OpenDAL's operator registry (od_scheme_supported), so the set
+// which reads OpenDAL's operator registry, so the set
 // tracks exactly the services compiled in via Cargo features.
 static bool IsSupportedScheme(const std::string &scheme) {
 	return od_scheme_supported(scheme.c_str()) != 0;
@@ -414,7 +404,7 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	// The local `fs` service treats the URI path as its root; we instead root it
 	// at "/" and pass absolute paths per call (see AbsolutizeFsPath). Set it
 	// explicitly as an override since the fs:// URI carries no path.
-	if (scheme == "fs") {
+	if (IsLocalFsScheme(scheme)) {
 		config["root"] = "/";
 	}
 
@@ -531,7 +521,7 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 		std::unique_ptr<OdWriter, void (*)(OdWriter *)> writer_guard(writer, AbortAndFreeWriter);
 		auto handle = make_uniq<OpenDalFileHandle>(*this, path, flags, writer);
 		writer_guard.release();
-		handle->on_disk = (scheme == "fs");
+		handle->on_disk = IsLocalFsScheme(scheme);
 		if (opener) {
 			handle->TryAddLogger(*opener);
 		}
@@ -561,7 +551,7 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	auto handle =
 	    make_uniq<OpenDalFileHandle>(*this, path, flags, reader, (int64_t)meta.content_length, meta.last_modified_ms);
 	reader_guard.release();
-	handle->on_disk = (scheme == "fs");
+	handle->on_disk = IsLocalFsScheme(scheme);
 	if (opener) {
 		handle->TryAddLogger(*opener);
 	}
@@ -798,7 +788,7 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 		// and return the path: the subsequent context-aware OpenFile validates
 		// it (and surfaces a real error if it truly does not exist).
 		bool have_ctx = opener && FileOpener::TryGetClientContext(opener);
-		if (!have_ctx && SchemeNeedsSecret(scheme)) {
+		if (!have_ctx) {
 			results.emplace_back(path);
 		} else if (FileExists(path, opener)) {
 			results.emplace_back(path);

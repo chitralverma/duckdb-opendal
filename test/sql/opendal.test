@@ -70,6 +70,28 @@ SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_read.parquet');
 ----
 1
 
+# `file` is registered by OpenDAL's fs service and receives the same local-FS
+# adapter behavior without appearing in a hand-maintained service catalog.
+query I
+SELECT count(*) FROM glob('file://__TEST_DIR__/opendal_read.parquet');
+----
+1
+
+query I
+SELECT count(*) FROM glob('FILE://__TEST_DIR__/opendal_read.parquet');
+----
+1
+
+# Memory remains path-only: the first segment after :// is data path, not an
+# authority. This guards scheme-agnostic parsing from dropping that segment.
+statement ok
+COPY (SELECT 42 AS id) TO 'memory://registry/path.parquet' (FORMAT parquet);
+
+query I
+SELECT id FROM read_parquet('memory://registry/path.parquet');
+----
+42
+
 # ── Phase 2: listing / glob / table functions ───────────────────────────────
 
 # Build a small tree using a Hive-partitioned write, which creates the
@@ -298,6 +320,19 @@ GROUP BY part ORDER BY part;
 3	100
 
 # ── Phase 3: secret registration (no live backend needed) ───────────────────
+
+# Secret registration is driven by OpenDAL's runtime registry. Every compiled
+# service gets the same generic config surface; disabled services get none.
+statement ok
+CREATE SECRET fs_registry (TYPE fs, SCOPE 'fs://', io_config MAP{'read.concurrent':'2'});
+
+statement ok
+CREATE SECRET memory_registry (TYPE memory, SCOPE 'memory://', timeout_config MAP{'operation_timeout':'1s'});
+
+statement error
+CREATE SECRET gcs_not_compiled (TYPE gcs, config MAP{});
+----
+Secret type 'gcs' does not exist
 
 # One generic service secret separates backend, I/O, retry, timeout and cache
 # options. Section presence applies that behavior; no `enable` key is needed.

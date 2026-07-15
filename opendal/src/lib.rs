@@ -33,7 +33,8 @@ pub use error::{OdError, OdErrorCode};
 pub use lister::{od_list, od_list_entry, od_list_free, od_list_len, OdEntry, OdEntryList};
 pub use mutate::{od_copy, od_create_dir, od_remove, od_rename};
 pub use operator::{
-    od_operator_free, od_operator_new, od_operator_warning, od_scheme_supported, OdOperator,
+    od_operator_free, od_operator_new, od_operator_warning, od_scheme_supported, od_schemes,
+    od_schemes_entry, od_schemes_free, od_schemes_len, OdOperator, OdSchemeList,
 };
 pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
 pub use stat::{od_exists, od_stat, OdMetadata};
@@ -854,7 +855,7 @@ mod tests {
     }
 
     #[test]
-    fn scheme_supported_probes_registry() {
+    fn scheme_membership_reads_registry() {
         od_init(); // populate the registry
         let sup = |s: &str| {
             let c = CString::new(s).unwrap();
@@ -868,5 +869,19 @@ mod tests {
         assert!(!sup("gcs"));
         assert!(!sup("azblob"));
         assert!(!sup("definitely_not_a_scheme"));
+
+        let mut err = OdError::ok();
+        let list = unsafe { od_schemes(&mut err) };
+        assert!(!list.is_null());
+        let schemes = (0..unsafe { od_schemes_len(list) })
+            .map(|index| {
+                unsafe { CStr::from_ptr(od_schemes_entry(list, index)) }
+                    .to_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(schemes, vec!["file", "fs", "memory", "s3"]);
+        unsafe { od_schemes_free(list) };
     }
 }
