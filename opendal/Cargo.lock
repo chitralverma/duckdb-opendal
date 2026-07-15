@@ -490,6 +490,7 @@ dependencies = [
  "human-units",
  "opendal",
  "opendal-http-transport-reqwest",
+ "percent-encoding",
  "rustls",
  "serde_json",
  "tempfile",

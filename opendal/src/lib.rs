@@ -22,6 +22,7 @@ mod reader;
 mod runtime;
 mod stat;
 mod table;
+mod uri;
 mod writer;
 
 // Re-export the FFI surface so cbindgen picks it up from the crate root.
@@ -51,6 +52,92 @@ pub use writer::{
 
 use std::ffi::{c_char, CString};
 use std::panic::catch_unwind;
+
+const URL_PATH_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'?');
+
+/// Resolve a public URL into registered scheme, authority, and operation path.
+///
+/// # Safety
+/// `url` must be a valid C string; `out`/`err` must be null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn od_url_resolve(
+    url: *const c_char,
+    out_scheme: *mut *mut c_char,
+    out_authority: *mut *mut c_char,
+    out_path: *mut *mut c_char,
+    err: *mut OdError,
+) -> i32 {
+    crate::ffi::ffi_guard!(err, -1, "od_url_resolve", {
+        if out_scheme.is_null() || out_authority.is_null() || out_path.is_null() {
+            crate::error::set_error(err, OdErrorCode::InvalidInput, "null resolved-url output");
+            return -1;
+        }
+        *out_scheme = std::ptr::null_mut();
+        *out_authority = std::ptr::null_mut();
+        *out_path = std::ptr::null_mut();
+        match crate::uri::resolve(url) {
+            Ok((scheme, authority, path)) => {
+                *out_scheme = scheme.into_raw();
+                *out_authority = authority.into_raw();
+                *out_path = path.into_raw();
+                crate::error::set_ok(err);
+                0
+            }
+            Err((code, message)) => {
+                crate::error::set_error(err, code, message);
+                -1
+            }
+        }
+    })
+}
+
+/// Match an OpenDAL-relative path against the extension's full-path glob syntax.
+///
+/// # Safety
+/// `pattern` and `path` must be valid C strings.
+#[no_mangle]
+pub unsafe extern "C" fn od_glob_match(pattern: *const c_char, path: *const c_char) -> u8 {
+    catch_unwind(|| {
+        let pattern = crate::ffi::cstr(pattern)?;
+        let path = crate::ffi::cstr(path)?;
+        Some(crate::table::glob_matches(pattern.as_bytes(), path.as_bytes()) as u8)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(0)
+}
+
+/// Build a public URL from resolved scheme/authority and operation path.
+#[no_mangle]
+pub unsafe extern "C" fn od_url_build(
+    scheme: *const c_char,
+    authority: *const c_char,
+    path: *const c_char,
+) -> *mut c_char {
+    catch_unwind(|| {
+        let scheme = crate::ffi::cstr(scheme)?;
+        let authority = crate::ffi::cstr(authority)?;
+        let path = crate::ffi::cstr(path)?;
+        let encoded = path
+            .split('/')
+            .map(|segment| {
+                percent_encoding::utf8_percent_encode(segment, URL_PATH_ENCODE_SET).to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        CString::new(format!("{scheme}://{authority}/{encoded}"))
+            .ok()
+            .map(CString::into_raw)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(std::ptr::null_mut())
+}
 
 /// Resolved OpenDAL crate version, injected by build.rs from this crate's
 /// Cargo.toml dependency pin (opendal exposes no public VERSION const). Falls
@@ -861,13 +948,10 @@ mod tests {
             let c = CString::new(s).unwrap();
             (unsafe { od_scheme_supported(c.as_ptr()) }) == 1
         };
-        // Compiled-in services.
+        // Baseline compiled-in services.
         assert!(sup("memory"));
         assert!(sup("fs"));
         assert!(sup("s3"));
-        // Not compiled in this build.
-        assert!(!sup("gcs"));
-        assert!(!sup("azblob"));
         assert!(!sup("definitely_not_a_scheme"));
 
         let mut err = OdError::ok();
@@ -881,7 +965,9 @@ mod tests {
                     .to_owned()
             })
             .collect::<Vec<_>>();
-        assert_eq!(schemes, vec!["file", "fs", "memory", "s3"]);
+        assert!(schemes.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(schemes.iter().all(|scheme| sup(scheme)));
+        assert!(schemes.iter().any(|scheme| scheme == "memory"));
         unsafe { od_schemes_free(list) };
     }
 }

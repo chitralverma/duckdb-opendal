@@ -13,36 +13,6 @@
 #include <cctype>
 #include <unordered_set>
 
-// Portable glob wildcard match (POSIX fnmatch replacement, Windows-safe).
-// Supports '*' (any sequence) and '?' (any single char). Returns 0 on match.
-static int glob_match(const char *pattern, const char *name) {
-	while (*pattern && *name) {
-		if (*pattern == '*') {
-			while (*pattern == '*') {
-				++pattern;
-			}
-			if (!*pattern) {
-				return 0;
-			}
-			while (*name) {
-				if (glob_match(pattern, name++) == 0) {
-					return 0;
-				}
-			}
-			return 1;
-		}
-		if (*pattern != '?' && *pattern != *name) {
-			return 1;
-		}
-		++pattern;
-		++name;
-	}
-	while (*pattern == '*') {
-		++pattern;
-	}
-	return (*pattern || *name) ? 1 : 0;
-}
-
 namespace duckdb {
 
 // ── Native-filesystem override (opendal_override_native_filesystems) ─────────
@@ -75,7 +45,7 @@ void OpenDalFileSystem::SetOverrideSchemes(const std::string &csv) {
 				cur.clear();
 			}
 		} else {
-			cur.push_back(c);
+			cur.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
 		}
 	}
 	if (!cur.empty()) {
@@ -99,23 +69,6 @@ static std::map<std::string, std::string> GlobalConfigSnapshot() {
 		}
 	}
 	return result;
-}
-
-// Resolve a possibly-relative `fs` path to an absolute one against the current
-// working directory. OpenDAL's fs operator is configured with root "/", so it
-// expects absolute paths; DuckDB may hand us relative paths (e.g. test dirs).
-// Uses DuckDB's cross-platform, dynamically-sized working-directory lookup
-// rather than a fixed stack buffer. Note: OpenDAL's fs backend canonicalizes
-// its root, so working directories longer than the OS PATH_MAX are unsupported.
-static std::string AbsolutizeFsPath(const std::string &path) {
-	if (!path.empty() && path[0] == '/') {
-		return path;
-	}
-	std::string base = FileSystem::GetWorkingDirectory();
-	if (!base.empty() && base.back() == '/') {
-		base.pop_back();
-	}
-	return base + "/" + path;
 }
 
 // ─── Error helper ────────────────────────────────────────────────────────────
@@ -225,77 +178,36 @@ OpenDalFileSystem::~OpenDalFileSystem() {
 	operators_.clear();
 }
 
-static bool IsLocalFsScheme(const std::string &scheme) {
-	return scheme == "fs" || scheme == "file";
-}
-
-static bool IsPathOnlyScheme(const std::string &scheme) {
-	// Memory's Configurator consumes URI root but not authority. Preserve the
-	// existing memory://path UX; fs/file additionally need local-root handling.
-	return IsLocalFsScheme(scheme) || scheme == "memory";
-}
-
 bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme, std::string &out_authority,
                                  std::string &out_path) {
-	// Lightweight local split — this is a hot path (called per FS op), so we do
-	// not round-trip through the FFI/OperatorUri here. The canonical OpenDAL
-	// parse happens once, operator-side, at construction (see od_operator_new).
-	// The split itself is mechanical: scheme, then either an authority (first
-	// segment) or the local fs path.
-	auto pos = url.find("://");
-	if (pos == std::string::npos) {
+	OdError err = {};
+	char *scheme = nullptr;
+	char *authority = nullptr;
+	char *path = nullptr;
+	if (od_url_resolve(url.c_str(), &scheme, &authority, &path, &err) != 0) {
+		ClearError(err);
 		return false;
 	}
-	out_scheme = url.substr(0, pos);
-	if (out_scheme.empty()) {
-		return false;
-	}
-	std::transform(out_scheme.begin(), out_scheme.end(), out_scheme.begin(),
-	               [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
-	std::string rest = url.substr(pos + 3);
-	out_authority.clear();
-
-	if (IsPathOnlyScheme(out_scheme)) {
-		out_path = rest.empty() ? "/" : rest;
-		if (IsLocalFsScheme(out_scheme)) {
-			// Local fs is rooted at "/" so DuckDB-relative paths stay process-relative.
-			out_path = AbsolutizeFsPath(out_path);
-		}
-		return true;
-	}
-
-	// Generic URI split. OpenDAL's Configurator::from_uri decides what authority
-	// means for each registered service.
-	auto slash = rest.find('/');
-	if (slash == std::string::npos) {
-		out_authority = rest;
-		out_path = "/";
-	} else {
-		out_authority = rest.substr(0, slash);
-		out_path = rest.substr(slash);
-		if (out_path.empty()) {
-			out_path = "/";
-		}
-	}
+	ClearError(err);
+	std::unique_ptr<char, void (*)(char *)> scheme_guard(scheme, od_string_free);
+	std::unique_ptr<char, void (*)(char *)> authority_guard(authority, od_string_free);
+	std::unique_ptr<char, void (*)(char *)> path_guard(path, od_string_free);
+	out_scheme = scheme_guard.get();
+	out_authority = authority_guard.get();
+	out_path = path_guard.get();
 	return true;
 }
 
-// Rebuild a "scheme://[authority/]path" URL from an OpenDAL entry path. OpenDAL
-// returns fs entry paths relative to root "/" (without a leading slash), so for
-// `fs` we prepend "/". For authority-style schemes we re-insert the authority.
+// Rebuild the extension's universal scheme://authority/path URL.
 std::string OpenDalFileSystem::BuildUrl(const std::string &scheme, const std::string &authority,
                                         const std::string &entry_path) {
-	std::string p = entry_path;
-	if (!IsPathOnlyScheme(scheme)) {
-		while (!p.empty() && p.front() == '/') {
-			p.erase(p.begin());
-		}
-		return scheme + "://" + (authority.empty() ? std::string() : authority) + "/" + p;
+	auto raw = od_url_build(scheme.c_str(), authority.c_str(), entry_path.c_str());
+	if (!raw) {
+		throw IOException("opendal: failed to build public URL");
 	}
-	if (IsLocalFsScheme(scheme) && (p.empty() || p[0] != '/')) {
-		p = "/" + p;
-	}
-	return scheme + "://" + p;
+	std::string result(raw);
+	od_string_free(raw);
+	return result;
 }
 
 // Whether this build serves `scheme`. Not hardcoded: we ask the Rust core,
@@ -347,6 +259,11 @@ static void ApplySecret(optional_ptr<ClientContext> context, optional_ptr<Databa
 	}
 }
 
+static std::string CanonicalSchemeUrl(const std::string &url, const std::string &scheme) {
+	auto separator = url.find("://");
+	return separator == std::string::npos ? url : scheme + url.substr(separator);
+}
+
 static std::string ConfigIdentity(const std::string &scheme, const std::string &authority,
                                   const std::map<std::string, std::string> &config,
                                   const std::map<std::string, std::string> &options, uint64_t &hash) {
@@ -367,6 +284,8 @@ static std::string ConfigIdentity(const std::string &scheme, const std::string &
 			add(entry.second);
 		}
 	};
+	add(scheme);
+	add(authority);
 	append(config);
 	append(options);
 	return identity;
@@ -391,22 +310,12 @@ OdOperator *OpenDalFileSystem::OperatorForCtx(const std::string &scheme, const s
 OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const std::string &authority,
                                              const std::string &url, optional_ptr<ClientContext> context,
                                              optional_ptr<DatabaseInstance> db) {
-	// The operator URI: scheme://authority (no path). OpenDAL's per-service
-	// from_uri parsing maps the authority to the right config key — s3 bucket,
-	// gcs bucket, azblob container, etc. — so we do not special-case it here.
-	// fs/memory have an empty authority. Per-call paths are passed relative to
-	// the operator root (which stays default), unaffected by this URI.
+	// Operator URI contains only scheme + authority. URL path is always the
+	// operation path; remaining service configuration comes from the secret.
 	std::string uri = scheme + "://" + authority;
 
 	std::map<std::string, std::string> config;
 	std::map<std::string, std::string> options = GlobalConfigSnapshot();
-
-	// The local `fs` service treats the URI path as its root; we instead root it
-	// at "/" and pass absolute paths per call (see AbsolutizeFsPath). Set it
-	// explicitly as an override since the fs:// URI carries no path.
-	if (IsLocalFsScheme(scheme)) {
-		config["root"] = "/";
-	}
 
 	// Merge a SCOPE-matched secret's config (if any). These override any config
 	// OpenDAL parsed from the URI.
@@ -417,7 +326,7 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	// (AWS_ENDPOINT_URL/AWS_ENDPOINT/AWS_S3_ENDPOINT) and the full credential
 	// chain (env -> shared profile -> IMDS) via DefaultCredentialProvider.
 	// Injecting a partial subset here would only shadow that richer resolution.
-	ApplySecret(context, db, scheme, url, config, options);
+	ApplySecret(context, db, scheme, CanonicalSchemeUrl(url, scheme), config, options);
 	uint64_t config_hash;
 	std::string key = ConfigIdentity(scheme, authority, config, options, config_hash);
 	std::string cache_namespace = std::to_string(config_hash);
@@ -483,6 +392,7 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 }
 
 bool OpenDalFileSystem::CanHandleFile(const string &path) {
+	t_last_scheme.clear();
 	std::string scheme, auth, rel;
 	if (!ParseUrl(path, scheme, auth, rel)) {
 		return false;
@@ -521,7 +431,7 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 		std::unique_ptr<OdWriter, void (*)(OdWriter *)> writer_guard(writer, AbortAndFreeWriter);
 		auto handle = make_uniq<OpenDalFileHandle>(*this, path, flags, writer);
 		writer_guard.release();
-		handle->on_disk = IsLocalFsScheme(scheme);
+		handle->on_disk = false;
 		if (opener) {
 			handle->TryAddLogger(*opener);
 		}
@@ -551,7 +461,7 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	auto handle =
 	    make_uniq<OpenDalFileHandle>(*this, path, flags, reader, (int64_t)meta.content_length, meta.last_modified_ms);
 	reader_guard.release();
-	handle->on_disk = IsLocalFsScheme(scheme);
+	handle->on_disk = false;
 	if (opener) {
 		handle->TryAddLogger(*opener);
 	}
@@ -803,17 +713,12 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 	auto star = rel.find_first_of("*?[");
 	auto slash_before = rel.rfind('/', star);
 	std::string static_dir = (slash_before == std::string::npos) ? "" : rel.substr(0, slash_before);
-	std::string pattern = (slash_before == std::string::npos) ? rel : rel.substr(slash_before + 1);
-	bool recursive = pattern.find("**") != std::string::npos;
-
-	// Strip leading "**/" so the trailing pattern applies to the basename.
-	std::string file_pat = pattern;
-	while (file_pat.size() >= 3 && file_pat.compare(0, 3, "**/") == 0) {
-		file_pat = file_pat.substr(3);
+	std::string pattern = rel;
+	while (!pattern.empty() && pattern.front() == '/') {
+		pattern.erase(pattern.begin());
 	}
-	if (file_pat.empty()) {
-		file_pat = "*";
-	}
+	std::string remaining = (slash_before == std::string::npos) ? rel : rel.substr(slash_before + 1);
+	bool recursive = remaining.find('/') != std::string::npos || remaining.find("**") != std::string::npos;
 
 	std::string list_dir = static_dir;
 	if (list_dir.empty() || list_dir.back() != '/') {
@@ -840,8 +745,10 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 			continue;
 		}
 		std::string epath = ent.path ? std::string(ent.path) : std::string();
-		std::string ename = ent.name ? std::string(ent.name) : std::string();
-		if (glob_match(file_pat.c_str(), ename.c_str()) == 0) {
+		while (!epath.empty() && epath.front() == '/') {
+			epath.erase(epath.begin());
+		}
+		if (od_glob_match(pattern.c_str(), epath.c_str()) != 0) {
 			results.emplace_back(BuildUrl(scheme, auth, epath));
 		}
 	}
@@ -858,7 +765,8 @@ idx_t OpenDalFileSystem::SeekPosition(FileHandle &handle) {
 }
 
 bool OpenDalFileSystem::OnDiskFile(FileHandle &handle) {
-	// Only the local `fs` scheme is on-disk; cached at open time (no re-parse).
+	// Registry membership does not expose physical-locality metadata. Report the
+	// conservative network/default posture for every service.
 	return handle.Cast<OpenDalFileHandle>().on_disk;
 }
 
@@ -918,10 +826,12 @@ void OpenDalFileSystem::MoveFile(const string &source, const string &target, opt
 	if (!ParseUrl(target, t_scheme, t_auth, t_rel) || !IsSupportedScheme(t_scheme)) {
 		throw IOException("opendal: unsupported or invalid target URL: " + target);
 	}
-	if (s_scheme != t_scheme || s_auth != t_auth) {
-		throw IOException("opendal: move across schemes/buckets is not supported (" + source + " -> " + target + ")");
-	}
 	auto *op = OperatorFor(s_scheme, s_auth, source, opener);
+	auto *target_op = OperatorFor(t_scheme, t_auth, target, opener);
+	if (op != target_op) {
+		throw IOException("opendal: move across effective operators is not supported; use opendal_copy then delete (" +
+		                  source + " -> " + target + ")");
+	}
 
 	// Prefer server-side rename. If the service lacks it (e.g. s3 has no
 	// rename but does have copy), fall back to copy+delete — a non-atomic move.

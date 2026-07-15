@@ -14,6 +14,14 @@ require opendal
 # Parquet reader/writer used below.
 require parquet
 
+# Empty-authority services use triple-slash URLs. Backend-required config stays
+# in generic registry-driven secrets, not service branches in the extension.
+statement ok
+CREATE SECRET fs_test_root (TYPE fs, SCOPE 'fs://', config MAP{'root':'.'});
+
+statement ok
+CREATE SECRET file_test_root (TYPE file, SCOPE 'file://', config MAP{'root':'.'});
+
 # Format: "opendal <ext-version> (built with opendal-core <lib-version>)". The
 # ext version matches duckdb_extensions().extension_version; the opendal-core
 # version is resolved from Cargo.toml at build time. Assert only the shape.
@@ -39,14 +47,14 @@ TO '__TEST_DIR__/opendal_read.parquet' (FORMAT parquet);
 
 query IIII
 SELECT count(*), min(id), max(id), sum(doubled)
-FROM read_parquet('fs://__TEST_DIR__/opendal_read.parquet');
+FROM read_parquet('fs:///__TEST_DIR__/opendal_read.parquet');
 ----
 1000	0	999	999000
 
 # Projection + predicate pushdown exercises column-chunk ranged reads.
 query II
 SELECT id, label
-FROM read_parquet('fs://__TEST_DIR__/opendal_read.parquet')
+FROM read_parquet('fs:///__TEST_DIR__/opendal_read.parquet')
 WHERE id BETWEEN 500 AND 502
 ORDER BY id;
 ----
@@ -60,35 +68,35 @@ COPY (SELECT range AS id, 'v' || range AS v FROM range(500))
 TO '__TEST_DIR__/opendal_read.csv' (FORMAT csv, HEADER);
 
 query II
-SELECT count(*), max(id) FROM read_csv('fs://__TEST_DIR__/opendal_read.csv');
+SELECT count(*), max(id) FROM read_csv('fs:///__TEST_DIR__/opendal_read.csv');
 ----
 500	499
 
 # glob of a concrete existing path returns the one file
 query I
-SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_read.parquet');
+SELECT count(*) FROM glob('fs:///__TEST_DIR__/opendal_read.parquet');
 ----
 1
 
 # `file` is registered by OpenDAL's fs service and receives the same local-FS
 # adapter behavior without appearing in a hand-maintained service catalog.
 query I
-SELECT count(*) FROM glob('file://__TEST_DIR__/opendal_read.parquet');
+SELECT count(*) FROM glob('file:///__TEST_DIR__/opendal_read.parquet');
 ----
 1
 
 query I
-SELECT count(*) FROM glob('FILE://__TEST_DIR__/opendal_read.parquet');
+SELECT count(*) FROM glob('FILE:///__TEST_DIR__/opendal_read.parquet');
 ----
 1
 
 # Memory remains path-only: the first segment after :// is data path, not an
 # authority. This guards scheme-agnostic parsing from dropping that segment.
 statement ok
-COPY (SELECT 42 AS id) TO 'memory://registry/path.parquet' (FORMAT parquet);
+COPY (SELECT 42 AS id) TO 'memory:///registry/path.parquet' (FORMAT parquet);
 
 query I
-SELECT id FROM read_parquet('memory://registry/path.parquet');
+SELECT id FROM read_parquet('memory:///registry/path.parquet');
 ----
 42
 
@@ -102,49 +110,49 @@ TO '__TEST_DIR__/odtree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE
 
 # Recursive glob across all partitions: 60 rows total.
 query I
-SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/odtree/**/*.parquet');
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/odtree/**/*.parquet');
 ----
 60
 
 # Recursive glob restricted to one partition value.
 query I
-SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/odtree/part=0/*.parquet');
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/odtree/part=0/*.parquet');
 ----
 20
 
 # opendal_ls (non-recursive) on the tree lists the partition directories.
 query I
-SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/') WHERE metadata.mode = 'directory';
+SELECT count(*) FROM opendal_ls('fs:///__TEST_DIR__/odtree/') WHERE metadata.mode = 'directory';
 ----
 3
 
 # opendal_ls (recursive) sees the leaf parquet files (one per partition).
 query I
-SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/', recursive := true) WHERE metadata.mode = 'file';
+SELECT count(*) FROM opendal_ls('fs:///__TEST_DIR__/odtree/', recursive := true) WHERE metadata.mode = 'file';
 ----
 3
 
 # opendal_stat returns exactly one row for a concrete file.
 query I
-SELECT count(*) FROM opendal_stat('fs://__TEST_DIR__/opendal_read.parquet');
+SELECT count(*) FROM opendal_stat('fs:///__TEST_DIR__/opendal_read.parquet');
 ----
 1
 
 query II
 SELECT name, metadata.content_length > 0
-FROM opendal_stat('fs://__TEST_DIR__/opendal_read.parquet');
+FROM opendal_stat('fs:///__TEST_DIR__/opendal_read.parquet');
 ----
 opendal_read.parquet	true
 
 # OpenDAL list options are typed named arguments; backend order is intentionally
 # preserved, so tests sort only when order matters.
-query I
-SELECT count(*) FROM opendal_ls('fs://__TEST_DIR__/odtree/', recursive := true, "limit" := 1);
+statement error
+SELECT count(*) FROM opendal_ls('fs:///__TEST_DIR__/odtree/', recursive := true, "limit" := 1);
 ----
-6
+does not support list_with_limit
 
 query I
-SELECT count(*) FROM opendal_glob('fs://__TEST_DIR__/odtree/**/*.parquet')
+SELECT count(*) FROM opendal_glob('fs:///__TEST_DIR__/odtree/**/*.parquet')
 WHERE metadata.mode = 'file';
 ----
 3
@@ -152,24 +160,24 @@ WHERE metadata.mode = 'file';
 # opendal_du rolls up sizes recursively across the partitions (3 groups, 60 files? no —
 # one file per partition dir, so 3 groups each with 1 file).
 query I
-SELECT count(*) FROM opendal_du('fs://__TEST_DIR__/odtree/');
+SELECT count(*) FROM opendal_du('fs:///__TEST_DIR__/odtree/');
 ----
 3
 
 query I
-SELECT sum(file_count) FROM opendal_du('fs://__TEST_DIR__/odtree/');
+SELECT sum(file_count) FROM opendal_du('fs:///__TEST_DIR__/odtree/');
 ----
 3
 
 # Files and globs use the same Rust target resolver and retain parent grouping.
 query II
 SELECT file_count, total_size > 0
-FROM opendal_du('fs://__TEST_DIR__/opendal_read.parquet');
+FROM opendal_du('fs:///__TEST_DIR__/opendal_read.parquet');
 ----
 1	true
 
 query I
-SELECT sum(file_count) FROM opendal_du('fs://__TEST_DIR__/odtree/**/*.parquet');
+SELECT sum(file_count) FROM opendal_du('fs:///__TEST_DIR__/odtree/**/*.parquet');
 ----
 3
 
@@ -178,21 +186,21 @@ SELECT sum(file_count) FROM opendal_du('fs://__TEST_DIR__/odtree/**/*.parquet');
 query II
 SELECT bytes_copied > 0, metadata.mode
 FROM opendal_copy(
-    'fs://__TEST_DIR__/opendal_read.parquet',
-    'fs://__TEST_DIR__/opendal_copy.parquet'
+    'fs:///__TEST_DIR__/opendal_read.parquet',
+    'fs:///__TEST_DIR__/opendal_copy.parquet'
 );
 ----
 true	file
 
 query I
-SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/opendal_copy.parquet');
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/opendal_copy.parquet');
 ----
 1000
 
 statement error
 SELECT * FROM opendal_copy(
-    'fs://__TEST_DIR__/opendal_read.parquet',
-    'fs://__TEST_DIR__/opendal_copy.parquet',
+    'fs:///__TEST_DIR__/opendal_read.parquet',
+    'fs:///__TEST_DIR__/opendal_copy.parquet',
     if_not_exists := true
 );
 ----
@@ -201,27 +209,27 @@ exist
 # Mutation happens in the scan callback, not bind/init. LIMIT 0 must not copy.
 statement ok
 SELECT count(*) FROM opendal_copy(
-    'fs://__TEST_DIR__/opendal_read.parquet',
-    'fs://__TEST_DIR__/opendal_not_copied.parquet'
+    'fs:///__TEST_DIR__/opendal_read.parquet',
+    'fs:///__TEST_DIR__/opendal_not_copied.parquet'
 ) LIMIT 0;
 
 query I
-SELECT count(*) FROM opendal_glob('fs://__TEST_DIR__/opendal_not_copied*.parquet');
+SELECT count(*) FROM opendal_glob('fs:///__TEST_DIR__/opendal_not_copied*.parquet');
 ----
 0
 
 # Content length is a validated planning hint and must never truncate transfer.
 statement error
 SELECT * FROM opendal_copy(
-    'fs://__TEST_DIR__/opendal_read.parquet',
-    'fs://__TEST_DIR__/opendal_hint_copy.parquet',
+    'fs:///__TEST_DIR__/opendal_read.parquet',
+    'fs:///__TEST_DIR__/opendal_hint_copy.parquet',
     source_content_length_hint := 1
 );
 ----
 does not match source size
 
 query I
-SELECT count(*) FROM opendal_glob('fs://__TEST_DIR__/opendal_hint_copy*.parquet');
+SELECT count(*) FROM opendal_glob('fs:///__TEST_DIR__/opendal_hint_copy*.parquet');
 ----
 0
 
@@ -229,19 +237,19 @@ SELECT count(*) FROM opendal_glob('fs://__TEST_DIR__/opendal_hint_copy*.parquet'
 
 # Exact path.
 query I
-SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_read.parquet');
+SELECT count(*) FROM glob('fs:///__TEST_DIR__/opendal_read.parquet');
 ----
 1
 
 # Wildcard across the partitioned tree (one leaf file per partition dir).
 query I
-SELECT count(*) FROM glob('fs://__TEST_DIR__/odtree/**/*.parquet');
+SELECT count(*) FROM glob('fs:///__TEST_DIR__/odtree/**/*.parquet');
 ----
 3
 
 # glob() of a non-existent directory returns no rows (clean, no error).
 query I
-SELECT count(*) FROM glob('fs://__TEST_DIR__/does_not_exist_xyz/*.parquet');
+SELECT count(*) FROM glob('fs:///__TEST_DIR__/does_not_exist_xyz/*.parquet');
 ----
 0
 
@@ -250,7 +258,7 @@ SELECT count(*) FROM glob('fs://__TEST_DIR__/does_not_exist_xyz/*.parquet');
 # the directories themselves — so globbing '*' at the CSV/parquet root yields
 # only files.
 query I
-SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_read.*');
+SELECT count(*) FROM glob('fs:///__TEST_DIR__/opendal_read.*');
 ----
 2
 
@@ -259,10 +267,10 @@ SELECT count(*) FROM glob('fs://__TEST_DIR__/opendal_read.*');
 # COPY TO fs:// writes a Parquet file through the streaming writer; round-trip.
 statement ok
 COPY (SELECT range AS id, range * range AS sq FROM range(1000))
-TO 'fs://__TEST_DIR__/w_out.parquet' (FORMAT parquet);
+TO 'fs:///__TEST_DIR__/w_out.parquet' (FORMAT parquet);
 
 query II
-SELECT count(*), sum(sq) FROM read_parquet('fs://__TEST_DIR__/w_out.parquet');
+SELECT count(*), sum(sq) FROM read_parquet('fs:///__TEST_DIR__/w_out.parquet');
 ----
 1000	332833500
 
@@ -275,10 +283,10 @@ SELECT count(*) FROM read_parquet('__TEST_DIR__/w_out.parquet');
 # CSV write + round-trip.
 statement ok
 COPY (SELECT range AS id, 'v' || range AS v FROM range(250))
-TO 'fs://__TEST_DIR__/w_out.csv' (FORMAT csv, HEADER);
+TO 'fs:///__TEST_DIR__/w_out.csv' (FORMAT csv, HEADER);
 
 query II
-SELECT count(*), max(id) FROM read_csv('fs://__TEST_DIR__/w_out.csv');
+SELECT count(*), max(id) FROM read_csv('fs:///__TEST_DIR__/w_out.csv');
 ----
 250	249
 
@@ -286,32 +294,32 @@ SELECT count(*), max(id) FROM read_csv('fs://__TEST_DIR__/w_out.csv');
 # parent path; native COPY would fail here).
 statement ok
 COPY (SELECT range AS id FROM range(10))
-TO 'fs://__TEST_DIR__/w_new/deep/f.parquet' (FORMAT parquet);
+TO 'fs:///__TEST_DIR__/w_new/deep/f.parquet' (FORMAT parquet);
 
 query I
-SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/w_new/deep/f.parquet');
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/w_new/deep/f.parquet');
 ----
 10
 
 # Overwrite replaces the object's contents.
 statement ok
-COPY (SELECT 1 AS x) TO 'fs://__TEST_DIR__/w_ow.parquet' (FORMAT parquet);
+COPY (SELECT 1 AS x) TO 'fs:///__TEST_DIR__/w_ow.parquet' (FORMAT parquet);
 
 statement ok
-COPY (SELECT range AS x FROM range(5)) TO 'fs://__TEST_DIR__/w_ow.parquet' (FORMAT parquet);
+COPY (SELECT range AS x FROM range(5)) TO 'fs:///__TEST_DIR__/w_ow.parquet' (FORMAT parquet);
 
 query I
-SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/w_ow.parquet');
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/w_ow.parquet');
 ----
 5
 
 # Partitioned write creates the partition directories and one file per value.
 statement ok
 COPY (SELECT range AS id, range % 4 AS part FROM range(400))
-TO 'fs://__TEST_DIR__/w_parts' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+TO 'fs:///__TEST_DIR__/w_parts' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
 
 query II
-SELECT part, count(*) FROM read_parquet('fs://__TEST_DIR__/w_parts/**/*.parquet', hive_partitioning = true)
+SELECT part, count(*) FROM read_parquet('fs:///__TEST_DIR__/w_parts/**/*.parquet', hive_partitioning = true)
 GROUP BY part ORDER BY part;
 ----
 0	100
@@ -324,21 +332,13 @@ GROUP BY part ORDER BY part;
 # Secret registration is driven by OpenDAL's runtime registry. Every compiled
 # service gets the same generic config surface; disabled services get none.
 statement ok
-CREATE SECRET fs_registry (TYPE fs, SCOPE 'fs://', io_config MAP{'read.concurrent':'2'});
+CREATE SECRET fs_registry (
+    TYPE fs, SCOPE 'fs://registry-only',
+    config MAP{'root':'.'}, io_config MAP{'read.concurrent':'2'}
+);
 
 statement ok
 CREATE SECRET memory_registry (TYPE memory, SCOPE 'memory://', timeout_config MAP{'operation_timeout':'1s'});
-
-# DuckDB maps unknown GCS secret types to httpfs. Disable known-extension
-# autoload explicitly so this assertion tests our compiled registry without
-# partially loading httpfs after opendal (that load order collides on TYPE s3).
-statement ok
-SET autoload_known_extensions = false;
-
-statement error
-CREATE SECRET gcs_not_compiled (TYPE gcs, config MAP{});
-----
-Secret type 'gcs' does not exist
 
 # One generic service secret separates backend, I/O, retry, timeout and cache
 # options. Section presence applies that behavior; no `enable` key is needed.
@@ -396,7 +396,7 @@ statement ok
 SET GLOBAL opendal_cache_config = MAP{'memory_size':'16 MiB','shards':'2','min_file_size':'0'};
 
 query I
-SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/w_out.parquet');
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/w_out.parquet');
 ----
 1000
 
@@ -422,7 +422,7 @@ statement ok
 SET GLOBAL opendal_cache_config = MAP{'memory_size':'16 MB','disk_path':'__TEST_DIR__/w_out.parquet'};
 
 query I
-SELECT count(*) FROM opendal_stat('fs://__TEST_DIR__/w_out.parquet');
+SELECT count(*) FROM opendal_stat('fs:///__TEST_DIR__/w_out.parquet');
 ----
 1
 
@@ -444,19 +444,19 @@ statement ok
 SET GLOBAL opendal_retry_config = MAP{'max_times':'banana'};
 
 statement error
-SELECT * FROM opendal_stat('fs://__TEST_DIR__/w_out.parquet');
+SELECT * FROM opendal_stat('fs:///__TEST_DIR__/w_out.parquet');
 ----
 invalid retry.max_times='banana'
 
 # FileExists/Glob must propagate the same operator error rather than converting
 # it into "No files found" or an empty wildcard result.
 statement error
-SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/w_out.parquet');
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/w_out.parquet');
 ----
 invalid retry.max_times='banana'
 
 statement error
-SELECT count(*) FROM glob('fs://__TEST_DIR__/*.parquet');
+SELECT count(*) FROM glob('fs:///__TEST_DIR__/*.parquet');
 ----
 invalid retry.max_times='banana'
 
@@ -467,7 +467,7 @@ statement ok
 SET GLOBAL opendal_cache_config = MAP{'shradz':'4'};
 
 statement error
-SELECT * FROM opendal_stat('fs://__TEST_DIR__/w_out.parquet');
+SELECT * FROM opendal_stat('fs:///__TEST_DIR__/w_out.parquet');
 ----
 unknown OpenDAL option 'cache.shradz'
 
@@ -517,13 +517,13 @@ s3,gcs
 # Locks DuckDB's same-thread CanHandleFile -> IsManuallySet coupling.
 query II
 SELECT opendal_is_manually_set('s3://bucket/file'),
-       opendal_is_manually_set('fs://__TEST_DIR__/w_out.parquet');
+       opendal_is_manually_set('fs:///__TEST_DIR__/w_out.parquet');
 ----
 true	false
 
 # Reads through opendal still work with the override set.
 query I
-SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/w_out.parquet');
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/w_out.parquet');
 ----
 1000
 
@@ -556,10 +556,10 @@ statement ok
 CALL enable_logging(level='trace', storage='memory');
 
 statement ok
-COPY (SELECT range AS id FROM range(200)) TO 'fs://__TEST_DIR__/logtest.parquet' (FORMAT parquet);
+COPY (SELECT range AS id FROM range(200)) TO 'fs:///__TEST_DIR__/logtest.parquet' (FORMAT parquet);
 
 statement ok
-SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/logtest.parquet');
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/logtest.parquet');
 
 # We logged at least one OPEN, READ, WRITE and CLOSE against our filesystem.
 query I

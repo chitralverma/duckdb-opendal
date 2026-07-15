@@ -37,6 +37,7 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/lib.rs");
+    println!("cargo:rerun-if-changed=src/uri.rs");
     println!("cargo:rerun-if-changed=cbindgen.toml");
 
     // Resolve the opendal version so the FFI can report it programmatically

@@ -120,15 +120,13 @@ public:
 	}
 
 private:
-	// Split a URL into scheme, authority (bucket/host — may be empty), and the
-	// OpenDAL-relative path. For object stores (s3), the authority is the bucket
-	// and the path is the object key; for fs/memory the authority is empty.
+	// Split a URL into scheme, authority (may be empty), and OpenDAL-relative
+	// operation path using the universal extension URL contract.
 	// Returns false if the URL has no recognized scheme.
 	static bool ParseUrl(const std::string &url, std::string &out_scheme, std::string &out_authority,
 	                     std::string &out_path);
 
-	// Rebuild a full "scheme://[authority/]path" URL from parts, inverting the
-	// fs absolutization so results round-trip back through OpenFile.
+	// Rebuild a full "scheme://authority/path" URL from resolved parts.
 	static std::string BuildUrl(const std::string &scheme, const std::string &authority, const std::string &entry_path);
 
 	// Get (creating + caching if needed) an operator handle for a (scheme,
@@ -173,8 +171,7 @@ public:
 	bool write_committable = false;
 	bool write_finished = false;
 
-	// Whether the backing scheme is local/on-disk (only `fs`). Cached at open
-	// time so OnDiskFile() need not re-parse the path per call.
+	// Physical locality is unavailable from OperatorRegistry; currently false.
 	bool on_disk = false;
 
 private:

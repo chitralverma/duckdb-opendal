@@ -58,6 +58,45 @@ when the effective operator is built. Service `config` remains an arbitrary
 passthrough: OpenDAL validates typed values for the selected service, while
 unknown service keys may be accepted for forward compatibility.
 
+## URL contract
+
+Every compiled service uses one extension-level URL shape:
+
+```text
+scheme://authority/operation/path
+scheme:///operation/path          # empty authority
+```
+
+The URI path is always an OpenDAL operation path; it is never inferred as
+service configuration or operator root. The authority is passed to OpenDAL's
+service configurator. Any remaining required service configuration belongs in
+the scoped secret's `config` map.
+
+For example, local filesystem access uses explicit root config and an empty
+authority:
+
+```sql
+CREATE SECRET local_root (
+    TYPE fs,
+    SCOPE 'fs://',
+    config MAP{'root': '/var/data'}
+);
+
+SELECT * FROM read_parquet('fs:///events/2026.parquet');
+```
+
+Memory paths likewise use triple slash: `memory:///objects/a.parquet`. Legacy
+`memory://objects/a.parquet` treats `objects` as authority under the universal
+contract. Physical locality cannot be inferred from `OperatorRegistry`, so
+`OnDiskFile` reports the conservative non-local posture for every service.
+
+Query strings, fragments, userinfo, invalid UTF-8, NUL bytes, and percent-
+encoded path separators are rejected. Other percent-encoded path content is
+decoded once, then OpenDAL owns structural normalization and backend
+confinement. PR #7799 merged the RFC document only. Its whitespace-preservation
+implementation remains on OpenDAL's `path-norm` branch, not upstream main, so
+the pinned commit still trims leading/trailing path whitespace.
+
 `config` is passed directly to the selected OpenDAL service. Use the service's
 [OpenDAL configuration reference](https://opendal.apache.org/services/) for
 valid keys. There are no convenience aliases or generic `layers` bag.

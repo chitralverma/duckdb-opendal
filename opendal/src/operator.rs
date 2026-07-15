@@ -1,11 +1,9 @@
 //! Operator lifecycle across the FFI boundary.
 //!
 //! `od_operator_new` builds an `opendal::Operator` from a **URI**
-//! (`scheme://authority`) plus a flat key/value config array. It delegates to
-//! `Operator::from_uri`, so OpenDAL's per-service URI parsing decides how the
-//! authority maps to config (e.g. s3 authority → `bucket`, azblob → `container`,
-//! fs/memory → no authority). The extra key/value pairs are OpenDAL config
-//! (from a SCOPE-matched secret) and **override** anything parsed from the URI.
+//! (`scheme://authority`) plus a flat key/value config array. URL path remains
+//! separate as the operation path. OpenDAL's service configurator interprets
+//! authority; all other service configuration comes from the scoped secret.
 //! The handle is opaque to C++; free it with `od_operator_free`.
 //! Reader/stat/etc. borrow the operator, so it must outlive all handles derived
 //! from it.
@@ -186,10 +184,9 @@ pub unsafe extern "C" fn od_operator_free(op: *mut OdOperator) {
 static REGISTERED_SCHEMES: OnceLock<(HashSet<String>, Vec<String>)> = OnceLock::new();
 
 fn registered_schemes() -> &'static (HashSet<String>, Vec<String>) {
+    // Static-library consumers cannot rely on OpenDAL's ctor registration.
+    opendal::init_default_registry();
     REGISTERED_SCHEMES.get_or_init(|| {
-        // Static-library consumers cannot rely on OpenDAL's ctor registration.
-        // Initialize here too so enumeration is correct even before `od_init`.
-        opendal::init_default_registry();
         let set = opendal::OperatorRegistry::get().schemes();
         let mut sorted: Vec<_> = set.iter().cloned().collect();
         sorted.sort();
@@ -223,8 +220,8 @@ pub struct OdSchemeList {
 #[no_mangle]
 pub unsafe extern "C" fn od_schemes(err: *mut OdError) -> *mut OdSchemeList {
     ffi_guard!(err, std::ptr::null_mut(), "od_schemes", {
-        let schemes = match registered_schemes()
-            .1
+        let (_, sorted) = registered_schemes();
+        let schemes = match sorted
             .iter()
             .cloned()
             .map(CString::new)

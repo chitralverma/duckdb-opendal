@@ -16,6 +16,11 @@ require opendal
 
 require parquet
 
+# Cross-service copy destination uses generic service config; URI parsing has no
+# fs-specific branch.
+statement ok
+CREATE SECRET fs_test_root (TYPE fs, SCOPE 'fs://', config MAP{'root':'.'});
+
 require-env OPENDAL_S3_TEST
 
 # Single object read.
@@ -114,12 +119,12 @@ SELECT count(*) FROM read_parquet('s3://warehouse/copied/f1.parquet');
 # independently scoped operator/secret.
 query I
 SELECT bytes_copied > 0
-FROM opendal_copy('s3://warehouse/f1.parquet', 'fs://__TEST_DIR__/s3_to_fs.parquet', chunk_size := 1048576);
+FROM opendal_copy('s3://warehouse/f1.parquet', 'fs:///__TEST_DIR__/s3_to_fs.parquet', chunk_size := 1048576);
 ----
 true
 
 query I
-SELECT count(*) FROM read_parquet('fs://__TEST_DIR__/s3_to_fs.parquet');
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/s3_to_fs.parquet');
 ----
 100
 

@@ -190,6 +190,22 @@ fn list_options(raw: OdListOptions) -> Result<ListOptions, String> {
     })
 }
 
+fn require_option(
+    scheme: &str,
+    requested: bool,
+    supported: bool,
+    name: &str,
+) -> Result<(), (OdErrorCode, String)> {
+    if requested && !supported {
+        Err((
+            OdErrorCode::Unsupported,
+            format!("service '{scheme}' does not support {name}"),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn cstring(value: &str, field: &str) -> Result<CString, String> {
     CString::new(value).map_err(|_| format!("OpenDAL {field} contains a NUL byte"))
 }
@@ -284,7 +300,7 @@ impl OwnedRow {
     }
 }
 
-fn glob_matches(pattern: &[u8], value: &[u8]) -> bool {
+pub(crate) fn glob_matches(pattern: &[u8], value: &[u8]) -> bool {
     fn run(pattern: &[u8], value: &[u8], memo: &mut HashMap<(usize, usize), bool>) -> bool {
         let key = (pattern.len(), value.len());
         if let Some(result) = memo.get(&key) {
@@ -366,6 +382,43 @@ pub unsafe extern "C" fn od_table_stat_open(
                 return std::ptr::null_mut();
             }
         };
+        for check in [
+            require_option(
+                &odop.scheme,
+                options.version.is_some(),
+                odop.cap.stat_with_version,
+                "stat_with_version",
+            ),
+            require_option(
+                &odop.scheme,
+                options.if_match.is_some(),
+                odop.cap.stat_with_if_match,
+                "stat_with_if_match",
+            ),
+            require_option(
+                &odop.scheme,
+                options.if_none_match.is_some(),
+                odop.cap.stat_with_if_none_match,
+                "stat_with_if_none_match",
+            ),
+            require_option(
+                &odop.scheme,
+                options.if_modified_since.is_some(),
+                odop.cap.stat_with_if_modified_since,
+                "stat_with_if_modified_since",
+            ),
+            require_option(
+                &odop.scheme,
+                options.if_unmodified_since.is_some(),
+                odop.cap.stat_with_if_unmodified_since,
+                "stat_with_if_unmodified_since",
+            ),
+        ] {
+            if let Err((code, message)) = check {
+                set_error(err, code, message);
+                return std::ptr::null_mut();
+            }
+        }
         match block_on(odop.op.stat_options(path, options)) {
             Ok(metadata) => {
                 set_ok(err);
@@ -423,6 +476,37 @@ pub unsafe extern "C" fn od_table_list_open(
                 return std::ptr::null_mut();
             }
         };
+        for check in [
+            require_option(
+                &odop.scheme,
+                options.limit.is_some(),
+                odop.cap.list_with_limit,
+                "list_with_limit",
+            ),
+            require_option(
+                &odop.scheme,
+                options.start_after.is_some(),
+                odop.cap.list_with_start_after,
+                "list_with_start_after",
+            ),
+            require_option(
+                &odop.scheme,
+                options.versions,
+                odop.cap.list_with_versions,
+                "list_with_versions",
+            ),
+            require_option(
+                &odop.scheme,
+                options.deleted,
+                odop.cap.list_with_deleted,
+                "list_with_deleted",
+            ),
+        ] {
+            if let Err((code, message)) = check {
+                set_error(err, code, message);
+                return std::ptr::null_mut();
+            }
+        }
         match block_on(odop.op.lister_options(path, options)) {
             Ok(lister) => {
                 set_ok(err);
@@ -824,6 +908,59 @@ pub unsafe extern "C" fn od_table_copy_open(
         };
         let source_op = &*source_op;
         let destination_op = &*destination_op;
+        if std::ptr::eq(source_op, destination_op) && source_op.cap.copy {
+            for check in [
+                require_option(
+                    &source_op.scheme,
+                    options.if_not_exists,
+                    source_op.cap.copy_with_if_not_exists,
+                    "copy_with_if_not_exists",
+                ),
+                require_option(
+                    &source_op.scheme,
+                    options.if_match.is_some(),
+                    source_op.cap.copy_with_if_match,
+                    "copy_with_if_match",
+                ),
+                require_option(
+                    &source_op.scheme,
+                    options.source_version.is_some(),
+                    source_op.cap.copy_with_source_version,
+                    "copy_with_source_version",
+                ),
+            ] {
+                if let Err((code, message)) = check {
+                    set_error(err, code, message);
+                    return std::ptr::null_mut();
+                }
+            }
+        } else {
+            for check in [
+                require_option(
+                    &source_op.scheme,
+                    options.source_version.is_some(),
+                    source_op.cap.read_with_version,
+                    "read_with_version",
+                ),
+                require_option(
+                    &destination_op.scheme,
+                    options.if_not_exists,
+                    destination_op.cap.write_with_if_not_exists,
+                    "write_with_if_not_exists",
+                ),
+                require_option(
+                    &destination_op.scheme,
+                    options.if_match.is_some(),
+                    destination_op.cap.write_with_if_match,
+                    "write_with_if_match",
+                ),
+            ] {
+                if let Err((code, message)) = check {
+                    set_error(err, code, message);
+                    return std::ptr::null_mut();
+                }
+            }
+        }
         let source_metadata = match block_on(source_op.op.stat_options(
             source,
             StatOptions {
