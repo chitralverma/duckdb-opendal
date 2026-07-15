@@ -133,13 +133,32 @@ pub unsafe extern "C" fn od_writer_write(
             set_ok(err);
             return 0;
         }
+        let len = match usize::try_from(len) {
+            Ok(len) if len <= isize::MAX as usize => len,
+            Err(_) => {
+                set_error(
+                    err,
+                    OdErrorCode::InvalidInput,
+                    "write length exceeds platform limit",
+                );
+                return -1;
+            }
+            _ => {
+                set_error(
+                    err,
+                    OdErrorCode::InvalidInput,
+                    "write length exceeds slice limit",
+                );
+                return -1;
+            }
+        };
         let writer = &mut *writer;
         if let Err(message) = writer.require_open("write to") {
             set_error(err, OdErrorCode::InvalidInput, message);
             return -1;
         }
         // Copy the caller's bytes into an owned buffer for the async write.
-        let bytes = std::slice::from_raw_parts(data, len as usize).to_vec();
+        let bytes = std::slice::from_raw_parts(data, len).to_vec();
         match block_on(writer.writer.write(bytes)) {
             Ok(()) => {
                 set_ok(err);

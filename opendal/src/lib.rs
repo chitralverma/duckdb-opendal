@@ -151,20 +151,40 @@ const OPENDAL_VERSION: &str = env!("OPENDAL_VERSION");
 /// its `#[ctor]` init can be dropped by the linker) and installs the rustls
 /// `ring` crypto provider + reqwest HTTP transport (the `rustls-no-provider`
 /// feature auto-installs neither). Idempotent (guarded by a `Once`).
+///
+/// # Safety
+/// `err` must be null or a valid, writable pointer.
 #[no_mangle]
-pub extern "C" fn od_init() {
-    use std::sync::Once;
-    static INIT: Once = Once::new();
-    let _ = catch_unwind(|| {
-        INIT.call_once(|| {
+pub unsafe extern "C" fn od_init(err: *mut OdError) -> i32 {
+    use std::sync::OnceLock;
+    static INIT: OnceLock<Result<(), String>> = OnceLock::new();
+    crate::ffi::ffi_guard!(err, -1, "od_init", {
+        match INIT.get_or_init(|| {
             opendal::init_default_registry();
-            // The provider must be installed before the transport builds its client.
-            let _ = rustls::crypto::ring::default_provider().install_default();
+            // Another extension may already have installed a process provider.
+            if rustls::crypto::CryptoProvider::get_default().is_none()
+                && rustls::crypto::ring::default_provider()
+                    .install_default()
+                    .is_err()
+                && rustls::crypto::CryptoProvider::get_default().is_none()
+            {
+                return Err("failed to install rustls crypto provider".to_string());
+            }
             opendal::HttpTransporter::install_default(
                 opendal_http_transport_reqwest::ReqwestTransport::default(),
             );
-        });
-    });
+            Ok(())
+        }) {
+            Ok(()) => {
+                crate::error::set_ok(err);
+                0
+            }
+            Err(message) => {
+                crate::error::set_error(err, OdErrorCode::Unexpected, message);
+                -1
+            }
+        }
+    })
 }
 
 /// Return the resolved OpenDAL library version (e.g. "0.58.0") as an owned C
@@ -207,6 +227,12 @@ pub unsafe extern "C" fn od_string_free(ptr: *mut c_char) {
 mod tests {
     use super::*;
     use std::ffi::{CStr, CString};
+
+    fn init() {
+        let mut err = OdError::ok();
+        assert_eq!(unsafe { od_init(&mut err) }, 0);
+        assert_eq!(err.code as i32, OdErrorCode::Ok as i32);
+    }
 
     #[test]
     fn opendal_version_roundtrip() {
@@ -279,6 +305,13 @@ mod tests {
         let n = unsafe { od_reader_read(reader, 6, 6, buf.as_mut_ptr(), &mut rerr) };
         assert_eq!(n, 6);
         assert_eq!(&buf, b"openda");
+
+        let n = unsafe { od_reader_read(reader, u64::MAX, 2, buf.as_mut_ptr(), &mut rerr) };
+        assert_eq!(n, -1);
+        assert_eq!(rerr.code as i32, OdErrorCode::InvalidInput as i32);
+        let message = unsafe { CStr::from_ptr(rerr.message) }.to_str().unwrap();
+        assert!(message.contains("range overflows"), "{message}");
+        unsafe { od_string_free(rerr.message) };
 
         unsafe { od_reader_free(reader) };
         unsafe { od_operator_free(op) };
@@ -372,6 +405,13 @@ mod tests {
         assert!(!w.is_null(), "writer_open failed: {}", werr.code as i32);
         let p1 = b"hello ";
         let p2 = b"world";
+        assert_eq!(
+            unsafe { od_writer_write(w, p1.as_ptr(), u64::MAX, &mut werr) },
+            -1
+        );
+        assert_eq!(werr.code as i32, OdErrorCode::InvalidInput as i32);
+        unsafe { od_string_free(werr.message) };
+        werr = OdError::ok();
         assert_eq!(
             unsafe { od_writer_write(w, p1.as_ptr(), p1.len() as u64, &mut werr) },
             0
@@ -564,7 +604,7 @@ mod tests {
         // from_uri must map the URI authority to the s3 `bucket` config via
         // OpenDAL's per-service parsing — no bucket key passed explicitly.
         // Uses a dummy endpoint/creds; no network I/O (operator build is lazy).
-        od_init(); // register services (no auto-register ctor)
+        init(); // register services (no auto-register ctor)
         let uri = CString::new("s3://my-bucket").unwrap();
         let keys: Vec<CString> = ["endpoint", "region", "access_key_id", "secret_access_key"]
             .iter()
@@ -757,7 +797,7 @@ mod tests {
         // The fs service supports copy; exercise the od_copy FFI end to end
         // (this is the branch the C++ MoveFile copy+delete fallback uses when a
         // service lacks server-side rename, e.g. s3).
-        od_init(); // register services (no auto-register ctor)
+        init(); // register services (no auto-register ctor)
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
         let uri = CString::new("fs://").unwrap();
@@ -916,7 +956,7 @@ mod tests {
 
     #[test]
     fn service_config_validation_is_propagated() {
-        od_init();
+        init();
         let uri = CString::new("s3://bucket").unwrap();
         let key = CString::new("enable_virtual_host_style").unwrap();
         let value = CString::new("banana").unwrap();
@@ -943,7 +983,7 @@ mod tests {
 
     #[test]
     fn scheme_membership_reads_registry() {
-        od_init(); // populate the registry
+        init(); // populate the registry
         let sup = |s: &str| {
             let c = CString::new(s).unwrap();
             (unsafe { od_scheme_supported(c.as_ptr()) }) == 1

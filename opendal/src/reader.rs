@@ -103,18 +103,42 @@ pub unsafe extern "C" fn od_reader_read(
             set_ok(err);
             return 0;
         }
+        let len = match usize::try_from(len) {
+            Ok(len) if len <= isize::MAX as usize => len,
+            _ => {
+                set_error(
+                    err,
+                    OdErrorCode::InvalidInput,
+                    "read length exceeds the platform slice limit",
+                );
+                return -1;
+            }
+        };
+        let end = match offset.checked_add(len as u64) {
+            Some(end) => end,
+            None => {
+                set_error(err, OdErrorCode::InvalidInput, "read range overflows u64");
+                return -1;
+            }
+        };
         let reader = &mut (*reader).reader;
-        let end = offset.saturating_add(len);
         // Read directly into the caller's buffer. `read_into` streams each chunk
         // straight into the destination (one copy), avoiding the flatten
         // allocation + second copy that `read()` + `Buffer::to_bytes()` incurs
         // for a multi-chunk Buffer. The range is bounded to `len`, so the yielded
         // bytes fit; we still expose the slice as a fixed-capacity BufMut.
-        let mut dst: &mut [u8] = std::slice::from_raw_parts_mut(buf, len as usize);
+        let mut dst: &mut [u8] = std::slice::from_raw_parts_mut(buf, len);
         match block_on(reader.read_into(&mut dst, offset..end)) {
             Ok(n) => {
+                let n = match i64::try_from(n) {
+                    Ok(n) => n,
+                    Err(_) => {
+                        set_error(err, OdErrorCode::Unexpected, "read result exceeds i64");
+                        return -1;
+                    }
+                };
                 set_ok(err);
-                n as i64
+                n
             }
             Err(e) => {
                 set_opendal_error(err, &e);

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <unordered_set>
 
 namespace duckdb {
@@ -397,8 +398,30 @@ bool OpenDalFileSystem::IsManuallySet() {
 	return SchemeIsOverridden(t_last_scheme);
 }
 
+static void ValidateOpenFlags(FileOpenFlags flags, const std::string &path) {
+	if (!flags.OpenForReading() && !flags.OpenForWriting()) {
+		throw IOException("opendal: open requires read or write access: " + path);
+	}
+	if (flags.OpenForReading() && flags.OpenForWriting()) {
+		throw IOException("opendal: read-write handles are not supported: " + path);
+	}
+	if (flags.OpenForAppending()) {
+		throw IOException("opendal: append mode is not supported: " + path);
+	}
+	if (flags.CreateFileIfNotExists()) {
+		throw IOException("opendal: create-if-missing mode is not supported: " + path);
+	}
+	if (flags.ExclusiveCreate() || flags.CreatePrivateFile() || flags.ReturnNullIfExists()) {
+		throw IOException("opendal: exclusive/private creation is not supported: " + path);
+	}
+	if (flags.ReturnNullIfNotExists()) {
+		throw IOException("opendal: null-if-missing mode is not supported: " + path);
+	}
+}
+
 unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenFlags flags,
                                                    optional_ptr<FileOpener> opener) {
+	ValidateOpenFlags(flags, path);
 	std::string scheme, auth, rel;
 	if (!ParseUrl(path, scheme, auth, rel)) {
 		throw IOException("opendal: unrecognized URL: " + path);
@@ -406,6 +429,9 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	auto *op = OperatorFor(scheme, auth, path, opener);
 
 	if (flags.OpenForWriting()) {
+		if (!flags.OverwriteExistingFile()) {
+			throw IOException("opendal: write opens must explicitly overwrite the destination: " + path);
+		}
 		// Streaming, append-only write. OpenDAL overwrites any existing object
 		// on close. (Read-modify-write / partial overwrite is not supported.)
 		OdError werr = {};
@@ -445,8 +471,11 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	ClearError(rerr);
 	std::unique_ptr<OdReader, void (*)(OdReader *)> reader_guard(reader, FreeReader);
 
-	auto handle =
-	    make_uniq<OpenDalFileHandle>(*this, path, flags, reader, (int64_t)meta.content_length, meta.last_modified_ms);
+	if (meta.content_length > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+		throw IOException("opendal: file size exceeds DuckDB's signed 64-bit limit: " + path);
+	}
+	auto handle = make_uniq<OpenDalFileHandle>(*this, path, flags, reader, static_cast<int64_t>(meta.content_length),
+	                                          meta.last_modified_ms);
 	reader_guard.release();
 	handle->on_disk = false;
 	if (opener) {
@@ -459,6 +488,12 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 // ─── Write (streaming, append-only) ─────────────────────────────────────────
 void OpenDalFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) {
 	auto &h = handle.Cast<OpenDalFileHandle>();
+	if (nr_bytes < 0) {
+		throw IOException("opendal: negative write length for " + h.path);
+	}
+	if (location > static_cast<idx_t>(std::numeric_limits<int64_t>::max())) {
+		throw IOException("opendal: write offset exceeds DuckDB's signed 64-bit limit: " + h.path);
+	}
 	if (!h.writer) {
 		throw IOException("opendal: write on a non-writable handle: " + h.path);
 	}
@@ -467,10 +502,13 @@ void OpenDalFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes
 	}
 	// OpenDAL writers are append-only. DuckDB's Parquet/CSV writers emit data
 	// sequentially, so `location` must equal the running byte count.
-	if ((int64_t)location != h.bytes_written) {
+	if (static_cast<int64_t>(location) != h.bytes_written) {
 		throw IOException("opendal: non-sequential write at offset " + std::to_string((int64_t)location) +
 		                  " (expected " + std::to_string(h.bytes_written) +
 		                  "); random-access writes are not supported for " + h.path);
+	}
+	if (nr_bytes > std::numeric_limits<int64_t>::max() - h.bytes_written) {
+		throw IOException("opendal: written byte count overflows signed 64-bit range: " + h.path);
 	}
 	OdError err = {};
 	if (od_writer_write(h.writer, static_cast<const uint8_t *>(buffer), (uint64_t)nr_bytes, &err) != 0) {
@@ -507,6 +545,13 @@ void OpenDalFileSystem::FileSync(FileHandle &handle) {
 // Positioned read — one FFI call → one OpenDAL ranged read into DuckDB's buffer.
 void OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) {
 	auto &h = handle.Cast<OpenDalFileHandle>();
+	if (nr_bytes < 0) {
+		throw IOException("opendal: negative read length for " + h.path);
+	}
+	if (location > static_cast<idx_t>(std::numeric_limits<int64_t>::max()) ||
+	    static_cast<uint64_t>(nr_bytes) > std::numeric_limits<uint64_t>::max() - location) {
+		throw IOException("opendal: read range exceeds supported limits: " + h.path);
+	}
 	if (!h.reader) {
 		throw IOException("opendal: read on closed handle: " + h.path);
 	}
@@ -529,6 +574,9 @@ void OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes,
 // Sequential read from the current position.
 int64_t OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes) {
 	auto &h = handle.Cast<OpenDalFileHandle>();
+	if (nr_bytes < 0) {
+		throw IOException("opendal: negative read length for " + h.path);
+	}
 	if (!h.reader) {
 		throw IOException("opendal: read on closed handle: " + h.path);
 	}
@@ -559,7 +607,7 @@ timestamp_t OpenDalFileSystem::GetLastModifiedTime(FileHandle &handle) {
 	if (h.last_modified_ms >= 0) {
 		return Timestamp::FromEpochMs(h.last_modified_ms);
 	}
-	return Timestamp::GetCurrentTimestamp();
+	return Timestamp::FromEpochMs(0);
 }
 
 FileType OpenDalFileSystem::GetFileType(FileHandle &handle) {

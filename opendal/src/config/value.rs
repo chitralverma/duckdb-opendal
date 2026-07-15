@@ -126,6 +126,10 @@ impl HumanDuration {
     pub(crate) fn get(self) -> Duration {
         self.0
     }
+
+    pub(crate) fn is_zero(self) -> bool {
+        self.0.is_zero()
+    }
 }
 
 pub(crate) fn non_empty_path(section: &str, key: &str, value: &str) -> Result<PathBuf, String> {

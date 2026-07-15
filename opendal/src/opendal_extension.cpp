@@ -94,7 +94,17 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// One-time init of the Rust core: populate OpenDAL's service registry and
 	// install the rustls (ring) crypto provider + reqwest HTTP transport. Must
 	// run before any operator is built (idempotent).
-	od_init();
+	OdError init_error = {};
+	if (od_init(&init_error) != 0) {
+		std::string message = init_error.message ? std::string(init_error.message) : std::string("unknown error");
+		if (init_error.message) {
+			od_string_free(init_error.message);
+		}
+		throw IOException("opendal: initialization failed: " + message);
+	}
+	if (init_error.message) {
+		od_string_free(init_error.message);
+	}
 
 	// Register the OpenDAL filesystem as a DuckDB subsystem. From here, any URL
 	// with a supported OpenDAL scheme (fs://, memory://, …) is served through

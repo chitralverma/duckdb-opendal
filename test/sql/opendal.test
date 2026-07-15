@@ -409,6 +409,19 @@ RESET opendal_retry_config;
 statement ok
 RESET opendal_timeout_config;
 
+# A zero timeout would make every operation fail immediately and is almost
+# always an accidental attempt to disable the layer. Omit the section instead.
+statement ok
+SET GLOBAL opendal_timeout_config = MAP{'operation_timeout':'0s'};
+
+statement error
+SELECT * FROM opendal_stat('fs:///__TEST_DIR__/w_out.parquet');
+----
+duration must be positive
+
+statement ok
+RESET opendal_timeout_config;
+
 statement ok
 RESET opendal_cache_config;
 

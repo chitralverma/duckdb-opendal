@@ -117,4 +117,20 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn rejects_zero_timeouts() {
+        for key in ["operation_timeout", "io_timeout"] {
+            let error = match OperatorConfig::parse(
+                [(format!("timeout.{key}"), "0s".to_string())]
+                    .into_iter()
+                    .collect(),
+                None,
+            ) {
+                Ok(_) => panic!("accepted zero {key}"),
+                Err(error) => error,
+            };
+            assert!(error.contains("duration must be positive"), "{error}");
+        }
+    }
 }

@@ -20,13 +20,15 @@ impl TimeoutConfig {
         }
         let mut config = Self::default();
         for (key, value) in values {
+            let parsed = HumanDuration::parse("timeout", &key, &value)?;
+            if parsed.is_zero() {
+                return Err(format!(
+                    "invalid timeout.{key}='{value}': duration must be positive"
+                ));
+            }
             match key.as_str() {
-                "operation_timeout" => {
-                    config.operation_timeout = Some(HumanDuration::parse("timeout", &key, &value)?)
-                }
-                "io_timeout" => {
-                    config.io_timeout = Some(HumanDuration::parse("timeout", &key, &value)?)
-                }
+                "operation_timeout" => config.operation_timeout = Some(parsed),
+                "io_timeout" => config.io_timeout = Some(parsed),
                 _ => return Err(unknown("timeout", &key)),
             }
         }
