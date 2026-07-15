@@ -72,6 +72,22 @@ OpenDAL is pinned to upstream commit
 `OperatorRegistry::schemes()` from PR #7908. Cargo.lock pins the facade, core,
 service, layer, and HTTP-transport crates to that same workspace commit.
 
+DuckDB may map an unregistered secret type to another known extension. For
+example, `TYPE gcs` maps to `httpfs`; with `autoload_known_extensions=true`,
+DuckDB tries to load httpfs instead of returning only a missing-type error. To
+inspect this extension's compiled secret types without autoloading another
+extension, run:
+
+```sql
+SET autoload_known_extensions = false;
+CREATE SECRET gcs_not_compiled (TYPE gcs, config MAP{});
+```
+
+If both extensions are needed, load `httpfs` before `opendal`. Loading httpfs
+after opendal can fail on their shared `TYPE s3`; DuckDB extension loading is not
+transactional, so retrying that failed httpfs load can then report that
+`HTTPFileSystem` is already registered.
+
 ## Global defaults
 
 The cross-service sections have matching global DuckDB settings:

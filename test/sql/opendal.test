@@ -329,6 +329,12 @@ CREATE SECRET fs_registry (TYPE fs, SCOPE 'fs://', io_config MAP{'read.concurren
 statement ok
 CREATE SECRET memory_registry (TYPE memory, SCOPE 'memory://', timeout_config MAP{'operation_timeout':'1s'});
 
+# DuckDB maps unknown GCS secret types to httpfs. Disable known-extension
+# autoload explicitly so this assertion tests our compiled registry without
+# partially loading httpfs after opendal (that load order collides on TYPE s3).
+statement ok
+SET autoload_known_extensions = false;
+
 statement error
 CREATE SECRET gcs_not_compiled (TYPE gcs, config MAP{});
 ----
