@@ -87,10 +87,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
   corrosion_set_env_vars(${RUST_LIB} "CARGO_PROFILE_RELEASE_LTO=true")
 endif()
 
-if(WIN32 AND MSVC)
-  # DuckDB links the MSVC runtime statically (/MT). Force Cargo/rustc to compile with target-feature=+crt-static to match.
-  corrosion_set_env_vars(${RUST_LIB} "RUSTFLAGS=-C target-feature=+crt-static")
-endif()
+
 
 set(EXTENSION_SOURCES
     src/opendal_extension.cpp
