@@ -1,102 +1,170 @@
-# Quack
+# duckdb-opendal (`opendal`)
 
-This repository is based on https://github.com/duckdb/extension-template, check it out if you want to build and ship your own DuckDB extension.
+A DuckDB extension that integrates [Apache OpenDAL](https://opendal.apache.org/) as a virtual filesystem, enabling transparent read and write access to multiple storage backends through a unified SQL interface.
+
+Query, glob, and write files (Parquet, CSV, JSON, etc.) directly on remote and local storage using standard SQL.
 
 ---
 
-This extension, Quack, allow you to ... <extension_goal>.
+## Key Features
 
+- **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `s3://`, and `memory://`) directly within DuckDB queries.
+- **Table Functions**:
+  - `opendal_version()` — Returns extension and core OpenDAL library versions.
+  - `opendal_stat()` — Returns metadata for a single path (such as mode, size, and user_metadata).
+  - `opendal_ls()` — Lists files and subdirectories with optional recursion.
+  - `opendal_glob()` — Performs pattern-based file listing.
+  - `opendal_du()` — Returns aggregated size rollups grouped by parent directory.
+  - `opendal_copy()` — Efficiently copies objects within or across storage services (drains OpenDAL's native server-side `Copier` where supported, or falls back to chunked streaming).
+- **Scoped Secrets**: Configure credentials, custom endpoints, and regions with bucket/path specificity using DuckDB's native secret manager.
+- **Configurable Layers**: Tuning of retry behavior, timeout ceilings, concurrent request limits, and data caching per secret or globally.
+- **Built-in Data Caching**: Support for in-memory and persistent on-disk data caching (leveraging Foyer) without any manual query adjustments.
+- **Coexistence Layer**: Dynamically delegate specific schemes (like `s3://`) to `opendal` instead of native extensions (like `httpfs`) using `opendal_override_native_filesystems`.
 
-## Building
-### Managing dependencies
-DuckDB extensions uses VCPKG for dependency management. Enabling VCPKG is very simple: follow the [installation instructions](https://vcpkg.io/en/getting-started) or just run the following:
-```shell
-git clone https://github.com/Microsoft/vcpkg.git
-./vcpkg/bootstrap-vcpkg.sh
-export VCPKG_TOOLCHAIN_PATH=`pwd`/vcpkg/scripts/buildsystems/vcpkg.cmake
+---
+
+## SQL Usage Examples
+
+### 1. Simple Local Read & Write
+
+Ensure the local filesystem root is configured via secrets:
+
+```sql
+-- Register a secret for local filesystem access
+CREATE SECRET local_root (
+    TYPE fs,
+    SCOPE 'fs://',
+    config MAP{'root': '.'}
+);
+
+-- Write a Parquet file to a relative path
+COPY (SELECT range AS id, range * 2 AS doubled FROM range(1000))
+TO 'fs:///output_data.parquet' (FORMAT parquet);
+
+-- Read the Parquet file back
+SELECT count(*), sum(doubled)
+FROM read_parquet('fs:///output_data.parquet');
 ```
-Note: VCPKG is only required for extensions that want to rely on it for dependency management. If you want to develop an extension without dependencies, or want to do your own dependency management, just skip this step. Note that the example extension uses VCPKG to build with a dependency for instructive purposes, so when skipping this step the build may not work without removing the dependency.
 
-### Build steps
-Now to build the extension, run:
+### 2. S3 / Object Storage Configuration
+
+Configure S3 options under a scoped secret:
+
+```sql
+CREATE SECRET warehouse (
+    TYPE s3,
+    SCOPE 's3://warehouse-bucket',
+    config MAP{
+        'access_key_id': 'your-access-key',
+        'secret_access_key': 'your-secret-key',
+        'region': 'us-east-1',
+        'endpoint': 'http://127.0.0.1:9000'
+    },
+    io_config MAP{
+        'read.concurrent': '4',
+        'read.chunk_size': '8 MiB',
+        'write.concurrent': '4',
+        'write.chunk_size': '8 MiB'
+    },
+    retry_config MAP{
+        'max_times': '5',
+        'jitter': 'true'
+    }
+);
+
+-- Read from the S3 bucket
+SELECT * FROM read_parquet('s3://warehouse-bucket/data/**/*.parquet');
+```
+
+### 3. Storage Utilities & Table Functions
+
+```sql
+-- Stat a file
+SELECT * FROM opendal_stat('s3://warehouse-bucket/data/file.parquet');
+
+-- List directory contents recursively
+SELECT name, metadata.content_length
+FROM opendal_ls('s3://warehouse-bucket/data/', recursive := true);
+
+-- Calculate disk usage rollup
+SELECT parent, file_count, total_size
+FROM opendal_du('s3://warehouse-bucket/data/');
+
+-- Copy files across services
+SELECT * FROM opendal_copy(
+    's3://warehouse-bucket/data/input.csv',
+    'fs:///local_backups/backup.csv'
+);
+```
+
+### 4. Native Coexistence
+
+By default, DuckDB routes `s3://` and `gcs://` to its native `httpfs` extension. You can instruct `opendal` to take precedence for specific schemes using:
+
+```sql
+-- Let opendal handle s3:// and gcs:// queries
+SET opendal_override_native_filesystems = 's3,gcs';
+
+-- Queries under these schemes now run through opendal's filesystem registry
+SELECT * FROM read_parquet('s3://my-bucket/dataset.parquet');
+
+-- Revert back to httpfs handling
+SET opendal_override_native_filesystems = '';
+```
+
+---
+
+## Building from Source
+
+### Prerequisites
+
+- **Rust toolchain** (stable, MSRV 1.91+)
+- **CMake** (v3.22+)
+- **Compiler**: GCC / Clang (Linux/macOS) or MSVC (Windows)
+- **Ninja** or **Make**
+
+### Build Steps
+
+Clone the repository and submodules:
 ```sh
+git clone --recurse-submodules https://github.com/chitralverma/duckdb-opendal.git
+cd duckdb-opendal
+```
+
+Build the extension:
+```sh
+# Defaults to Makefile generator
 make
-```
-The main binaries that will be built are:
-```sh
-./build/release/duckdb
-./build/release/test/unittest
-./build/release/extension/quack/quack.duckdb_extension
-```
-- `duckdb` is the binary for the duckdb shell with the extension code automatically loaded.
-- `unittest` is the test runner of duckdb. Again, the extension is already linked into the binary.
-- `quack.duckdb_extension` is the loadable binary as it would be distributed.
 
-## Running the extension
-To run the extension code, simply start the shell with `./build/release/duckdb`.
-
-Now we can use the features from the extension directly in DuckDB. The template contains a single scalar function `quack()` that takes a string arguments and returns a string:
-```
-D select quack('Jane') as result;
-┌───────────────┐
-│    result     │
-│    varchar    │
-├───────────────┤
-│ Quack Jane 🐥 │
-└───────────────┘
+# Or build using Ninja (recommended)
+GEN=ninja make
 ```
 
-## Running the tests
-Different tests can be created for DuckDB extensions. The primary way of testing DuckDB extensions should be the SQL tests in `./test/sql`. These SQL tests can be run using:
+This will compile the Rust core FFI crate, C++ wrapper extension, and produce the loadable binary:
+- `./build/release/duckdb` (DuckDB shell with the extension preloaded)
+- `./build/release/extension/opendal/opendal.duckdb_extension` (the loadable binary)
+
+---
+
+## Testing
+
+Run the SQL logic tests:
 ```sh
 make test
 ```
 
-### Installing the deployed binaries
-To install your extension binaries from S3, you will need to do two things. Firstly, DuckDB should be launched with the
-`allow_unsigned_extensions` option set to true. How to set this will depend on the client you're using. Some examples:
-
-CLI:
-```shell
-duckdb -unsigned
+Run the Rust core unit tests:
+```sh
+make rust-test
 ```
 
-Python:
-```python
-con = duckdb.connect(':memory:', config={'allow_unsigned_extensions' : 'true'})
+Run code formatting checks:
+```sh
+uv run make format-all
 ```
 
-NodeJS:
-```js
-db = new duckdb.Database(':memory:', {"allow_unsigned_extensions": "true"});
-```
+---
 
-Secondly, you will need to set the repository endpoint in DuckDB to the HTTP url of your bucket + version of the extension
-you want to install. To do this run the following SQL query in DuckDB:
-```sql
-SET custom_extension_repository='bucket.s3.eu-west-1.amazonaws.com/<your_extension_name>/latest';
-```
-Note that the `/latest` path will allow you to install the latest extension version available for your current version of
-DuckDB. To specify a specific version, you can pass the version instead.
+## License
 
-After running these steps, you can install and load your extension using the regular INSTALL/LOAD commands in DuckDB:
-```sql
-INSTALL quack;
-LOAD quack;
-```
-
-## Setting up CLion
-
-### Opening project
-Configuring CLion with this extension requires a little work. Firstly, make sure that the DuckDB submodule is available.
-Then make sure to open `./duckdb/CMakeLists.txt` (so not the top level `CMakeLists.txt` file from this repo) as a project in CLion.
-Now to fix your project path go to `tools->CMake->Change Project Root`([docs](https://www.jetbrains.com/help/clion/change-project-root-directory.html)) to set the project root to the root dir of this repo.
-
-### Debugging
-To set up debugging in CLion, there are two simple steps required. Firstly, in `CLion -> Settings / Preferences -> Build, Execution, Deploy -> CMake` you will need to add the desired builds (e.g. Debug, Release, RelDebug, etc). There's different ways to configure this, but the easiest is to leave all empty, except the `build path`, which needs to be set to `../build/{build type}`, and CMake Options to which the following flag should be added, with the path to the extension CMakeList:
-
-```
--DDUCKDB_EXTENSION_CONFIGS=<path_to_the_exentension_CMakeLists.txt>
-```
-
-The second step is to configure the unittest runner as a run/debug configuration. To do this, go to `Run -> Edit Configurations` and click `+ -> Cmake Application`. The target and executable should be `unittest`. This will run all the DuckDB tests. To specify only running the extension specific tests, add `--test-dir ../../.. [sql]` to the `Program Arguments`. Note that it is recommended to use the `unittest` executable for testing/development within CLion. The actual DuckDB CLI currently does not reliably work as a run target in CLion.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
