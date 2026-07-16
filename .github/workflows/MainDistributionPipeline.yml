@@ -44,7 +44,7 @@ jobs:
       contents: write
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -55,7 +55,7 @@ jobs:
           ls -la dist || true
 
       - name: Create draft release and upload assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           name: duckdb-opendal ${{ github.ref_name }}
