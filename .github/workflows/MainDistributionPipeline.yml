@@ -20,9 +20,10 @@ jobs:
       ci_tools_version: v1.5-variegata
       extension_name: opendal
       extra_toolchains: "rust"
-      # WASM excluded: extension-ci-tools pins rust-toolchain@1.86 which is below
-      # opendal's MSRV (1.91). See https://github.com/duckdb/extension-ci-tools/issues/385
-      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads'
+      # Exclude:
+      # - WASM targets: extension-ci-tools pins rust-toolchain@1.86 which is below opendal's MSRV (1.91). See https://github.com/duckdb/extension-ci-tools/issues/385
+      # - Windows MinGW target: Rtools MinGW toolchain is missing libgcc_eh.a which is required by rustc for the gnu target. Rely on standard MSVC instead.
+      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw'
 
   code-quality-check:
     name: Code Quality Check
