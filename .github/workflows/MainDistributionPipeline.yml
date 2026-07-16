@@ -47,11 +47,27 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: dist
-          merge-multiple: true
 
-      - name: List artifacts
+      - name: Rename and flatten artifacts
         run: |
-          echo "Downloaded artifacts to: $(pwd)/dist"
+          echo "Processing downloaded artifacts:"
+          ls -R dist || true
+          for dir in dist/*/; do
+            if [ -d "$dir" ]; then
+              dir_name=$(basename "$dir")
+              echo "Processing directory: $dir_name"
+              for file in "$dir"*; do
+                if [ -f "$file" ]; then
+                  ext="${file##*.}"
+                  dest="dist/${dir_name}.${ext}"
+                  echo "Renaming $file to $dest"
+                  mv "$file" "$dest"
+                fi
+              done
+              rm -rf "$dir"
+            fi
+          done
+          echo "Flattened artifacts:"
           ls -la dist || true
 
       - name: Create draft release and upload assets
