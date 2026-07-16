@@ -8,7 +8,7 @@ test/python/__pycache__/
 .Rhistory
 
 # cbindgen-generated FFI header
-opendal/src/include/rust.h
+src/include/rust.h
 
 # Rust build output
 target/

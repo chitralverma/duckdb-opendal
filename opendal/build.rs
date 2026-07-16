@@ -9,8 +9,10 @@ use std::path::PathBuf;
 fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
 
-    // C++ and Rust share this crate's src/; emit the header into src/include.
+    // C++ lives in {root}/src/; emit the header into {root}/src/include.
     let out_path = PathBuf::from(&crate_dir)
+        .parent()
+        .expect("failed to get crate parent directory")
         .join("src")
         .join("include")
         .join("rust.h");

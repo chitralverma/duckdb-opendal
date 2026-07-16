@@ -72,13 +72,13 @@ corrosion_import_crate(
 # ─────────────────────────────────────────────────────────────────────────────
 # Extension
 # ─────────────────────────────────────────────────────────────────────────────
-include_directories(opendal/src/include)
+include_directories(src/include)
 
 set(EXTENSION_SOURCES
-    opendal/src/opendal_extension.cpp
-    opendal/src/opendal_filesystem.cpp
-    opendal/src/opendal_table_functions.cpp
-    opendal/src/opendal_secret.cpp)
+    src/opendal_extension.cpp
+    src/opendal_filesystem.cpp
+    src/opendal_table_functions.cpp
+    src/opendal_secret.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
