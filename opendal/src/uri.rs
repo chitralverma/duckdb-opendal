@@ -8,10 +8,11 @@ use crate::ffi::cstr;
 pub(crate) unsafe fn resolve(
     url: *const c_char,
 ) -> Result<(CString, CString, CString), (OdErrorCode, String)> {
-    let url = cstr(url).ok_or((
+    let url_str = cstr(url).ok_or((
         OdErrorCode::InvalidInput,
         "url is null or not UTF-8".to_string(),
     ))?;
+    let url = url_str.replace('\\', "/");
     if url.contains('?') || url.contains('#') {
         return Err((
             OdErrorCode::InvalidInput,
