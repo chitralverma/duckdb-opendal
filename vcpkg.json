@@ -2,10 +2,10 @@
     "dependencies": [],
     "vcpkg-configuration": {
         "overlay-ports": [
-            "./external/extension-ci-tools/vcpkg_ports"
+            "./extension-ci-tools/vcpkg_ports"
         ],
         "overlay-triplets": [
-            "./external/extension-ci-tools/toolchains"
+            "./extension-ci-tools/toolchains"
         ]
     }
 }
