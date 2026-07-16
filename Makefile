@@ -25,10 +25,7 @@ rust-test: ## Run the Rust unit tests
 rust-fmt: ## Format the Rust sources
 	cargo fmt --manifest-path $(CARGO_MANIFEST)
 
-cpp-fmt: ## Format the C++ sources
-	uv run duckdb/scripts/format.py --all --fix --noconfirm --directories opendal/src test
-
-format-all: cpp-fmt rust-fmt ## Format both C++ and Rust sources
+format-all: format rust-fmt ## Format both C++ and Rust sources
 
 rust-lint: ## Lint the Rust sources (clippy, warnings as errors)
 	cargo clippy --release --manifest-path $(CARGO_MANIFEST) -- -D warnings
