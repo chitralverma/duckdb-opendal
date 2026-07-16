@@ -16,25 +16,19 @@ fn main() {
         .join("rust.h");
 
     if let Some(parent) = out_path.parent() {
-        std::fs::create_dir_all(parent).ok();
+        std::fs::create_dir_all(parent).expect("failed to create rust.h output directory");
     }
 
     let config = cbindgen::Config::from_file(PathBuf::from(&crate_dir).join("cbindgen.toml"))
         .expect("failed to read cbindgen.toml");
 
-    match cbindgen::Builder::new()
+    let bindings = cbindgen::Builder::new()
         .with_crate(&crate_dir)
         .with_config(config)
         .generate()
-    {
-        Ok(bindings) => {
-            bindings.write_to_file(&out_path);
-        }
-        Err(e) => {
-            // Don't hard-fail the build if header generation hiccups; print so it's visible.
-            println!("cargo:warning=cbindgen failed to generate rust.h: {e}");
-        }
-    }
+        .expect("cbindgen failed to generate rust.h");
+    // cbindgen panics on create/write failures; false only means unchanged/no-op.
+    bindings.write_to_file(&out_path);
 
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=src/uri.rs");
