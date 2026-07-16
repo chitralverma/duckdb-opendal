@@ -17,7 +17,7 @@ use std::ffi::{c_char, CString};
 
 use opendal::Capability;
 
-use crate::error::{set_error, OdError, OdErrorCode};
+use crate::error::{set_error, set_ok, OdError, OdErrorCode};
 use crate::ffi::{ffi_guard, free_handle};
 use crate::operator::OdOperator;
 
@@ -154,21 +154,24 @@ pub unsafe extern "C" fn od_capabilities_entry(
     list: *const OdCapabilityList,
     index: usize,
     out: *mut OdCapability,
+    err: *mut OdError,
 ) -> u8 {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    ffi_guard!(err, 0, "od_capabilities_entry", {
         if list.is_null() || out.is_null() {
-            return 0u8;
+            set_error(err, OdErrorCode::InvalidInput, "null list or out parameter");
+            return 0;
         }
         let items = &(*list).items;
         if index >= items.len() {
+            set_error(err, OdErrorCode::InvalidInput, "index out of bounds");
             return 0;
         }
         let (name, supported) = &items[index];
         (*out).name = name.as_ptr();
         (*out).supported = if *supported { 1 } else { 0 };
+        set_ok(err);
         1
-    }));
-    result.unwrap_or(0)
+    })
 }
 
 /// Free a capability list. Safe with null (no-op).

@@ -113,6 +113,11 @@ pub unsafe extern "C" fn od_glob_match(pattern: *const c_char, path: *const c_ch
 }
 
 /// Build a public URL from resolved scheme/authority and operation path.
+///
+/// # Safety
+///
+/// `scheme`, `authority`, and `path` must be valid, non-null, NUL-terminated C strings.
+/// The returned pointer must be freed with [`od_string_free`].
 #[no_mangle]
 pub unsafe extern "C" fn od_url_build(
     scheme: *const c_char,
@@ -366,7 +371,8 @@ mod tests {
                 last_modified_ms: 0,
                 is_dir: 0,
             };
-            assert_eq!(unsafe { od_list_entry(list, i, &mut ent) }, 1);
+            let mut err = OdError::ok();
+            assert_eq!(unsafe { od_list_entry(list, i, &mut ent, &mut err) }, 1);
             if ent.is_dir == 0 {
                 files += 1;
                 let name = unsafe { CStr::from_ptr(ent.name) }.to_str().unwrap();
@@ -740,7 +746,11 @@ mod tests {
                 name: std::ptr::null(),
                 supported: 0,
             };
-            assert_eq!(unsafe { od_capabilities_entry(list, i, &mut ent) }, 1);
+            let mut err = OdError::ok();
+            assert_eq!(
+                unsafe { od_capabilities_entry(list, i, &mut ent, &mut err) },
+                1
+            );
             let name = unsafe { CStr::from_ptr(ent.name) }
                 .to_str()
                 .unwrap()

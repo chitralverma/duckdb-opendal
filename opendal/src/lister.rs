@@ -157,16 +157,19 @@ pub unsafe extern "C" fn od_list_entry(
     list: *const OdEntryList,
     index: usize,
     out: *mut OdEntry,
+    err: *mut OdError,
 ) -> u8 {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    ffi_guard!(err, 0, "od_list_entry", {
         if !out.is_null() {
             *out = OdEntry::empty();
         }
         if list.is_null() || out.is_null() {
-            return 0u8;
+            set_error(err, OdErrorCode::InvalidInput, "null list or out parameter");
+            return 0;
         }
         let list_ref = &(*list);
         if index >= list_ref.entries.len() {
+            set_error(err, OdErrorCode::InvalidInput, "index out of bounds");
             return 0;
         }
         let (path_ptr, name_ptr) = cached_ptrs(list_ref, index);
@@ -182,9 +185,9 @@ pub unsafe extern "C" fn od_list_entry(
             last_modified_ms,
             is_dir: if meta.is_dir() { 1 } else { 0 },
         };
+        set_ok(err);
         1
-    }));
-    result.unwrap_or(0)
+    })
 }
 
 /// Free an entry list. Safe to call with null (no-op).

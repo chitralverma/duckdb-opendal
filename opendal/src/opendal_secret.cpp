@@ -73,14 +73,9 @@ void RegisterOpenDalSecrets(ExtensionLoader &loader) {
 	OdError err = {};
 	std::unique_ptr<OdSchemeList, void (*)(OdSchemeList *)> schemes(od_schemes(&err), od_schemes_free);
 	if (!schemes) {
-		std::string message = err.message ? std::string(err.message) : std::string("unknown error");
-		if (err.message) {
-			od_string_free(err.message);
-		}
-		throw IOException("opendal: failed to enumerate registered schemes: " + message);
-	}
-	if (err.message) {
+		std::string message = std::string(err.message);
 		od_string_free(err.message);
+		throw IOException("opendal: failed to enumerate registered schemes: " + message);
 	}
 	for (idx_t index = 0; index < od_schemes_len(schemes.get()); index++) {
 		auto scheme = od_schemes_entry(schemes.get(), index);

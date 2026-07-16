@@ -79,13 +79,9 @@ static void ThrowIfError(OdError &err, const std::string &context) {
 	if (err.code == OdErrorCode::Ok) {
 		return;
 	}
-	std::string msg = context;
-	if (err.message) {
-		msg += ": ";
-		msg += err.message;
-		od_string_free(err.message);
-		err.message = nullptr;
-	}
+	std::string msg = context + ": " + err.message;
+	od_string_free(err.message);
+	err.message = nullptr;
 	throw IOException(msg);
 }
 
@@ -161,7 +157,7 @@ void OpenDalFileHandle::CloseInternal(bool throw_on_error) {
 		od_writer_free(writer);
 		writer = nullptr;
 		if (throw_on_error && !close_error.empty()) {
-			throw IOException("opendal close (write): " + path + ": " + close_error);
+			throw IOException("opendal: close (write): " + path + ": " + close_error);
 		}
 	}
 }
@@ -204,7 +200,7 @@ std::string OpenDalFileSystem::BuildUrl(const std::string &scheme, const std::st
                                         const std::string &entry_path) {
 	auto raw = od_url_build(scheme.c_str(), authority.c_str(), entry_path.c_str());
 	if (!raw) {
-		throw IOException("opendal: failed to build public URL");
+		throw IOException("opendal: url_build: failed to build public URL");
 	}
 	std::string result(raw);
 	od_string_free(raw);
@@ -234,7 +230,7 @@ static void ApplySecret(optional_ptr<ClientContext> context, optional_ptr<Databa
 	const auto &base = *match.secret_entry->secret;
 	auto kv = dynamic_cast<const KeyValueSecret *>(&base);
 	if (!kv) {
-		throw IOException("opendal: matched secret for '" + url + "' is not a key-value secret");
+		throw IOException("opendal: secret: matched secret is not a key-value secret: " + url);
 	}
 	for (auto &entry : kv->secret_map) {
 		const std::string &k = entry.first;
@@ -360,7 +356,6 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	    option_val_ptrs.empty() ? nullptr : option_val_ptrs.data(), option_keys.size(), cache_namespace.c_str(), &err);
 	if (!op) {
 		ThrowIfError(err, "opendal: failed to create operator for '" + uri + "'");
-		throw IOException("opendal: null operator for '" + uri + "'");
 	}
 	ClearError(err);
 	if (auto warning = od_operator_warning(op)) {
@@ -400,22 +395,22 @@ bool OpenDalFileSystem::IsManuallySet() {
 
 static void ValidateOpenFlags(FileOpenFlags flags, const std::string &path) {
 	if (!flags.OpenForReading() && !flags.OpenForWriting()) {
-		throw IOException("opendal: open requires read or write access: " + path);
+		throw IOException("opendal: open: requires read or write access: " + path);
 	}
 	if (flags.OpenForReading() && flags.OpenForWriting()) {
-		throw IOException("opendal: read-write handles are not supported: " + path);
+		throw IOException("opendal: open: read-write handles are not supported: " + path);
 	}
 	if (flags.OpenForAppending()) {
-		throw IOException("opendal: append mode is not supported: " + path);
+		throw IOException("opendal: open: append mode is not supported: " + path);
 	}
 	if (flags.CreateFileIfNotExists()) {
-		throw IOException("opendal: create-if-missing mode is not supported: " + path);
+		throw IOException("opendal: open: create-if-missing mode is not supported: " + path);
 	}
 	if (flags.ExclusiveCreate() || flags.CreatePrivateFile() || flags.ReturnNullIfExists()) {
-		throw IOException("opendal: exclusive/private creation is not supported: " + path);
+		throw IOException("opendal: open: exclusive/private creation is not supported: " + path);
 	}
 	if (flags.ReturnNullIfNotExists()) {
-		throw IOException("opendal: null-if-missing mode is not supported: " + path);
+		throw IOException("opendal: open: null-if-missing mode is not supported: " + path);
 	}
 }
 
@@ -424,21 +419,20 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	ValidateOpenFlags(flags, path);
 	std::string scheme, auth, rel;
 	if (!ParseUrl(path, scheme, auth, rel)) {
-		throw IOException("opendal: unrecognized URL: " + path);
+		throw IOException("opendal: open: unrecognized URL: " + path);
 	}
 	auto *op = OperatorFor(scheme, auth, path, opener);
 
 	if (flags.OpenForWriting()) {
 		if (!flags.OverwriteExistingFile()) {
-			throw IOException("opendal: write opens must explicitly overwrite the destination: " + path);
+			throw IOException("opendal: open: write opens must explicitly overwrite the destination: " + path);
 		}
 		// Streaming, append-only write. OpenDAL overwrites any existing object
 		// on close. (Read-modify-write / partial overwrite is not supported.)
 		OdError werr = {};
 		OdWriter *writer = od_writer_open(op, rel.c_str(), &werr);
 		if (!writer) {
-			ThrowIfError(werr, "opendal open (write): " + path);
-			throw IOException("opendal: null writer for " + path);
+			ThrowIfError(werr, "opendal: open (write): " + path);
 		}
 		ClearError(werr);
 		std::unique_ptr<OdWriter, void (*)(OdWriter *)> writer_guard(writer, AbortAndFreeWriter);
@@ -457,25 +451,24 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	OdMetadata meta = {};
 	OdError serr = {};
 	od_stat(op, rel.c_str(), &meta, &serr);
-	ThrowIfError(serr, "opendal stat: " + path);
+	ThrowIfError(serr, "opendal: stat: " + path);
 	if (meta.is_dir) {
-		throw IOException("opendal: cannot open directory as file: " + path);
+		throw IOException("opendal: open: cannot open directory as file: " + path);
 	}
 
 	OdError rerr = {};
 	OdReader *reader = od_reader_open(op, rel.c_str(), &rerr);
 	if (!reader) {
-		ThrowIfError(rerr, "opendal open: " + path);
-		throw IOException("opendal: null reader for " + path);
+		ThrowIfError(rerr, "opendal: open: " + path);
 	}
 	ClearError(rerr);
 	std::unique_ptr<OdReader, void (*)(OdReader *)> reader_guard(reader, FreeReader);
 
 	if (meta.content_length > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-		throw IOException("opendal: file size exceeds DuckDB's signed 64-bit limit: " + path);
+		throw IOException("opendal: open: file size exceeds signed 64-bit limit: " + path);
 	}
 	auto handle = make_uniq<OpenDalFileHandle>(*this, path, flags, reader, static_cast<int64_t>(meta.content_length),
-	                                          meta.last_modified_ms);
+	                                           meta.last_modified_ms);
 	reader_guard.release();
 	handle->on_disk = false;
 	if (opener) {
@@ -489,32 +482,30 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 void OpenDalFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) {
 	auto &h = handle.Cast<OpenDalFileHandle>();
 	if (nr_bytes < 0) {
-		throw IOException("opendal: negative write length for " + h.path);
+		throw IOException("opendal: write: negative length: " + h.path);
 	}
 	if (location > static_cast<idx_t>(std::numeric_limits<int64_t>::max())) {
-		throw IOException("opendal: write offset exceeds DuckDB's signed 64-bit limit: " + h.path);
+		throw IOException("opendal: write: offset exceeds signed 64-bit limit: " + h.path);
 	}
 	if (!h.writer) {
-		throw IOException("opendal: write on a non-writable handle: " + h.path);
+		throw IOException("opendal: write: handle is not writable: " + h.path);
 	}
 	if (h.write_finished) {
-		throw IOException("opendal write: writer is already finalized: " + h.path);
+		throw IOException("opendal: write: writer already finalized: " + h.path);
 	}
 	// OpenDAL writers are append-only. DuckDB's Parquet/CSV writers emit data
 	// sequentially, so `location` must equal the running byte count.
 	if (static_cast<int64_t>(location) != h.bytes_written) {
-		throw IOException("opendal: non-sequential write at offset " + std::to_string((int64_t)location) +
-		                  " (expected " + std::to_string(h.bytes_written) +
-		                  "); random-access writes are not supported for " + h.path);
+		throw IOException("opendal: write: non-sequential offset " + std::to_string((int64_t)location) + " (expected " +
+		                  std::to_string(h.bytes_written) + "): random-access writes are not supported: " + h.path);
 	}
 	if (nr_bytes > std::numeric_limits<int64_t>::max() - h.bytes_written) {
-		throw IOException("opendal: written byte count overflows signed 64-bit range: " + h.path);
+		throw IOException("opendal: write: byte count overflows signed 64-bit range: " + h.path);
 	}
 	OdError err = {};
 	if (od_writer_write(h.writer, static_cast<const uint8_t *>(buffer), (uint64_t)nr_bytes, &err) != 0) {
 		h.write_finished = true;
-		ThrowIfError(err, "opendal write: " + h.path);
-		throw IOException("opendal write failed: " + h.path);
+		ThrowIfError(err, "opendal: write: " + h.path);
 	}
 	ClearError(err);
 	DUCKDB_LOG_FILE_SYSTEM_WRITE(h, nr_bytes, (idx_t)h.bytes_written);
@@ -535,8 +526,7 @@ void OpenDalFileSystem::FileSync(FileHandle &handle) {
 	OdError err = {};
 	if (od_writer_close(h.writer, &err) != 0) {
 		h.write_finished = true;
-		ThrowIfError(err, "opendal close (write): " + h.path);
-		throw IOException("opendal close failed: " + h.path);
+		ThrowIfError(err, "opendal: close (write): " + h.path);
 	}
 	ClearError(err);
 	h.write_finished = true;
@@ -546,26 +536,25 @@ void OpenDalFileSystem::FileSync(FileHandle &handle) {
 void OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) {
 	auto &h = handle.Cast<OpenDalFileHandle>();
 	if (nr_bytes < 0) {
-		throw IOException("opendal: negative read length for " + h.path);
+		throw IOException("opendal: read: negative length: " + h.path);
 	}
 	if (location > static_cast<idx_t>(std::numeric_limits<int64_t>::max()) ||
 	    static_cast<uint64_t>(nr_bytes) > std::numeric_limits<uint64_t>::max() - location) {
-		throw IOException("opendal: read range exceeds supported limits: " + h.path);
+		throw IOException("opendal: read: range exceeds supported limits: " + h.path);
 	}
 	if (!h.reader) {
-		throw IOException("opendal: read on closed handle: " + h.path);
+		throw IOException("opendal: read: handle is closed: " + h.path);
 	}
 	OdError err = {};
 	int64_t n = od_reader_read(h.reader, (uint64_t)location, (uint64_t)nr_bytes, static_cast<uint8_t *>(buffer), &err);
 	if (n < 0) {
-		ThrowIfError(err, "opendal read: " + h.path);
-		throw IOException("opendal read failed: " + h.path);
+		ThrowIfError(err, "opendal: read: " + h.path);
 	}
 	ClearError(err);
 	// DuckDB's positioned Read must fill the whole buffer; a short read here is an error.
 	if (n != nr_bytes) {
-		throw IOException("opendal read: short read at offset " + std::to_string((int64_t)location) + " (" +
-		                  std::to_string(n) + " of " + std::to_string(nr_bytes) + " bytes) for " + h.path);
+		throw IOException("opendal: read: short read at offset " + std::to_string((int64_t)location) + " (" +
+		                  std::to_string(n) + " of " + std::to_string(nr_bytes) + " bytes): " + h.path);
 	}
 	DUCKDB_LOG_FILE_SYSTEM_READ(h, n, (idx_t)location);
 	h.position = (int64_t)location + n;
@@ -575,10 +564,10 @@ void OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes,
 int64_t OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes) {
 	auto &h = handle.Cast<OpenDalFileHandle>();
 	if (nr_bytes < 0) {
-		throw IOException("opendal: negative read length for " + h.path);
+		throw IOException("opendal: read: negative length: " + h.path);
 	}
 	if (!h.reader) {
-		throw IOException("opendal: read on closed handle: " + h.path);
+		throw IOException("opendal: read: handle is closed: " + h.path);
 	}
 	int64_t remaining = h.file_size - h.position;
 	if (remaining <= 0) {
@@ -589,8 +578,7 @@ int64_t OpenDalFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_byt
 	OdError err = {};
 	int64_t n = od_reader_read(h.reader, (uint64_t)h.position, (uint64_t)to_read, static_cast<uint8_t *>(buffer), &err);
 	if (n < 0) {
-		ThrowIfError(err, "opendal read: " + h.path);
-		throw IOException("opendal read failed: " + h.path);
+		ThrowIfError(err, "opendal: read: " + h.path);
 	}
 	ClearError(err);
 	DUCKDB_LOG_FILE_SYSTEM_READ(h, n, (idx_t)h.position);
@@ -629,7 +617,7 @@ bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpen
 		ClearError(err);
 		return false;
 	}
-	ThrowIfError(err, "opendal stat: " + filename);
+	ThrowIfError(err, "opendal: stat: " + filename);
 	return !meta.is_dir;
 }
 
@@ -646,7 +634,7 @@ bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<Fi
 		ClearError(err);
 		return false;
 	}
-	ThrowIfError(err, "opendal stat: " + directory);
+	ThrowIfError(err, "opendal: stat: " + directory);
 	return meta.is_dir;
 }
 
@@ -675,8 +663,7 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 			ClearError(err);
 			return false;
 		}
-		ThrowIfError(err, "opendal list: " + directory);
-		throw IOException("opendal: null list for " + directory);
+		ThrowIfError(err, "opendal: list: " + directory);
 	}
 	ClearError(err);
 	std::unique_ptr<OdEntryList, void (*)(OdEntryList *)> list_guard(list, od_list_free);
@@ -691,7 +678,9 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 	size_t n = od_list_len(list);
 	for (size_t i = 0; i < n; i++) {
 		OdEntry ent = {};
-		if (!od_list_entry(list, i, &ent)) {
+		OdError lerr = {};
+		if (!od_list_entry(list, i, &ent, &lerr)) {
+			ThrowIfError(lerr, "opendal: list entry: " + directory);
 			continue;
 		}
 		std::string epath = ent.path ? std::string(ent.path) : std::string();
@@ -767,8 +756,7 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 			ClearError(err);
 			return results;
 		}
-		ThrowIfError(err, "opendal glob: " + path);
-		throw IOException("opendal: null list for glob " + path);
+		ThrowIfError(err, "opendal: glob: " + path);
 	}
 	ClearError(err);
 	std::unique_ptr<OdEntryList, void (*)(OdEntryList *)> list_guard(list, od_list_free);
@@ -776,7 +764,12 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 	size_t n = od_list_len(list);
 	for (size_t i = 0; i < n; i++) {
 		OdEntry ent = {};
-		if (!od_list_entry(list, i, &ent) || ent.is_dir) {
+		OdError lerr = {};
+		if (!od_list_entry(list, i, &ent, &lerr)) {
+			ThrowIfError(lerr, "opendal: glob entry: " + path);
+			continue;
+		}
+		if (ent.is_dir) {
 			continue;
 		}
 		std::string epath = ent.path ? std::string(ent.path) : std::string();
@@ -809,13 +802,12 @@ bool OpenDalFileSystem::OnDiskFile(FileHandle &handle) {
 void OpenDalFileSystem::CreateDirectory(const string &directory, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
 	if (!ParseUrl(directory, scheme, auth, rel)) {
-		throw IOException("opendal: unsupported or invalid URL: " + directory);
+		throw IOException("opendal: create_dir: unrecognized URL: " + directory);
 	}
 	auto *op = OperatorFor(scheme, auth, directory, opener);
 	OdError err = {};
 	if (od_create_dir(op, rel.c_str(), &err) != 0) {
-		ThrowIfError(err, "opendal create_dir: " + directory);
-		throw IOException("opendal create_dir failed: " + directory);
+		ThrowIfError(err, "opendal: create_dir: " + directory);
 	}
 	ClearError(err);
 }
@@ -823,13 +815,12 @@ void OpenDalFileSystem::CreateDirectory(const string &directory, optional_ptr<Fi
 void OpenDalFileSystem::RemoveFile(const string &filename, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
 	if (!ParseUrl(filename, scheme, auth, rel)) {
-		throw IOException("opendal: unsupported or invalid URL: " + filename);
+		throw IOException("opendal: remove: unrecognized URL: " + filename);
 	}
 	auto *op = OperatorFor(scheme, auth, filename, opener);
 	OdError err = {};
 	if (od_remove(op, rel.c_str(), /*recursive=*/0, &err) != 0) {
-		ThrowIfError(err, "opendal remove: " + filename);
-		throw IOException("opendal remove failed: " + filename);
+		ThrowIfError(err, "opendal: remove: " + filename);
 	}
 	ClearError(err);
 }
@@ -837,7 +828,7 @@ void OpenDalFileSystem::RemoveFile(const string &filename, optional_ptr<FileOpen
 void OpenDalFileSystem::RemoveDirectory(const string &directory, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
 	if (!ParseUrl(directory, scheme, auth, rel)) {
-		throw IOException("opendal: unsupported or invalid URL: " + directory);
+		throw IOException("opendal: remove_dir: unrecognized URL: " + directory);
 	}
 	auto *op = OperatorFor(scheme, auth, directory, opener);
 	// Recursive delete for a directory tree.
@@ -847,8 +838,7 @@ void OpenDalFileSystem::RemoveDirectory(const string &directory, optional_ptr<Fi
 	}
 	OdError err = {};
 	if (od_remove(op, dir.c_str(), /*recursive=*/1, &err) != 0) {
-		ThrowIfError(err, "opendal remove (dir): " + directory);
-		throw IOException("opendal remove (dir) failed: " + directory);
+		ThrowIfError(err, "opendal: remove (dir): " + directory);
 	}
 	ClearError(err);
 }
@@ -856,16 +846,15 @@ void OpenDalFileSystem::RemoveDirectory(const string &directory, optional_ptr<Fi
 void OpenDalFileSystem::MoveFile(const string &source, const string &target, optional_ptr<FileOpener> opener) {
 	std::string s_scheme, s_auth, s_rel, t_scheme, t_auth, t_rel;
 	if (!ParseUrl(source, s_scheme, s_auth, s_rel)) {
-		throw IOException("opendal: unsupported or invalid source URL: " + source);
+		throw IOException("opendal: move: unrecognized source URL: " + source);
 	}
 	if (!ParseUrl(target, t_scheme, t_auth, t_rel)) {
-		throw IOException("opendal: unsupported or invalid target URL: " + target);
+		throw IOException("opendal: move: unrecognized target URL: " + target);
 	}
 	auto *op = OperatorFor(s_scheme, s_auth, source, opener);
 	auto *target_op = OperatorFor(t_scheme, t_auth, target, opener);
 	if (op != target_op) {
-		throw IOException("opendal: move across effective operators is not supported; use opendal_copy then delete (" +
-		                  source + " -> " + target + ")");
+		throw IOException("opendal: move: cross-operator move is not supported: " + source + " -> " + target);
 	}
 
 	// Prefer server-side rename. If the service lacks it (e.g. s3 has no
@@ -874,8 +863,7 @@ void OpenDalFileSystem::MoveFile(const string &source, const string &target, opt
 	if (OperatorSupports(op, "rename")) {
 		OdError err = {};
 		if (od_rename(op, s_rel.c_str(), t_rel.c_str(), &err) != 0) {
-			ThrowIfError(err, "opendal move: " + source + " -> " + target);
-			throw IOException("opendal move failed: " + source + " -> " + target);
+			ThrowIfError(err, "opendal: move: " + source + " -> " + target);
 		}
 		ClearError(err);
 		return;
@@ -884,21 +872,19 @@ void OpenDalFileSystem::MoveFile(const string &source, const string &target, opt
 	if (OperatorSupports(op, "copy")) {
 		OdError cerr = {};
 		if (od_copy(op, s_rel.c_str(), t_rel.c_str(), &cerr) != 0) {
-			ThrowIfError(cerr, "opendal move (copy): " + source + " -> " + target);
-			throw IOException("opendal move failed (copy): " + source + " -> " + target);
+			ThrowIfError(cerr, "opendal: move (copy): " + source + " -> " + target);
 		}
 		ClearError(cerr);
 		OdError derr = {};
 		if (od_remove(op, s_rel.c_str(), /*recursive=*/0, &derr) != 0) {
-			ThrowIfError(derr, "opendal move (delete source after copy): " + source);
-			throw IOException("opendal move failed (delete source after copy): " + source);
+			ThrowIfError(derr, "opendal: move (delete source after copy): " + source);
 		}
 		ClearError(derr);
 		return;
 	}
 
-	throw IOException("opendal: service '" + s_scheme + "' supports neither rename nor copy; cannot move " + source +
-	                  " -> " + target);
+	throw IOException("opendal: move: service '" + s_scheme + "' supports neither rename nor copy: " + source + " -> " +
+	                  target);
 }
 
 } // namespace duckdb

@@ -131,7 +131,7 @@ struct OwnedRow {
 }
 
 enum CursorSource {
-    One(Option<(String, Metadata)>),
+    One(Box<Option<(String, Metadata)>>),
     List(Lister),
 }
 
@@ -351,6 +351,12 @@ pub(crate) fn glob_matches(pattern: &[u8], value: &[u8]) -> bool {
     run(pattern, value, &mut HashMap::new())
 }
 
+/// # Safety
+///
+/// - `op` must be a valid, non-null [`OdOperator`] handle.
+/// - `path` must be a valid, non-null, NUL-terminated UTF-8 C string.
+/// - `err` must point to a writable [`OdError`].
+/// - The returned cursor must be freed with [`od_table_cursor_free`].
 #[no_mangle]
 pub unsafe extern "C" fn od_table_stat_open(
     op: *const OdOperator,
@@ -423,7 +429,7 @@ pub unsafe extern "C" fn od_table_stat_open(
             Ok(metadata) => {
                 set_ok(err);
                 Box::into_raw(Box::new(OdTableCursor {
-                    source: CursorSource::One(Some((path.to_owned(), metadata))),
+                    source: CursorSource::One(Box::new(Some((path.to_owned(), metadata)))),
                     glob: None,
                     self_path: None,
                     current: None,
@@ -437,6 +443,13 @@ pub unsafe extern "C" fn od_table_stat_open(
     })
 }
 
+/// # Safety
+///
+/// - `op` must be a valid, non-null [`OdOperator`] handle.
+/// - `path` must be a valid, non-null, NUL-terminated UTF-8 C string.
+/// - `glob` must be null or a valid, NUL-terminated UTF-8 C string.
+/// - `err` must point to a writable [`OdError`].
+/// - The returned cursor must be freed with [`od_table_cursor_free`].
 #[no_mangle]
 pub unsafe extern "C" fn od_table_list_open(
     op: *const OdOperator,
@@ -525,6 +538,12 @@ pub unsafe extern "C" fn od_table_list_open(
     })
 }
 
+/// # Safety
+///
+/// - `op` must be a valid, non-null [`OdOperator`] handle.
+/// - `pattern` must be a valid, non-null, NUL-terminated UTF-8 C string.
+/// - `err` must point to a writable [`OdError`].
+/// - The returned cursor must be freed with [`od_table_cursor_free`].
 #[no_mangle]
 pub unsafe extern "C" fn od_table_glob_open(
     op: *const OdOperator,
@@ -579,6 +598,13 @@ pub unsafe extern "C" fn od_table_glob_open(
     })
 }
 
+/// # Safety
+///
+/// - `cursor` must be a valid, non-null [`OdTableCursor`] handle.
+/// - `out` must point to a writable [`OdEntryRow`].
+/// - Borrowed pointers in `out` are valid until the next call or
+///   [`od_table_cursor_free`].
+/// - `err` must point to a writable [`OdError`].
 #[no_mangle]
 pub unsafe extern "C" fn od_table_cursor_next(
     cursor: *mut OdTableCursor,
@@ -643,6 +669,10 @@ pub unsafe extern "C" fn od_table_cursor_next(
     })
 }
 
+/// # Safety
+///
+/// - `cursor` must be null or a valid [`OdTableCursor`] handle that has not
+///   already been freed.
 #[no_mangle]
 pub unsafe extern "C" fn od_table_cursor_free(cursor: *mut OdTableCursor) {
     free_handle(cursor);
@@ -669,6 +699,12 @@ fn parent(path: &str) -> &str {
         .map_or("", |slash| &path[..slash])
 }
 
+/// # Safety
+///
+/// - `op` must be a valid, non-null [`OdOperator`] handle.
+/// - `target` must be a valid, non-null, NUL-terminated UTF-8 C string.
+/// - `err` must point to a writable [`OdError`].
+/// - The returned cursor must be freed with [`od_du_cursor_free`].
 #[no_mangle]
 pub unsafe extern "C" fn od_table_du_open(
     op: *const OdOperator,
@@ -793,6 +829,13 @@ pub unsafe extern "C" fn od_table_du_open(
     })
 }
 
+/// # Safety
+///
+/// - `cursor` must be a valid, non-null [`OdDuCursor`] handle.
+/// - `out` must point to a writable [`OdDuRow`].
+/// - Borrowed pointers in `out` are valid until the next call or
+///   [`od_du_cursor_free`].
+/// - `err` must point to a writable [`OdError`].
 #[no_mangle]
 pub unsafe extern "C" fn od_du_cursor_next(
     cursor: *mut OdDuCursor,
@@ -825,6 +868,10 @@ pub unsafe extern "C" fn od_du_cursor_next(
     })
 }
 
+/// # Safety
+///
+/// - `cursor` must be null or a valid [`OdDuCursor`] handle that has not
+///   already been freed.
 #[no_mangle]
 pub unsafe extern "C" fn od_du_cursor_free(cursor: *mut OdDuCursor) {
     free_handle(cursor);
@@ -859,6 +906,14 @@ fn abort_writer(writer: &mut opendal::Writer, primary: opendal::Error) -> openda
     }
 }
 
+/// # Safety
+///
+/// - `source_op` and `destination_op` must be valid, non-null [`OdOperator`]
+///   handles.
+/// - `source` and `destination` must be valid, non-null, NUL-terminated UTF-8
+///   C strings.
+/// - `err` must point to a writable [`OdError`].
+/// - The returned cursor must be freed with [`od_copy_cursor_free`].
 #[no_mangle]
 pub unsafe extern "C" fn od_table_copy_open(
     source_op: *const OdOperator,
@@ -1127,6 +1182,13 @@ pub unsafe extern "C" fn od_table_copy_open(
     })
 }
 
+/// # Safety
+///
+/// - `cursor` must be a valid, non-null [`OdCopyCursor`] handle.
+/// - `out` must point to a writable [`OdCopyRow`].
+/// - Borrowed pointers in `out` are valid until the next call or
+///   [`od_copy_cursor_free`].
+/// - `err` must point to a writable [`OdError`].
 #[no_mangle]
 pub unsafe extern "C" fn od_copy_cursor_next(
     cursor: *mut OdCopyCursor,
@@ -1158,6 +1220,10 @@ pub unsafe extern "C" fn od_copy_cursor_next(
     })
 }
 
+/// # Safety
+///
+/// - `cursor` must be null or a valid [`OdCopyCursor`] handle that has not
+///   already been freed.
 #[no_mangle]
 pub unsafe extern "C" fn od_copy_cursor_free(cursor: *mut OdCopyCursor) {
     free_handle(cursor);

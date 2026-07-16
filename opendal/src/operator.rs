@@ -133,6 +133,11 @@ pub unsafe extern "C" fn od_operator_new(
 }
 
 /// Return an operator-construction warning, or null. Borrowed from `op`.
+///
+/// # Safety
+///
+/// `op` must be a valid pointer to an [`OdOperator`] that remains alive for
+/// the lifetime of the returned pointer.
 #[no_mangle]
 pub unsafe extern "C" fn od_operator_warning(op: *const OdOperator) -> *const c_char {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -268,7 +273,8 @@ pub unsafe extern "C" fn od_schemes_entry(
         if list.is_null() {
             return std::ptr::null();
         }
-        (&(*list).schemes)
+        let schemes = &(*list).schemes;
+        schemes
             .get(index)
             .map_or(std::ptr::null(), |scheme| scheme.as_ptr())
     })

@@ -96,14 +96,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// run before any operator is built (idempotent).
 	OdError init_error = {};
 	if (od_init(&init_error) != 0) {
-		std::string message = init_error.message ? std::string(init_error.message) : std::string("unknown error");
-		if (init_error.message) {
-			od_string_free(init_error.message);
-		}
-		throw IOException("opendal: initialization failed: " + message);
-	}
-	if (init_error.message) {
+		std::string message = std::string(init_error.message);
 		od_string_free(init_error.message);
+		throw IOException("opendal: initialization failed: " + message);
 	}
 
 	// Register the OpenDAL filesystem as a DuckDB subsystem. From here, any URL
