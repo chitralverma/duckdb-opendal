@@ -33,3 +33,35 @@ jobs:
       ci_tools_version: v1.5-variegata
       extension_name: opendal
       format_checks: 'format;tidy'
+
+  create-release-draft:
+    name: Create draft release with built binaries
+    needs:
+      - duckdb-stable-build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: |
+          echo "Downloaded artifacts to: $(pwd)/dist"
+          ls -la dist || true
+
+      - name: Create draft release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: duckdb-opendal ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
