@@ -13,7 +13,7 @@ DUCKDB_SRCDIR := ./external/duckdb/
 include external/extension-ci-tools/makefiles/duckdb_extension.Makefile
 
 # ── Rust convenience targets (crate lives in opendal/core) ───────────────────
-.PHONY: rust-build rust-test rust-fmt rust-lint rust-clean cargo-clean clean-all help
+.PHONY: rust-build rust-test rust-fmt cpp-fmt format-all rust-lint rust-clean cargo-clean clean-all help
 CARGO_MANIFEST := opendal/Cargo.toml
 
 rust-build: ## Build the Rust core (release)
@@ -24,6 +24,11 @@ rust-test: ## Run the Rust unit tests
 
 rust-fmt: ## Format the Rust sources
 	cargo fmt --manifest-path $(CARGO_MANIFEST)
+
+cpp-fmt: ## Format the C++ sources
+	uv run external/duckdb/scripts/format.py --all --fix --noconfirm --directories opendal/src test
+
+format-all: cpp-fmt rust-fmt ## Format both C++ and Rust sources
 
 rust-lint: ## Lint the Rust sources (clippy, warnings as errors)
 	cargo clippy --release --manifest-path $(CARGO_MANIFEST) -- -D warnings
