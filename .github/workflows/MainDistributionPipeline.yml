@@ -1,7 +1,12 @@
 # Build, test, and (optionally) release the extension.
 name: Main Extension Distribution Pipeline
 on:
+  # Only build main + tags on push; feature branches are covered by pull_request,
+  # so an open PR does not run the pipeline twice. Tags are required by the
+  # create-release-draft job.
   push:
+    branches: [main]
+    tags: ['**']
   pull_request:
   workflow_dispatch:
 
