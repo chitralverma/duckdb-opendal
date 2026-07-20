@@ -1,0 +1,191 @@
+# name: test/sql/services/s3.test
+# description: s3://-specific behavior (multipart, I/O tuning, capabilities, config)
+# group: [services]
+
+#
+# Runs only under the s3 config (test/configs/s3.json), which sets the s3 env +
+# creates the warehouse-scoped secret and requires a running MinIO. Gated on
+# OPENDAL_S3_ENDPOINT, which only the s3 config provides.
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_S3_ENDPOINT
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+# (External-object reads live in common/external_read.test, gated on
+# OPENDAL_EXTERNAL_BASE — they run against every externally-seeded service.)
+
+# S3 supports list_with_limit (contrast with the local fs service, which rejects
+# it): the typed option is accepted rather than failing fast. (On S3 the limit is
+# a page-size hint, not a result cap, so we only assert it is honored.)
+statement ok
+COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
+TO 's3://warehouse/svc/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+statement ok
+SELECT count(*) FROM opendal_ls('s3://warehouse/svc/tree/', recursive := true, "limit" := 100);
+
+# Overwrite replaces the object's contents. DuckDB writes a temp object then
+# moves it over the target; s3 has no server-side rename, so this exercises the
+# capability-driven copy+delete fallback.
+statement ok
+COPY (SELECT 1 AS x) TO 's3://warehouse/svc/ow.parquet' (FORMAT parquet);
+
+statement ok
+COPY (SELECT range AS x FROM range(5)) TO 's3://warehouse/svc/ow.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/svc/ow.parquet');
+----
+5
+
+# Partitioned COPY ... OVERWRITE clears existing partitions first (RemoveFiles):
+# seed two partitions, then OVERWRITE with a disjoint partition set and confirm
+# the old partitions are gone. The first write uses OVERWRITE so the assertion is
+# idempotent against a bucket left dirty by a previous run.
+statement ok
+COPY (SELECT 1 AS part, 'a' AS v) TO 's3://warehouse/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE);
+
+statement ok
+COPY (SELECT 2 AS part, 'b' AS v) TO 's3://warehouse/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+query I
+SELECT count(*) FROM glob('s3://warehouse/svc/ow_part/**/*.parquet');
+----
+2
+
+statement ok
+COPY (SELECT 99 AS part, 'z' AS v) TO 's3://warehouse/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE);
+
+query I
+SELECT count(*) FROM glob('s3://warehouse/svc/ow_part/**/*.parquet');
+----
+1
+
+# I/O tuning on the multipart write path (global): the write must still
+# round-trip correctly with tuning enabled.
+statement ok
+SET GLOBAL opendal_io_config = MAP{'write.concurrent':'4','write.chunk_size':'8 MiB','read.concurrent':'2'};
+
+statement ok
+COPY (SELECT range AS id, range * 2 AS v FROM range(500))
+TO 's3://warehouse/svc/tuned.parquet' (FORMAT parquet);
+
+query II
+SELECT count(*), sum(v) FROM read_parquet('s3://warehouse/svc/tuned.parquet');
+----
+500	249500
+
+statement ok
+RESET opendal_io_config;
+
+# Per-secret I/O tuning scoped to one prefix.
+statement ok
+CREATE SECRET s3_tuned (
+    TYPE s3, SCOPE 's3://warehouse/svc/perssecret',
+    config MAP{'access_key_id':'${OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'${OPENDAL_S3_SECRET_ACCESS_KEY}','region':'${OPENDAL_S3_REGION}','endpoint':'${OPENDAL_S3_ENDPOINT}','enable_virtual_host_style':'false'},
+    io_config MAP{'write.concurrent':'4','write.chunk_size':'8 MiB'}
+);
+
+statement ok
+COPY (SELECT range AS id FROM range(250))
+TO 's3://warehouse/svc/perssecret/out.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/svc/perssecret/out.parquet');
+----
+250
+
+# On-disk cache configured via a scoped secret drives a distinct operator.
+statement ok
+CREATE SECRET s3_disk_cache (
+    TYPE s3, SCOPE 's3://warehouse/svc/foyerdisk',
+    config MAP{'access_key_id':'${OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'${OPENDAL_S3_SECRET_ACCESS_KEY}','region':'${OPENDAL_S3_REGION}','endpoint':'${OPENDAL_S3_ENDPOINT}'},
+    cache_config MAP{'memory_size':'16 MiB','disk_path':'__TEST_DIR__/opendal_cache','disk_size':'64 MiB','block_size':'1 MiB'}
+);
+
+statement ok
+COPY (SELECT range AS id FROM range(123)) TO 's3://warehouse/svc/foyerdisk/f.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/svc/foyerdisk/f.parquet');
+----
+123
+
+# ── Multi-bucket SCOPE resolution: a distinct scoped secret per bucket ───────
+# warehouse is served by the config's s3_common secret; vault by its own secret.
+statement ok
+CREATE SECRET s3_vault (
+    TYPE s3, SCOPE 's3://vault',
+    config MAP{'access_key_id':'${OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'${OPENDAL_S3_SECRET_ACCESS_KEY}','region':'${OPENDAL_S3_REGION}','endpoint':'${OPENDAL_S3_ENDPOINT}','enable_virtual_host_style':'false'},
+    retry_config MAP{'max_times':'3'},
+    timeout_config MAP{'operation_timeout':'30s'}
+);
+
+statement ok
+COPY (SELECT range AS id, 'B' || range AS tag FROM range(42)) TO 's3://vault/only.parquet' (FORMAT parquet);
+
+statement ok
+COPY (SELECT range AS id FROM range(100)) TO 's3://warehouse/svc/mb.parquet' (FORMAT parquet);
+
+# Both buckets in one query — each URL resolves to its own scoped secret.
+query II rowsort
+SELECT 'warehouse' AS bucket, count(*) AS n FROM read_parquet('s3://warehouse/svc/mb.parquet')
+UNION ALL
+SELECT 'vault', count(*) FROM read_parquet('s3://vault/only.parquet');
+----
+vault	42
+warehouse	100
+
+# ── Cross-service copy: s3 -> fs drives two independently-scoped operators ────
+# opendal_copy across differing operators uses a bounded Reader->Writer transfer
+# (not the same-operator Copier), resolving each URL's secret separately.
+statement ok
+CREATE SECRET s3_xsvc_fs (TYPE fs, SCOPE 'fs://', config MAP{'root':'.'});
+
+statement ok
+COPY (SELECT range AS id FROM range(100)) TO 's3://warehouse/svc/xsrc.parquet' (FORMAT parquet);
+
+query I
+SELECT bytes_copied > 0
+FROM opendal_copy('s3://warehouse/svc/xsrc.parquet', 'fs:///__TEST_DIR__/svc/s3_to_fs.parquet', chunk_size := 1048576);
+----
+true
+
+query I
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/svc/s3_to_fs.parquet');
+----
+100
+
+# Typed service config values are validated by OpenDAL and propagated as input
+# errors (this fails at operator build, before any network call).
+statement ok
+CREATE SECRET s3_invalid_config (
+    TYPE s3, SCOPE 's3://invalid-config-bucket',
+    config MAP{'enable_virtual_host_style':'banana'}
+);
+
+statement error
+SELECT * FROM opendal_stat('s3://invalid-config-bucket/file');
+----
+failed to deserialize config
+
+# Force CompleteMultipartUpload to fail while allowing AbortMultipartUpload, via
+# the fault proxy. `make s3-assert-no-incomplete` verifies no orphaned multipart
+# uploads remain after this test finishes.
+statement ok
+CREATE SECRET s3_abort_test (
+    TYPE s3, SCOPE 's3://warehouse/abort-test',
+    config MAP{'access_key_id':'${OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'${OPENDAL_S3_SECRET_ACCESS_KEY}','region':'${OPENDAL_S3_REGION}','endpoint':'${OPENDAL_S3_PROXY_ENDPOINT}','enable_virtual_host_style':'false'},
+    io_config MAP{'write.chunk_size':'5 MiB'}
+);
+
+statement error
+COPY (SELECT range AS id, repeat(md5(range::VARCHAR), 16) AS payload FROM range(500000))
+TO 's3://warehouse/abort-test/forced-close-failure.parquet' (FORMAT parquet, COMPRESSION uncompressed);
+----
+forced completion failure

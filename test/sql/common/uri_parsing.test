@@ -1,0 +1,52 @@
+# name: test/sql/common/uri_parsing.test
+# description: Scheme/authority/path URL contract (memory path-only, file:// alias)
+# group: [common]
+
+#
+# Self-contained: uses explicit memory://, fs:// and file:// schemes (not
+# ${OPENDAL_BASE}) and creates its own secrets, so it runs under any config.
+
+require opendal
+
+require parquet
+
+statement ok
+CREATE SECRET uri_fs (TYPE fs, SCOPE 'fs://', config MAP{'root':'.'});
+
+statement ok
+CREATE SECRET uri_file (TYPE file, SCOPE 'file://', config MAP{'root':'.'});
+
+# Memory stays path-only: the first segment after :// is data path, not an
+# authority. This guards scheme-agnostic parsing from dropping that segment.
+statement ok
+COPY (SELECT 42 AS id) TO 'memory:///registry/path.parquet' (FORMAT parquet);
+
+query I
+SELECT id FROM read_parquet('memory:///registry/path.parquet');
+----
+42
+
+# Write once via fs://, then read the same object through the `file` scheme
+# (OpenDAL's fs service registers both), including an upper-case scheme.
+statement ok
+COPY (SELECT range AS id FROM range(5)) TO 'fs:///__TEST_DIR__/uri/x.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM glob('fs:///__TEST_DIR__/uri/x.parquet');
+----
+1
+
+query I
+SELECT count(*) FROM glob('file:///__TEST_DIR__/uri/x.parquet');
+----
+1
+
+query I
+SELECT count(*) FROM glob('FILE:///__TEST_DIR__/uri/x.parquet');
+----
+1
+
+query I
+SELECT count(*) FROM read_parquet('file:///__TEST_DIR__/uri/x.parquet');
+----
+5

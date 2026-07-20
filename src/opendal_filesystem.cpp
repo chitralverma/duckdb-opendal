@@ -212,7 +212,7 @@ bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_sch
 	return ParseUrl(url, out_scheme, out_authority, out_path);
 }
 
-// Merge a SCOPE-matched secret over global options. Backend config is separate;
+// Merge a SCOPE-matched secret over global options. Service config is separate;
 // section prefixes (`io.`/`retry.`/`timeout.`/`cache.`) stay intact for Rust.
 static void ApplySecret(optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db,
                         const std::string &scheme, const std::string &url, std::map<std::string, std::string> &config,
@@ -308,7 +308,7 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	// OpenDAL parsed from the URI.
 	//
 	// When no secret provides credentials/config, we deliberately do NOT inject
-	// AWS_* env vars ourselves: the S3 backend already loads them natively at
+	// AWS_* env vars ourselves: the S3 service already loads them natively at
 	// build time -- region (AWS_REGION/AWS_DEFAULT_REGION), endpoint
 	// (AWS_ENDPOINT_URL/AWS_ENDPOINT/AWS_S3_ENDPOINT) and the full credential
 	// chain (env -> shared profile -> IMDS) via DefaultCredentialProvider.
@@ -627,15 +627,11 @@ bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<Fi
 		return false;
 	}
 	OdOperator *op = OperatorFor(scheme, auth, directory, opener);
-	OdMetadata meta = {};
 	OdError err = {};
-	od_stat(op, rel.c_str(), &meta, &err);
-	if (err.code == OdErrorCode::NotFound) {
-		ClearError(err);
-		return false;
-	}
-	ThrowIfError(err, "opendal: stat: " + directory);
-	return meta.is_dir;
+	// Prefix-aware (object stores have no real dirs); see apache/opendal#6761.
+	int8_t exists = od_dir_exists(op, rel.c_str(), &err);
+	ThrowIfError(err, "opendal: dir_exists: " + directory);
+	return exists == 1;
 }
 
 void OpenDalFileSystem::Seek(FileHandle &handle, idx_t location) {

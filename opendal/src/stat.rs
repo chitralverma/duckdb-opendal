@@ -4,6 +4,9 @@
 //! `GetFileSize` / `GetLastModifiedTime` / `GetFileType`.
 
 use std::ffi::c_char;
+use std::future::IntoFuture;
+
+use futures::StreamExt;
 
 use crate::capability::require;
 use crate::error::{set_error, set_ok, set_opendal_error, OdError, OdErrorCode};
@@ -85,6 +88,90 @@ pub unsafe extern "C" fn od_stat(
                 set_ok(err);
             }
             Err(e) => set_opendal_error(err, &e),
+        }
+    })
+}
+
+/// Check whether `path` names a directory. Returns 1 if it does, 0 if not, -1 on
+/// error (with `*err` populated).
+///
+/// On object stores a directory is a key prefix, so `stat` on the bare prefix is
+/// NotFound; fall back to a one-child list probe. Workaround for
+/// apache/opendal#6761; simplify to a single stat once that lands.
+///
+/// # Safety
+/// - `op` must be a live handle from `od_operator_new`.
+/// - `path` must be a valid NUL-terminated C string.
+/// - `err` must be a valid, writable pointer.
+#[no_mangle]
+pub unsafe extern "C" fn od_dir_exists(
+    op: *const OdOperator,
+    path: *const c_char,
+    err: *mut OdError,
+) -> i8 {
+    ffi_guard!(err, -1, "od_dir_exists", {
+        if op.is_null() || path.is_null() {
+            set_error(err, OdErrorCode::InvalidInput, "null operator or path");
+            return -1;
+        }
+        let odop = &*op;
+        if let Err((code, msg)) = require(&odop.scheme, odop.cap.stat, "stat") {
+            set_error(err, code, msg);
+            return -1;
+        }
+        let path = match cstr(path) {
+            Some(s) => s,
+            None => {
+                set_error(err, OdErrorCode::InvalidInput, "path is null or not UTF-8");
+                return -1;
+            }
+        };
+
+        // stat resolves real directory markers (local fs).
+        match block_on(odop.op.stat(path)) {
+            Ok(meta) => {
+                set_ok(err);
+                return if meta.is_dir() { 1 } else { 0 };
+            }
+            Err(e) if e.kind() == opendal::ErrorKind::NotFound => {}
+            Err(e) => {
+                set_opendal_error(err, &e);
+                return -1;
+            }
+        }
+
+        // Prefix probe: a directory is a non-empty key prefix.
+        if !odop.cap.list {
+            set_ok(err);
+            return 0;
+        }
+        let mut prefix = path.to_string();
+        if !prefix.is_empty() && !prefix.ends_with('/') {
+            prefix.push('/');
+        }
+        match block_on(odop.op.lister_with(&prefix).into_future()) {
+            Ok(mut lister) => match block_on(lister.next()) {
+                Some(Ok(_)) => {
+                    set_ok(err);
+                    1
+                }
+                Some(Err(e)) => {
+                    set_opendal_error(err, &e);
+                    -1
+                }
+                None => {
+                    set_ok(err);
+                    0
+                }
+            },
+            Err(e) if e.kind() == opendal::ErrorKind::NotFound => {
+                set_ok(err);
+                0
+            }
+            Err(e) => {
+                set_opendal_error(err, &e);
+                -1
+            }
         }
     })
 }

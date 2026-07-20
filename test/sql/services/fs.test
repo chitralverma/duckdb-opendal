@@ -1,0 +1,115 @@
+# name: test/sql/services/fs.test
+# description: fs://-specific behavior (on-disk validity, capabilities, cache warning)
+# group: [services]
+
+#
+# Self-contained: always exercises the local fs service regardless of the active
+# --test-config, so it creates its own fs secret and uses explicit fs:// URLs.
+
+require opendal
+
+require parquet
+
+statement ok
+CREATE SECRET svc_fs (TYPE fs, SCOPE 'fs://', config MAP{'root':'.'});
+
+# A file written through OpenDAL fs:// is a valid on-disk Parquet — the native
+# local filesystem reads it back identically (no scheme = native FS).
+statement ok
+COPY (SELECT range AS id, range * range AS sq FROM range(1000))
+TO 'fs:///__TEST_DIR__/svc/out.parquet' (FORMAT parquet);
+
+query II
+SELECT count(*), sum(sq) FROM read_parquet('__TEST_DIR__/svc/out.parquet');
+----
+1000	332833500
+
+# Overwrite replaces the object's contents. DuckDB writes a temp file then
+# renames over the target; the local service supports server-side rename.
+statement ok
+COPY (SELECT 1 AS x) TO 'fs:///__TEST_DIR__/svc/ow.parquet' (FORMAT parquet);
+
+statement ok
+COPY (SELECT range AS x FROM range(5)) TO 'fs:///__TEST_DIR__/svc/ow.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/svc/ow.parquet');
+----
+5
+
+# opendal_copy with if_not_exists refuses to overwrite an existing destination.
+# The local service supports copy_with_if_not_exists (unlike the MinIO emulator).
+statement ok
+COPY (SELECT range AS id FROM range(10)) TO 'fs:///__TEST_DIR__/svc/cp_src.parquet' (FORMAT parquet);
+
+statement ok
+SELECT * FROM opendal_copy('fs:///__TEST_DIR__/svc/cp_src.parquet', 'fs:///__TEST_DIR__/svc/cp_dst.parquet');
+
+statement error
+SELECT * FROM opendal_copy(
+    'fs:///__TEST_DIR__/svc/cp_src.parquet',
+    'fs:///__TEST_DIR__/svc/cp_dst.parquet',
+    if_not_exists := true
+);
+----
+exist
+
+# Partitioned COPY ... OVERWRITE clears existing partitions first (RemoveFiles):
+# seed two partitions, then OVERWRITE with a disjoint partition set and confirm
+# the old partitions are gone. (The memory service does not honor this, so it is
+# a service-level, not common, assertion.)
+statement ok
+COPY (SELECT 1 AS part, 'a' AS v) TO 'fs:///__TEST_DIR__/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+statement ok
+COPY (SELECT 2 AS part, 'b' AS v) TO 'fs:///__TEST_DIR__/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+query I
+SELECT count(*) FROM glob('fs:///__TEST_DIR__/svc/ow_part/**/*.parquet');
+----
+2
+
+statement ok
+COPY (SELECT 99 AS part, 'z' AS v) TO 'fs:///__TEST_DIR__/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE);
+
+query I
+SELECT count(*) FROM glob('fs:///__TEST_DIR__/svc/ow_part/**/*.parquet');
+----
+1
+
+# The local service does not support list_with_limit; the typed option fails fast
+# rather than being silently ignored.
+statement ok
+COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
+TO 'fs:///__TEST_DIR__/svc/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+statement error
+SELECT count(*) FROM opendal_ls('fs:///__TEST_DIR__/svc/tree/', recursive := true, "limit" := 1);
+----
+does not support list_with_limit
+
+# Best-effort cache-build failure surfaces as a DuckDB WARNING (not stderr):
+# point disk_path at an existing file so cache-directory creation fails; the
+# filesystem operation still succeeds without a cache.
+statement ok
+CALL enable_logging(level='warning', storage='memory');
+
+statement ok
+SET GLOBAL opendal_cache_config = MAP{'memory_size':'16 MB','disk_path':'__TEST_DIR__/svc/out.parquet'};
+
+query I
+SELECT count(*) FROM opendal_stat('fs:///__TEST_DIR__/svc/out.parquet');
+----
+1
+
+query I
+SELECT count(*) FROM duckdb_logs()
+WHERE log_level = 'WARNING' AND message LIKE 'OpenDAL cache disabled:%';
+----
+1
+
+statement ok
+RESET opendal_cache_config;
+
+statement ok
+CALL disable_logging();

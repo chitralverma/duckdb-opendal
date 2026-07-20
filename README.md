@@ -1,6 +1,6 @@
 # duckdb-opendal (`opendal`)
 
-A DuckDB extension that integrates [Apache OpenDAL](https://opendal.apache.org/) as a virtual filesystem, enabling transparent read and write access to multiple storage backends through a unified SQL interface.
+A DuckDB extension that integrates [Apache OpenDAL](https://opendal.apache.org/) as a virtual filesystem, enabling transparent read and write access to multiple storage services through a unified SQL interface.
 
 Query, glob, and write files (Parquet, CSV, JSON, etc.) directly on remote and local storage using standard SQL.
 
@@ -8,7 +8,7 @@ Query, glob, and write files (Parquet, CSV, JSON, etc.) directly on remote and l
 
 ## Key Features
 
-- **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `s3://`, and `memory://` — with more backends coming soon) directly within DuckDB queries.
+- **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `s3://`, and `memory://` — with more services coming soon) directly within DuckDB queries.
 - **Table Functions**:
   - `opendal_version()` — Returns extension and core OpenDAL library versions.
   - `opendal_stat()` — Returns metadata for a single path (such as mode, size, and user_metadata).
@@ -116,52 +116,25 @@ SET opendal_override_native_filesystems = '';
 
 ## Building from Source
 
-### Prerequisites
-
-- **Rust toolchain** (stable, MSRV 1.91+)
-- **CMake** (v3.22+)
-- **Compiler**: GCC / Clang (Linux/macOS) or MSVC (Windows)
-- **Ninja** or **Make**
-
-### Build Steps
-
-Clone the repository and submodules:
 ```sh
 git clone --recurse-submodules https://github.com/chitralverma/duckdb-opendal.git
 cd duckdb-opendal
-```
-
-Build the extension:
-```sh
-# Defaults to Makefile generator
-make
-
-# Or build using Ninja (recommended)
 GEN=ninja make
 ```
 
-This will compile the Rust core FFI crate, C++ wrapper extension, and produce the loadable binary:
-- `./build/release/duckdb` (DuckDB shell with the extension preloaded)
-- `./build/release/extension/opendal/opendal.duckdb_extension` (the loadable binary)
+This produces `./build/release/duckdb` (a shell with the extension preloaded) and
+`./build/release/extension/opendal/opendal.duckdb_extension` (the loadable binary).
+
+For architecture, testing, and how to add a service, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-## Testing
+## Contributing
 
-Run the SQL logic tests:
-```sh
-make test
-```
-
-Run the Rust core unit tests:
-```sh
-make rust-test
-```
-
-Run code formatting checks:
-```sh
-uv run make format-all
-```
+Bug reports, feature requests, and pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the developer guide (build, test, and
+architecture).
 
 ---
 
