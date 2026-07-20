@@ -8,6 +8,9 @@ require parquet
 
 require-env OPENDAL_BASE
 
+# Do not skip backend (HTTP/connection) errors.
+set ignore_error_messages
+
 statement ok
 COPY (SELECT range AS id FROM range(100)) TO '${OPENDAL_BASE}/errors/data.parquet' (FORMAT parquet);
 

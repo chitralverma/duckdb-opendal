@@ -8,6 +8,9 @@ require parquet
 
 require-env OPENDAL_BASE
 
+# Do not skip backend (HTTP/connection) errors.
+set ignore_error_messages
+
 # COPY TO writes a Parquet file through the streaming writer; round-trip.
 statement ok
 COPY (SELECT range AS id, range * range AS sq FROM range(1000))

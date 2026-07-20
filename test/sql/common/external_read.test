@@ -15,6 +15,9 @@ require parquet
 
 require-env OPENDAL_EXTERNAL_BASE
 
+# Do not skip backend (HTTP/connection) errors.
+set ignore_error_messages
+
 query II
 SELECT count(*), sum(d) FROM read_parquet('${OPENDAL_EXTERNAL_BASE}/ext_seed.parquet');
 ----

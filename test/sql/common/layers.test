@@ -15,6 +15,9 @@ require parquet
 
 require-env OPENDAL_BASE
 
+# Do not skip backend (HTTP/connection) errors.
+set ignore_error_messages
+
 # retry layer
 statement ok
 SET GLOBAL opendal_retry_config = MAP{'max_times':'3','jitter':'true','min_delay':'50ms','max_delay':'5s'};

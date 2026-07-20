@@ -60,11 +60,7 @@ class Handler(BaseHTTPRequestHandler):
     def proxy(self):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length) if length else None
-        headers = {
-            key: value
-            for key, value in self.headers.items()
-            if key.lower() != "connection"
-        }
+        headers = {key: value for key, value in self.headers.items() if key.lower() != "connection"}
         connection = HTTPConnection(UPSTREAM_HOST, UPSTREAM_PORT, timeout=30)
         try:
             connection.request(self.command, self.path, body=body, headers=headers)

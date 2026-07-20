@@ -13,6 +13,9 @@ require parquet
 
 require-env OPENDAL_S3_ENDPOINT
 
+# Do not skip backend (HTTP/connection) errors.
+set ignore_error_messages
+
 # (External-object reads live in common/external_read.test, gated on
 # OPENDAL_EXTERNAL_BASE — they run against every externally-seeded backend.)
 

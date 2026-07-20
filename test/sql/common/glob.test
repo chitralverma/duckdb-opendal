@@ -8,6 +8,9 @@ require parquet
 
 require-env OPENDAL_BASE
 
+# Do not skip backend (HTTP/connection) errors.
+set ignore_error_messages
+
 # Build a small tree using a Hive-partitioned write (creates subdirectories).
 statement ok
 COPY (SELECT range AS id, (range % 3) AS part FROM range(60))

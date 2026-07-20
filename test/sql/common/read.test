@@ -12,6 +12,9 @@ require parquet
 
 require-env OPENDAL_BASE
 
+# Do not skip backend (HTTP/connection) errors.
+set ignore_error_messages
+
 # Self-seed a Parquet file, then read it back through OpenDAL (ranged reads).
 statement ok
 COPY (SELECT range AS id, range * 2 AS doubled, 'row_' || range AS label FROM range(1000))

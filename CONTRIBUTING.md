@@ -108,6 +108,10 @@ its env map. A variable is only substituted if the file registers it with
 `test-env VAR <default>`. Config-JSON `test_env` values feed these. This is why
 common tests `require-env OPENDAL_BASE` and skip cleanly when run without a config.
 
+Each I/O test also declares `set ignore_error_messages` (clears the SQLLogicTest
+default), so backend HTTP/connection errors **fail loudly** instead of being
+silently skipped — important for remote/object-store backends.
+
 ## Adding a service
 
 Enable OpenDAL service `<svc>` **without touching `test/sql/common/*`** (each is
@@ -121,14 +125,20 @@ its own PR — see [issue #6](https://github.com/chitralverma/duckdb-opendal/iss
 3. **Secret** — `test/configs/auth_<svc>.sql`: one `CREATE SECRET (TYPE <svc>, …)`
    referencing `${…}` from `test_env` (pure SQL).
 4. **Provisioning** — for an emulator, add `test/services/<svc>/docker-compose.yml`
-   (backend + one-shot init creating the bucket/container) and Makefile targets
-   `<svc>-up` / `<svc>-down` (+ `<svc>-assert-no-incomplete` if relevant). For a
+   (backend + a way to create the bucket/container) and Makefile targets
+   `<svc>-up` / `<svc>-down` (+ `<svc>-assert-no-incomplete` if relevant). `<svc>-up`
+   must **not return until the backend is ready** — readiness is service-specific:
+   a container with a shell can use a compose `healthcheck` + `up --wait` (like
+   `s3-up`); an image without one (e.g. `fsouza/fake-gcs-server`) needs a
+   host-side poll (`curl` the endpoint in a loop) in `<svc>-up`. For a
    real-cloud-only service, skip the compose and add an empty
    `test/services/<svc>/requires-secrets` marker so the planner gates it.
-5. **External-object reads (optional)** — have the init sidecar upload the shared
-   `test/services/fixtures/` (mount `../fixtures`, copy to `<backend>/external/`)
-   and set `OPENDAL_EXTERNAL_BASE` in the config; `common/external_read.test` then
-   runs automatically.
+5. **External-object reads (optional)** — expose the shared `test/services/fixtures/`
+   as objects under `<backend>/external/` and set `OPENDAL_EXTERNAL_BASE` in the
+   config; `common/external_read.test` then runs automatically. The mechanism is
+   emulator-specific: MinIO uses an `mc cp` init step; `fake-gcs-server` auto-loads
+   a mounted `/data/<bucket>/external/` folder — either way, mount the shared
+   `test/services/fixtures/` (don't regenerate per service).
 6. **Quirks test (optional)** — `test/sql/services/<svc>.test`, gated on an env var
    only that config sets. `make test-common-<svc>` runs it automatically.
 

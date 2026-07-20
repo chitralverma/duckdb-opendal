@@ -8,6 +8,9 @@ require parquet
 
 require-env OPENDAL_BASE
 
+# Do not skip backend (HTTP/connection) errors.
+set ignore_error_messages
+
 statement ok
 COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
 TO '${OPENDAL_BASE}/listing/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);

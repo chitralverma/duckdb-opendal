@@ -8,6 +8,9 @@ require parquet
 
 require-env OPENDAL_BASE
 
+# Do not skip backend (HTTP/connection) errors.
+set ignore_error_messages
+
 # Our reads/writes emit DuckDB's native structured FileSystem log entries
 # (fs/path/op/bytes/pos), queryable via duckdb_logs_parsed('FileSystem').
 statement ok

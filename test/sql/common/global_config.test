@@ -8,6 +8,9 @@ require parquet
 
 require-env OPENDAL_BASE
 
+# Do not skip backend (HTTP/connection) errors.
+set ignore_error_messages
+
 # Global sections use the same names as secret sections and apply to every
 # service/path. A missing section means no layer/cache is applied. Set them
 # before seeding so the same effective operator serves the write and read (the
