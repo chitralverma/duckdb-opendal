@@ -16,22 +16,19 @@ include extension-ci-tools/makefiles/duckdb_extension.Makefile
 # The common suite (test/sql/common/*) is service-agnostic: each config supplies
 # ${OPENDAL_BASE} + the backend secret. Service-specific quirks live in
 # test/sql/services/<svc>.test. See docs/testing.md.
-.PHONY: test-common-fs test-common-memory test-common-s3 test-local \
-        s3-up s3-down s3-assert-no-incomplete
+.PHONY: test-local s3-up s3-down s3-assert-no-incomplete
 UNITTEST_BIN := ./build/release/test/unittest
 S3_COMPOSE := test/services/s3/docker-compose.yml
 S3_MC := docker compose -f $(S3_COMPOSE) run --rm --entrypoint sh minio-init -c
 
-test-common-fs: ## Run the common suite + fs quirks over fs:// (no infra)
-	DUCKDB_TEST_CONFIG=test/configs/fs.json $(UNITTEST_BIN) "test/sql/common/*"
-	DUCKDB_TEST_CONFIG=test/configs/fs.json $(UNITTEST_BIN) "test/sql/services/fs.test"
-
-test-common-memory: ## Run the common suite over memory:// (no infra)
-	DUCKDB_TEST_CONFIG=test/configs/memory.json $(UNITTEST_BIN) "test/sql/common/*"
-
-test-common-s3: ## Run the common suite + s3 quirks over s3:// (needs `make s3-up` first)
-	DUCKDB_TEST_CONFIG=test/configs/s3.json $(UNITTEST_BIN) "test/sql/common/*"
-	DUCKDB_TEST_CONFIG=test/configs/s3.json $(UNITTEST_BIN) "test/sql/services/s3.test"
+# Run the common suite (and the backend's own quirks test, if any) against one
+# backend. `make test-common-<name>` works for any test/configs/<name>.json —
+# adding an infra-free backend needs no Makefile change.
+test-common-%: ## Run the common suite for a backend (e.g. test-common-fs)
+	DUCKDB_TEST_CONFIG=test/configs/$*.json $(UNITTEST_BIN) "test/sql/common/*"
+	@if [ -f test/sql/services/$*.test ]; then \
+	  DUCKDB_TEST_CONFIG=test/configs/$*.json $(UNITTEST_BIN) "test/sql/services/$*.test"; \
+	fi
 
 test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + memory)
 
