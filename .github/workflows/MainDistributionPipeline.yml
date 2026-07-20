@@ -1,5 +1,7 @@
 # Build, test, and (optionally) release the extension.
 name: Main Extension Distribution Pipeline
+# Label runs by branch + event (pull_request runs otherwise display the PR title).
+run-name: Pipeline — ${{ github.head_ref || github.ref_name }} (${{ github.event_name }})
 on:
   # Only build main + tags on push; feature branches are covered by pull_request,
   # so an open PR does not run the pipeline twice. Tags are required by the
