@@ -1,0 +1,8 @@
+{
+  "description": "opendal common suite over memory://",
+  "init_script": "test/configs/auth_memory.sql",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
+  "test_env": [
+    { "env_name": "OPENDAL_BASE", "env_value": "memory:///odfs" }
+  ]
+}

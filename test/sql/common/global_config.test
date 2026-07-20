@@ -1,0 +1,58 @@
+# name: test/sql/common/global_config.test
+# description: Global cross-service config (SET GLOBAL opendal_*_config)
+# group: [common]
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_BASE
+
+# Global sections use the same names as secret sections and apply to every
+# service/path. A missing section means no layer/cache is applied. Set them
+# before seeding so the same effective operator serves the write and read (the
+# memory backend gives each distinct effective config its own store).
+statement ok
+SET GLOBAL opendal_io_config = MAP{'read.concurrent':'2','read.chunk_size':'256 KiB'};
+
+statement ok
+SET GLOBAL opendal_retry_config = MAP{'max_times':'4'};
+
+statement ok
+SET GLOBAL opendal_timeout_config = MAP{'operation_timeout':'30s'};
+
+statement ok
+SET GLOBAL opendal_cache_config = MAP{'memory_size':'16 MiB','shards':'2','min_file_size':'0'};
+
+statement ok
+COPY (SELECT range AS id FROM range(1000)) TO '${OPENDAL_BASE}/gcfg/data.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/gcfg/data.parquet');
+----
+1000
+
+statement ok
+RESET opendal_io_config;
+
+statement ok
+RESET opendal_retry_config;
+
+statement ok
+RESET opendal_timeout_config;
+
+statement ok
+RESET opendal_cache_config;
+
+# A zero timeout would make every operation fail immediately and is almost
+# always an accidental attempt to disable the layer.
+statement ok
+SET GLOBAL opendal_timeout_config = MAP{'operation_timeout':'0s'};
+
+statement error
+SELECT * FROM opendal_stat('${OPENDAL_BASE}/gcfg/data.parquet');
+----
+duration must be positive
+
+statement ok
+RESET opendal_timeout_config;

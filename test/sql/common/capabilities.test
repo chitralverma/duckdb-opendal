@@ -1,0 +1,22 @@
+# name: test/sql/common/capabilities.test
+# description: Version scalar + basic introspection scalars
+# group: [common]
+#
+# Backend-agnostic scalar surface; runs under any --test-config.
+
+require opendal
+
+# Format: "opendal <ext-version> (built with opendal-core <lib-version>)".
+query I
+SELECT opendal_version() ILIKE 'opendal % (built with opendal-core %)';
+----
+true
+
+# The extension version embedded in opendal_version() equals the one DuckDB
+# reports in duckdb_extensions().
+query I
+SELECT opendal_version() =
+       'opendal ' || (SELECT extension_version FROM duckdb_extensions() WHERE extension_name = 'opendal')
+       || ' (built with opendal-core ' || regexp_extract(opendal_version(), 'opendal-core (.*)\)', 1) || ')';
+----
+true

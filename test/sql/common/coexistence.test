@@ -1,0 +1,58 @@
+# name: test/sql/common/coexistence.test
+# description: Native-filesystem override setting + dispatch diagnostic
+# group: [common]
+#
+# Backend-agnostic (no I/O): exercises the per-scheme override toggle and the
+# CanHandleFile -> IsManuallySet dispatch coupling. Runs under any --test-config.
+
+require opendal
+
+# The override is process-global; reset defensively so this file is hermetic
+# regardless of prior state in the same test process.
+statement ok
+SET opendal_override_native_filesystems = '';
+
+# The setting defaults to empty (no override).
+query I
+SELECT current_setting('opendal_override_native_filesystems') = '';
+----
+true
+
+# With no override, no path reports manual dispatch.
+query I
+SELECT opendal_is_manually_set('s3://bucket/file');
+----
+false
+
+# Unsupported / non-OpenDAL paths never report manual dispatch.
+query I
+SELECT opendal_is_manually_set('https://example.com/file');
+----
+false
+
+# It accepts a comma-separated scheme list.
+statement ok
+SET opendal_override_native_filesystems = 's3';
+
+query I
+SELECT current_setting('opendal_override_native_filesystems');
+----
+s3
+
+# Locks DuckDB's same-thread CanHandleFile -> IsManuallySet coupling: the
+# overridden, compiled-in scheme reports manual dispatch, a compiled-in but
+# non-overridden scheme does not.
+query II
+SELECT opendal_is_manually_set('s3://bucket/file'),
+       opendal_is_manually_set('memory:///x');
+----
+true	false
+
+# Reset the override.
+statement ok
+SET opendal_override_native_filesystems = '';
+
+query I
+SELECT opendal_is_manually_set('s3://bucket/file');
+----
+false

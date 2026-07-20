@@ -1,0 +1,54 @@
+# name: test/sql/common/write.test
+# description: Write path (COPY TO) over any OpenDAL backend
+# group: [common]
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_BASE
+
+# COPY TO writes a Parquet file through the streaming writer; round-trip.
+statement ok
+COPY (SELECT range AS id, range * range AS sq FROM range(1000))
+TO '${OPENDAL_BASE}/write/out.parquet' (FORMAT parquet);
+
+query II
+SELECT count(*), sum(sq) FROM read_parquet('${OPENDAL_BASE}/write/out.parquet');
+----
+1000	332833500
+
+# CSV write + round-trip.
+statement ok
+COPY (SELECT range AS id, 'v' || range AS v FROM range(250))
+TO '${OPENDAL_BASE}/write/out.csv' (FORMAT csv, HEADER);
+
+query II
+SELECT count(*), max(id) FROM read_csv('${OPENDAL_BASE}/write/out.csv');
+----
+250	249
+
+# Writing into a not-yet-existing nested directory works (OpenDAL creates the
+# parent path; native COPY would fail here).
+statement ok
+COPY (SELECT range AS id FROM range(10))
+TO '${OPENDAL_BASE}/write/new/deep/f.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/write/new/deep/f.parquet');
+----
+10
+
+# Partitioned write creates the partition directories and one file per value.
+statement ok
+COPY (SELECT range AS id, range % 4 AS part FROM range(400))
+TO '${OPENDAL_BASE}/write/parts' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+query II
+SELECT part, count(*) FROM read_parquet('${OPENDAL_BASE}/write/parts/**/*.parquet', hive_partitioning = true)
+GROUP BY part ORDER BY part;
+----
+0	100
+1	100
+2	100
+3	100

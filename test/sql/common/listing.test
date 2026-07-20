@@ -1,0 +1,71 @@
+# name: test/sql/common/listing.test
+# description: Table functions opendal_ls / opendal_stat / opendal_du / opendal_glob
+# group: [common]
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_BASE
+
+statement ok
+COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
+TO '${OPENDAL_BASE}/listing/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+statement ok
+COPY (SELECT range AS id FROM range(1000))
+TO '${OPENDAL_BASE}/listing/single.parquet' (FORMAT parquet);
+
+# opendal_ls (non-recursive) lists the partition directories.
+query I
+SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/listing/tree/') WHERE metadata.mode = 'directory';
+----
+3
+
+# opendal_ls (recursive) sees the leaf parquet files (one per partition).
+query I
+SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/listing/tree/', recursive := true) WHERE metadata.mode = 'file';
+----
+3
+
+# opendal_stat returns exactly one row for a concrete file, with metadata.
+query I
+SELECT count(*) FROM opendal_stat('${OPENDAL_BASE}/listing/single.parquet');
+----
+1
+
+query II
+SELECT name, metadata.content_length > 0
+FROM opendal_stat('${OPENDAL_BASE}/listing/single.parquet');
+----
+single.parquet	true
+
+# opendal_glob matches full paths and returns file entries.
+query I
+SELECT count(*) FROM opendal_glob('${OPENDAL_BASE}/listing/tree/**/*.parquet')
+WHERE metadata.mode = 'file';
+----
+3
+
+# opendal_du rolls up recursively by immediate parent prefix.
+query I
+SELECT count(*) FROM opendal_du('${OPENDAL_BASE}/listing/tree/');
+----
+3
+
+query I
+SELECT sum(file_count) FROM opendal_du('${OPENDAL_BASE}/listing/tree/');
+----
+3
+
+# Files and globs use the same target resolver and retain parent grouping.
+query II
+SELECT file_count, total_size > 0
+FROM opendal_du('${OPENDAL_BASE}/listing/single.parquet');
+----
+1	true
+
+query I
+SELECT sum(file_count) FROM opendal_du('${OPENDAL_BASE}/listing/tree/**/*.parquet');
+----
+3

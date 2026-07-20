@@ -1,0 +1,75 @@
+# name: test/sql/common/read.test
+# description: Read path (parquet/csv) over any OpenDAL backend
+# group: [common]
+#
+# Runs against every enabled service via --test-config test/configs/<svc>.json,
+# which sets ${OPENDAL_BASE} (the backend base URL) and creates the secret.
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_BASE
+
+# Self-seed a Parquet file, then read it back through OpenDAL (ranged reads).
+statement ok
+COPY (SELECT range AS id, range * 2 AS doubled, 'row_' || range AS label FROM range(1000))
+TO '${OPENDAL_BASE}/read/data.parquet' (FORMAT parquet);
+
+query IIII
+SELECT count(*), min(id), max(id), sum(doubled)
+FROM read_parquet('${OPENDAL_BASE}/read/data.parquet');
+----
+1000	0	999	999000
+
+# Projection + predicate pushdown exercises column-chunk ranged reads.
+query II
+SELECT id, label
+FROM read_parquet('${OPENDAL_BASE}/read/data.parquet')
+WHERE id BETWEEN 500 AND 502
+ORDER BY id;
+----
+500	row_500
+501	row_501
+502	row_502
+
+# CSV streaming path.
+statement ok
+COPY (SELECT range AS id, 'v' || range AS v FROM range(500))
+TO '${OPENDAL_BASE}/read/data.csv' (FORMAT csv, HEADER);
+
+query II
+SELECT count(*), max(id) FROM read_csv('${OPENDAL_BASE}/read/data.csv');
+----
+500	499
+
+# Join across two separately-read objects.
+statement ok
+COPY (SELECT range AS id, range * 3 AS d FROM range(100))
+TO '${OPENDAL_BASE}/read/j2.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*)
+FROM read_parquet('${OPENDAL_BASE}/read/data.parquet') a
+JOIN read_parquet('${OPENDAL_BASE}/read/j2.parquet') b USING (id);
+----
+100
+
+# Implicit read via the replacement scan (format inferred from the extension),
+# without an explicit read_parquet()/read_csv() wrapper.
+query I
+SELECT count(*) FROM '${OPENDAL_BASE}/read/data.parquet';
+----
+1000
+
+query I
+SELECT count(*) FROM '${OPENDAL_BASE}/read/data.csv';
+----
+500
+
+# The `filename` pseudo-column is populated per row from the reconstructed URL
+# across a multi-file wildcard read.
+query I
+SELECT count(DISTINCT filename) FROM read_parquet('${OPENDAL_BASE}/read/*.parquet', filename = true);
+----
+2

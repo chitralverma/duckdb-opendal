@@ -1,0 +1,95 @@
+# name: test/sql/common/glob.test
+# description: Globbing (read paths + builtin glob()) over any OpenDAL backend
+# group: [common]
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_BASE
+
+# Build a small tree using a Hive-partitioned write (creates subdirectories).
+statement ok
+COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
+TO '${OPENDAL_BASE}/glob/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+statement ok
+COPY (SELECT range AS id FROM range(1000))
+TO '${OPENDAL_BASE}/glob/single.parquet' (FORMAT parquet);
+
+# Recursive glob across all partitions: 60 rows total.
+query I
+SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/glob/tree/**/*.parquet');
+----
+60
+
+# Recursive glob restricted to one partition value.
+query I
+SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/glob/tree/part=0/*.parquet');
+----
+20
+
+# ── DuckDB's built-in glob() table function routes through opendal ─────────
+
+# Exact path.
+query I
+SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/single.parquet');
+----
+1
+
+# Wildcard across the partitioned tree (one leaf file per partition dir).
+query I
+SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/tree/**/*.parquet');
+----
+3
+
+# glob() of a non-existent directory returns no rows (clean, no error).
+query I
+SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/does_not_exist_xyz/*.parquet');
+----
+0
+
+# ── Path reconstruction + depth/extension semantics ─────────────────────────
+# A flat fixture with a same-stem pair and one nested file exercises the exact
+# URLs glob() reconstructs (not just counts) plus * vs ** depth handling.
+statement ok
+COPY (SELECT range AS id FROM range(2)) TO '${OPENDAL_BASE}/glob/flat/top.parquet' (FORMAT parquet);
+
+statement ok
+COPY (SELECT range AS id FROM range(2)) TO '${OPENDAL_BASE}/glob/flat/top.csv' (FORMAT csv, HEADER);
+
+statement ok
+COPY (SELECT range AS id FROM range(2)) TO '${OPENDAL_BASE}/glob/flat/sub/deep.parquet' (FORMAT parquet);
+
+# `*` matches only the immediate files (directories are excluded), and glob()
+# returns the fully-reconstructed per-file URLs (asserted by basename, ordered).
+query I
+SELECT string_agg(regexp_replace(file, '.*/', ''), ',' ORDER BY file)
+FROM glob('${OPENDAL_BASE}/glob/flat/*');
+----
+top.csv,top.parquet
+
+# `**` recurses into subdirectories.
+query I
+SELECT string_agg(regexp_replace(file, '.*/', ''), ',' ORDER BY file)
+FROM glob('${OPENDAL_BASE}/glob/flat/**');
+----
+deep.parquet,top.csv,top.parquet
+
+# Extension filter at one level (not recursive, not the .csv).
+query I
+SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/flat/*.parquet');
+----
+1
+
+# Same-stem, multiple extensions.
+query I
+SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/flat/top.*');
+----
+2
+
+# `**/*.parquet` matches the top-level and nested parquet, skipping the .csv.
+query I
+SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/flat/**/*.parquet');
+----
+2
