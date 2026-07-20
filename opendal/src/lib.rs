@@ -38,7 +38,7 @@ pub use operator::{
     od_schemes_entry, od_schemes_free, od_schemes_len, OdOperator, OdSchemeList,
 };
 pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
-pub use stat::{od_exists, od_stat, OdMetadata};
+pub use stat::{od_dir_exists, od_exists, od_stat, OdMetadata};
 pub use table::{
     od_copy_cursor_free, od_copy_cursor_next, od_du_cursor_free, od_du_cursor_next,
     od_table_copy_open, od_table_cursor_free, od_table_cursor_next, od_table_du_open,
@@ -354,6 +354,18 @@ mod tests {
         let mut e = OdError::ok();
         assert_eq!(unsafe { od_exists(op, p_one.as_ptr(), &mut e) }, 1);
         assert_eq!(unsafe { od_exists(op, p_missing.as_ptr(), &mut e) }, 0);
+
+        // dir_exists: a non-empty prefix is a directory, with or without a
+        // trailing slash (memory has no dir markers, so this exercises the
+        // list-probe fallback). A file is not a directory; a missing prefix is
+        // absent.
+        let dir_slash = CString::new("a/").unwrap();
+        let dir_bare = CString::new("a").unwrap();
+        let missing_dir = CString::new("nope/").unwrap();
+        assert_eq!(unsafe { od_dir_exists(op, dir_slash.as_ptr(), &mut e) }, 1);
+        assert_eq!(unsafe { od_dir_exists(op, dir_bare.as_ptr(), &mut e) }, 1);
+        assert_eq!(unsafe { od_dir_exists(op, p_one.as_ptr(), &mut e) }, 0);
+        assert_eq!(unsafe { od_dir_exists(op, missing_dir.as_ptr(), &mut e) }, 0);
 
         // list a/ recursively
         let dir = CString::new("a/").unwrap();

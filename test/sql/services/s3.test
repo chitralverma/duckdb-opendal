@@ -36,11 +36,28 @@ SELECT count(*) FROM read_parquet('s3://warehouse/svc/ow.parquet');
 ----
 5
 
-# NOTE: partitioned COPY ... OVERWRITE removal (RemoveFiles) is intentionally NOT
-# asserted here. DuckDB gates it on DirectoryExists(path) (physical_copy_to_file
-# .cpp), which for an S3 prefix currently returns false (od_stat on the bare
-# prefix is NotFound), so old partitions are not cleared. Tracked as a known gap;
-# see services/fs.test for the working local-backend assertion.
+# Partitioned COPY ... OVERWRITE clears existing partitions first (RemoveFiles):
+# seed two partitions, then OVERWRITE with a disjoint partition set and confirm
+# the old partitions are gone. The first write uses OVERWRITE so the assertion is
+# idempotent against a bucket left dirty by a previous run.
+statement ok
+COPY (SELECT 1 AS part, 'a' AS v) TO 's3://warehouse/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE);
+
+statement ok
+COPY (SELECT 2 AS part, 'b' AS v) TO 's3://warehouse/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+query I
+SELECT count(*) FROM glob('s3://warehouse/svc/ow_part/**/*.parquet');
+----
+2
+
+statement ok
+COPY (SELECT 99 AS part, 'z' AS v) TO 's3://warehouse/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE);
+
+query I
+SELECT count(*) FROM glob('s3://warehouse/svc/ow_part/**/*.parquet');
+----
+1
 
 # I/O tuning on the multipart write path (global): the write must still
 # round-trip correctly with tuning enabled.
