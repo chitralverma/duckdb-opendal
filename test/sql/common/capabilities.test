@@ -3,7 +3,7 @@
 # group: [common]
 
 #
-# Backend-agnostic scalar surface; runs under any --test-config.
+# Service-agnostic scalar surface; runs under any --test-config.
 
 require opendal
 

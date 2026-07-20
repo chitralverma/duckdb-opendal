@@ -13,13 +13,13 @@ require parquet
 
 require-env OPENDAL_S3_ENDPOINT
 
-# Do not skip backend (HTTP/connection) errors.
+# Do not skip service (HTTP/connection) errors.
 set ignore_error_messages
 
 # (External-object reads live in common/external_read.test, gated on
-# OPENDAL_EXTERNAL_BASE — they run against every externally-seeded backend.)
+# OPENDAL_EXTERNAL_BASE — they run against every externally-seeded service.)
 
-# S3 supports list_with_limit (contrast with the local fs backend, which rejects
+# S3 supports list_with_limit (contrast with the local fs service, which rejects
 # it): the typed option is accepted rather than failing fast. (On S3 the limit is
 # a page-size hint, not a result cap, so we only assert it is honored.)
 statement ok

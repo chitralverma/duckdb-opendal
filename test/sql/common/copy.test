@@ -1,5 +1,5 @@
 # name: test/sql/common/copy.test
-# description: opendal_copy (same-operator copy) over any OpenDAL backend
+# description: opendal_copy (same-operator copy) over any OpenDAL service
 # group: [common]
 
 require opendal
@@ -8,7 +8,7 @@ require parquet
 
 require-env OPENDAL_BASE
 
-# Do not skip backend (HTTP/connection) errors.
+# Do not skip service (HTTP/connection) errors.
 set ignore_error_messages
 
 statement ok

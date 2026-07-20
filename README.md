@@ -1,6 +1,6 @@
 # duckdb-opendal (`opendal`)
 
-A DuckDB extension that integrates [Apache OpenDAL](https://opendal.apache.org/) as a virtual filesystem, enabling transparent read and write access to multiple storage backends through a unified SQL interface.
+A DuckDB extension that integrates [Apache OpenDAL](https://opendal.apache.org/) as a virtual filesystem, enabling transparent read and write access to multiple storage services through a unified SQL interface.
 
 Query, glob, and write files (Parquet, CSV, JSON, etc.) directly on remote and local storage using standard SQL.
 
@@ -8,7 +8,7 @@ Query, glob, and write files (Parquet, CSV, JSON, etc.) directly on remote and l
 
 ## Key Features
 
-- **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `s3://`, and `memory://` — with more backends coming soon) directly within DuckDB queries.
+- **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `s3://`, and `memory://` — with more services coming soon) directly within DuckDB queries.
 - **Table Functions**:
   - `opendal_version()` — Returns extension and core OpenDAL library versions.
   - `opendal_stat()` — Returns metadata for a single path (such as mode, size, and user_metadata).

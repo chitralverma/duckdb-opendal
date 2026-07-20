@@ -3,7 +3,7 @@
 # group: [services]
 
 #
-# Self-contained: always exercises the local fs backend regardless of the active
+# Self-contained: always exercises the local fs service regardless of the active
 # --test-config, so it creates its own fs secret and uses explicit fs:// URLs.
 
 require opendal
@@ -25,7 +25,7 @@ SELECT count(*), sum(sq) FROM read_parquet('__TEST_DIR__/svc/out.parquet');
 1000	332833500
 
 # Overwrite replaces the object's contents. DuckDB writes a temp file then
-# renames over the target; the local backend supports server-side rename.
+# renames over the target; the local service supports server-side rename.
 statement ok
 COPY (SELECT 1 AS x) TO 'fs:///__TEST_DIR__/svc/ow.parquet' (FORMAT parquet);
 
@@ -38,7 +38,7 @@ SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/svc/ow.parquet');
 5
 
 # opendal_copy with if_not_exists refuses to overwrite an existing destination.
-# The local backend supports copy_with_if_not_exists (unlike the MinIO emulator).
+# The local service supports copy_with_if_not_exists (unlike the MinIO emulator).
 statement ok
 COPY (SELECT range AS id FROM range(10)) TO 'fs:///__TEST_DIR__/svc/cp_src.parquet' (FORMAT parquet);
 
@@ -56,7 +56,7 @@ exist
 
 # Partitioned COPY ... OVERWRITE clears existing partitions first (RemoveFiles):
 # seed two partitions, then OVERWRITE with a disjoint partition set and confirm
-# the old partitions are gone. (The memory backend does not honor this, so it is
+# the old partitions are gone. (The memory service does not honor this, so it is
 # a service-level, not common, assertion.)
 statement ok
 COPY (SELECT 1 AS part, 'a' AS v) TO 'fs:///__TEST_DIR__/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
@@ -77,7 +77,7 @@ SELECT count(*) FROM glob('fs:///__TEST_DIR__/svc/ow_part/**/*.parquet');
 ----
 1
 
-# The local backend does not support list_with_limit; the typed option fails fast
+# The local service does not support list_with_limit; the typed option fails fast
 # rather than being silently ignored.
 statement ok
 COPY (SELECT range AS id, (range % 3) AS part FROM range(60))

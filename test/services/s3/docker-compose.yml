@@ -1,4 +1,4 @@
-# MinIO backend for the s3:// test tier. Use `make s3-up` / `s3-down` (they
+# MinIO service for the s3:// test tier. Use `make s3-up` / `s3-down` (they
 # sequence the one-shot minio-init after minio is healthy).
 
 name: opendal-s3-test

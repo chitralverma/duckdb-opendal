@@ -22,9 +22,9 @@ a thin `extern "C"` FFI:
 ```
 src/                       C++ shell (.cpp) + include/ (.hpp, generated rust.h)
 opendal/                   Rust crate: src/*.rs, Cargo.toml ([features] select services)
-test/sql/common/           functionality tests, run against every backend
+test/sql/common/           functionality tests, run against every service
 test/sql/services/         service-specific quirks only
-test/configs/              per-backend --test-config JSON + auth_<svc>.sql
+test/configs/              per-service --test-config JSON + auth_<svc>.sql
 test/services/             docker-compose provisioning + plan.py + shared fixtures/
 duckdb/, extension-ci-tools/   pinned submodules (v1.5.4)
 ```
@@ -69,17 +69,17 @@ make rust-test
 ### SQL tests (SQLLogicTest)
 
 The test suite is **functionality-first**: one common suite in `test/sql/common/`
-runs against **every backend**. Each backend has a `test/configs/<name>.json`
-that binds `${OPENDAL_BASE}` (and any backend params) and creates its secret via
-`init_script` (`auth_<name>.sql`). Backend-specific quirks live in
+runs against **every service**. Each service has a `test/configs/<name>.json`
+that binds `${OPENDAL_BASE}` (and any service params) and creates its secret via
+`init_script` (`auth_<name>.sql`). Service-specific quirks live in
 `test/sql/services/<name>.test`.
 
-`make test-common-<name>` runs the common suite (plus that backend's quirks test,
-if any) against one backend by setting `DUCKDB_TEST_CONFIG=test/configs/<name>.json`.
+`make test-common-<name>` runs the common suite (plus that service's quirks test,
+if any) against one service by setting `DUCKDB_TEST_CONFIG=test/configs/<name>.json`.
 
 ```sh
 make test-local            # fs + memory (no infrastructure)
-make test-common-fs        # a single backend
+make test-common-fs        # a single service
 make test-common-memory
 ```
 
@@ -109,8 +109,8 @@ its env map. A variable is only substituted if the file registers it with
 common tests `require-env OPENDAL_BASE` and skip cleanly when run without a config.
 
 Each I/O test also declares `set ignore_error_messages` (clears the SQLLogicTest
-default), so backend HTTP/connection errors **fail loudly** instead of being
-silently skipped — important for remote/object-store backends.
+default), so service HTTP/connection errors **fail loudly** instead of being
+silently skipped — important for remote/object-store services.
 
 ## Adding a service
 
@@ -119,22 +119,22 @@ its own PR — see [issue #6](https://github.com/chitralverma/duckdb-opendal/iss
 
 1. **Cargo feature** — add `services-<svc> = ["opendal/services-<svc>"]` to
    `opendal/Cargo.toml [features]` (and to `default` if it should build by default).
-2. **Config** — `test/configs/<svc>.json`: set `OPENDAL_BASE` (+ backend params) in
+2. **Config** — `test/configs/<svc>.json`: set `OPENDAL_BASE` (+ service params) in
    `test_env`; `init_script: test/configs/auth_<svc>.sql`;
    `statically_loaded_extensions: ["core_functions", "parquet", "opendal"]`.
 3. **Secret** — `test/configs/auth_<svc>.sql`: one `CREATE SECRET (TYPE <svc>, …)`
    referencing `${…}` from `test_env` (pure SQL).
 4. **Provisioning** — for an emulator, add `test/services/<svc>/docker-compose.yml`
-   (backend + a way to create the bucket/container) and Makefile targets
+   (service + a way to create the bucket/container) and Makefile targets
    `<svc>-up` / `<svc>-down` (+ `<svc>-assert-no-incomplete` if relevant). `<svc>-up`
-   must **not return until the backend is ready** — readiness is service-specific:
+   must **not return until the service is ready** — readiness is service-specific:
    a container with a shell can use a compose `healthcheck` + `up --wait` (like
    `s3-up`); an image without one (e.g. `fsouza/fake-gcs-server`) needs a
    host-side poll (`curl` the endpoint in a loop) in `<svc>-up`. For a
    real-cloud-only service, skip the compose and add an empty
    `test/services/<svc>/requires-secrets` marker so the planner gates it.
 5. **External-object reads (optional)** — expose the shared `test/services/fixtures/`
-   as objects under `<backend>/external/` and set `OPENDAL_EXTERNAL_BASE` in the
+   as objects under `<service>/external/` and set `OPENDAL_EXTERNAL_BASE` in the
    config; `common/external_read.test` then runs automatically. The mechanism is
    emulator-specific: MinIO uses an `mc cp` init step; `fake-gcs-server` auto-loads
    a mounted `/data/<bucket>/external/` folder — either way, mount the shared
@@ -142,8 +142,8 @@ its own PR — see [issue #6](https://github.com/chitralverma/duckdb-opendal/iss
 6. **Quirks test (optional)** — `test/sql/services/<svc>.test`, gated on an env var
    only that config sets. `make test-common-<svc>` runs it automatically.
 
-`test/services/plan.py` discovers the new backend and the CI `sql-tests` job runs
-it (emulators on every PR incl. forks; secret-gated backends only when secrets
+`test/services/plan.py` discovers the new service and the CI `sql-tests` job runs
+it (emulators on every PR incl. forks; secret-gated services only when secrets
 are present).
 
 ## Formatting & linting

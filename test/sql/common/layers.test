@@ -6,7 +6,7 @@
 # Isolates one layer at a time (retry / timeout / concurrent-limit / cache) via
 # the global config surface, proving each attaches without breaking I/O. The
 # all-at-once global surface is global_config.test; break paths are errors.test.
-# Config is set before seeding because the memory backend gives each distinct
+# Config is set before seeding because the memory service gives each distinct
 # effective config its own store.
 
 require opendal
@@ -15,7 +15,7 @@ require parquet
 
 require-env OPENDAL_BASE
 
-# Do not skip backend (HTTP/connection) errors.
+# Do not skip service (HTTP/connection) errors.
 set ignore_error_messages
 
 # retry layer

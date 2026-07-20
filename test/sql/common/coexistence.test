@@ -3,7 +3,7 @@
 # group: [common]
 
 #
-# Backend-agnostic (no I/O): exercises the per-scheme override toggle and the
+# Service-agnostic (no I/O): exercises the per-scheme override toggle and the
 # CanHandleFile -> IsManuallySet dispatch coupling. Runs under any --test-config.
 
 require opendal

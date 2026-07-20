@@ -4,9 +4,9 @@
 
 #
 # ${OPENDAL_EXTERNAL_BASE} points at a prefix seeded at provisioning time by the
-# backend's init sidecar (e.g. `mc cp` for s3), i.e. objects opendal did not
-# write. Only configs whose backend is externally seeded set this var, so the
-# file is skipped for in-process backends (memory) and any backend without an
+# service's init sidecar (e.g. `mc cp` for s3), i.e. objects opendal did not
+# write. Only configs whose service is externally seeded set this var, so the
+# file is skipped for in-process services (memory) and any service without an
 # external seed. The fixtures are the shared set from `make fixtures`.
 
 require opendal
@@ -15,7 +15,7 @@ require parquet
 
 require-env OPENDAL_EXTERNAL_BASE
 
-# Do not skip backend (HTTP/connection) errors.
+# Do not skip service (HTTP/connection) errors.
 set ignore_error_messages
 
 query II

@@ -8,13 +8,13 @@ require parquet
 
 require-env OPENDAL_BASE
 
-# Do not skip backend (HTTP/connection) errors.
+# Do not skip service (HTTP/connection) errors.
 set ignore_error_messages
 
 # Global sections use the same names as secret sections and apply to every
 # service/path. A missing section means no layer/cache is applied. Set them
 # before seeding so the same effective operator serves the write and read (the
-# memory backend gives each distinct effective config its own store).
+# memory service gives each distinct effective config its own store).
 statement ok
 SET GLOBAL opendal_io_config = MAP{'read.concurrent':'2','read.chunk_size':'256 KiB'};
 

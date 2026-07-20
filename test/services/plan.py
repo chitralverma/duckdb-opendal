@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Plan the SQL test matrix from the test/ layout (see docs/testing.md).
 
-A "backend" is any test/configs/<name>.json. For each one we derive:
+A "service" is any test/configs/<name>.json. For each one we derive:
 
-  name           the scheme/backend name (config file stem)
+  name           the scheme/service name (config file stem)
   config         path to the --test-config JSON
   service_test   test/sql/services/<name>.test, if present
   compose        test/services/<name>/docker-compose.yml, if present
   needs_secrets  True if provisioning needs real cloud credentials
                  (marker file test/services/<name>/requires-secrets)
 
-Backends with a compose file are emulator-backed (run on every PR, incl. forks).
-Backends with a requires-secrets marker only run when secrets are available;
+Services with a compose file are emulator-backed (run on every PR, incl. forks).
+Services with a requires-secrets marker only run when secrets are available;
 `--have-secrets false` drops them so fork PRs still run the emulator tiers.
 
 Adding a service is data-only: drop in test/configs/<name>.json (+ optional
@@ -20,7 +20,7 @@ the planner picks it up.
 
 Usage:
   plan.py [--have-secrets true|false]        # JSON array (GitHub matrix include)
-  plan.py --names                            # all backend names, space-separated
+  plan.py --names                            # all service names, space-separated
   plan.py --provisioned                      # names that have a compose file
 """
 
@@ -40,7 +40,7 @@ def _rel(path):
 
 
 def discover():
-    backends = []
+    services = []
     for entry in sorted(os.listdir(CONFIGS_DIR)):
         if not entry.endswith(".json"):
             continue
@@ -48,7 +48,7 @@ def discover():
         compose = os.path.join(SERVICES_DIR, name, "docker-compose.yml")
         service_test = os.path.join(SERVICE_TESTS_DIR, name + ".test")
         marker = os.path.join(SERVICES_DIR, name, "requires-secrets")
-        backends.append(
+        services.append(
             {
                 "name": name,
                 "config": _rel(os.path.join(CONFIGS_DIR, entry)),
@@ -57,27 +57,27 @@ def discover():
                 "needs_secrets": os.path.exists(marker),
             }
         )
-    return backends
+    return services
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--have-secrets", choices=["true", "false"], default="true")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--names", action="store_true", help="print all backend names")
+    group.add_argument("--names", action="store_true", help="print all service names")
     group.add_argument("--provisioned", action="store_true", help="print names with a compose file")
     args = parser.parse_args()
 
-    backends = discover()
+    services = discover()
     if args.have_secrets == "false":
-        backends = [b for b in backends if not b["needs_secrets"]]
+        services = [b for b in services if not b["needs_secrets"]]
 
     if args.names:
-        print(" ".join(b["name"] for b in backends))
+        print(" ".join(b["name"] for b in services))
     elif args.provisioned:
-        print(" ".join(b["name"] for b in backends if b["compose"]))
+        print(" ".join(b["name"] for b in services if b["compose"]))
     else:
-        json.dump(backends, sys.stdout)
+        json.dump(services, sys.stdout)
         sys.stdout.write("\n")
 
 

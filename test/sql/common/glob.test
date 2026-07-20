@@ -1,5 +1,5 @@
 # name: test/sql/common/glob.test
-# description: Globbing (read paths + builtin glob()) over any OpenDAL backend
+# description: Globbing (read paths + builtin glob()) over any OpenDAL service
 # group: [common]
 
 require opendal
@@ -8,7 +8,7 @@ require parquet
 
 require-env OPENDAL_BASE
 
-# Do not skip backend (HTTP/connection) errors.
+# Do not skip service (HTTP/connection) errors.
 set ignore_error_messages
 
 # Build a small tree using a Hive-partitioned write (creates subdirectories).

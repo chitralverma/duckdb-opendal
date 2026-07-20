@@ -1,4 +1,4 @@
--- Init script for the s3:// backend (loaded by test/configs/s3.json).
+-- Init script for the s3:// service (loaded by test/configs/s3.json).
 -- Values come from the config JSON's test_env (pre-seeded into the runner's
 -- substitution map before on_init runs), so this file is pure SQL. For the
 -- MinIO emulator the values are non-secret literals set in s3.json.

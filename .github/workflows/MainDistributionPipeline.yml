@@ -32,8 +32,8 @@ jobs:
       extension_name: opendal
       format_checks: 'format;tidy'
 
-  # Build once, then run the SQLLogicTest tiers against every backend the planner
-  # discovers (docs/testing.md). Secret-gated backends are dropped without secrets.
+  # Build once, then run the SQLLogicTest tiers against every service the planner
+  # discovers (docs/testing.md). Secret-gated services are dropped without secrets.
   sql-tests:
     name: SQL tests
     runs-on: ubuntu-latest
@@ -77,12 +77,12 @@ jobs:
           set -euo pipefail
           names=$(python3 test/services/plan.py --have-secrets "$HAVE_SECRETS" --names)
           provisioned=$(python3 test/services/plan.py --have-secrets "$HAVE_SECRETS" --provisioned)
-          echo "backends: $names"
+          echo "services: $names"
           echo "provisioned: $provisioned"
           for name in $names; do
-            echo "::group::backend $name"
+            echo "::group::service $name"
             if echo " $provisioned " | grep -q " $name "; then
-              # Always tear down (even on failure) so a later backend can reuse ports.
+              # Always tear down (even on failure) so a later service can reuse ports.
               rc=0
               make "$name-up" || rc=$?
               if [ "$rc" -eq 0 ]; then make "test-common-$name" || rc=$?; fi

@@ -101,7 +101,7 @@ pub unsafe extern "C" fn od_list(
             set_error(err, code, msg);
             return std::ptr::null_mut();
         }
-        // NB: recursion is provided by OpenDAL's raw layer even when a backend
+        // NB: recursion is provided by OpenDAL's raw layer even when a service
         // does not advertise `list_with_recursive`, so we guard only `list`.
         let path = match cstr(path) {
             Some(s) => s,

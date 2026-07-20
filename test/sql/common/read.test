@@ -1,10 +1,10 @@
 # name: test/sql/common/read.test
-# description: Read path (parquet/csv) over any OpenDAL backend
+# description: Read path (parquet/csv) over any OpenDAL service
 # group: [common]
 
 #
 # Runs against every enabled service via --test-config test/configs/<svc>.json,
-# which sets ${OPENDAL_BASE} (the backend base URL) and creates the secret.
+# which sets ${OPENDAL_BASE} (the service base URL) and creates the secret.
 
 require opendal
 
@@ -12,7 +12,7 @@ require parquet
 
 require-env OPENDAL_BASE
 
-# Do not skip backend (HTTP/connection) errors.
+# Do not skip service (HTTP/connection) errors.
 set ignore_error_messages
 
 # Self-seed a Parquet file, then read it back through OpenDAL (ranged reads).

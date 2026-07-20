@@ -374,7 +374,7 @@ mod tests {
         let list = unsafe { od_list(op, dir.as_ptr(), 1, &mut lerr) };
         assert!(!list.is_null());
         let n = unsafe { od_list_len(list) };
-        // Expect our two files (dir markers may or may not appear depending on backend).
+        // Expect our two files (dir markers may or may not appear depending on service).
         let mut files = 0;
         for i in 0..n {
             let mut ent = OdEntry {
@@ -483,7 +483,7 @@ mod tests {
         assert_eq!(serr.code as i32, OdErrorCode::InvalidInput as i32);
         unsafe { od_string_free(serr.message) };
 
-        // rename → if the backend supports it, the old path is gone and the new
+        // rename → if the service supports it, the old path is gone and the new
         // one exists. The memory service does not support server-side rename, so
         // tolerate Unsupported here (the C++ layer falls back to copy+delete).
         let dst = CString::new("out/renamed.txt").unwrap();
@@ -791,7 +791,7 @@ mod tests {
         assert!(!probe("definitely_not_a_capability"));
 
         // rename must fail-fast with Unsupported + a clear message, without
-        // touching the backend.
+        // touching the service.
         let from = CString::new("a.txt").unwrap();
         let to = CString::new("b.txt").unwrap();
         let mut merr = OdError::ok();

@@ -1,5 +1,5 @@
 # name: test/sql/common/write.test
-# description: Write path (COPY TO) over any OpenDAL backend
+# description: Write path (COPY TO) over any OpenDAL service
 # group: [common]
 
 require opendal
@@ -8,7 +8,7 @@ require parquet
 
 require-env OPENDAL_BASE
 
-# Do not skip backend (HTTP/connection) errors.
+# Do not skip service (HTTP/connection) errors.
 set ignore_error_messages
 
 # COPY TO writes a Parquet file through the streaming writer; round-trip.

@@ -12,7 +12,7 @@ DUCKDB_SRCDIR := ./duckdb/
 # stays the default goal, so a bare `make` still builds the extension.
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
-# ── SQLLogicTest targets: common suite run per backend (see docs/testing.md) ──
+# ── SQLLogicTest targets: common suite run per service (see docs/testing.md) ──
 .PHONY: test-local fixtures s3-up s3-down s3-assert-no-incomplete
 UNITTEST_BIN := ./build/release/test/unittest
 FIXTURES_DIR := test/services/fixtures
@@ -23,7 +23,7 @@ fixtures: ## Generate the shared external-object test fixtures
 	mkdir -p $(FIXTURES_DIR)
 	./build/release/duckdb -c "COPY (SELECT range AS id, range * 2 AS d FROM range(100)) TO '$(FIXTURES_DIR)/ext_seed.parquet' (FORMAT parquet); COPY (SELECT range AS id, 'v' || range AS v FROM range(50)) TO '$(FIXTURES_DIR)/ext_seed.csv' (FORMAT csv, HEADER);"
 
-test-common-%: ## Run the common suite for a backend (e.g. test-common-fs)
+test-common-%: ## Run the common suite for a service (e.g. test-common-fs)
 	DUCKDB_TEST_CONFIG=test/configs/$*.json $(UNITTEST_BIN) "test/sql/common/*"
 	@if [ -f test/sql/services/$*.test ]; then \
 	  DUCKDB_TEST_CONFIG=test/configs/$*.json $(UNITTEST_BIN) "test/sql/services/$*.test"; \
@@ -31,11 +31,11 @@ test-common-%: ## Run the common suite for a backend (e.g. test-common-fs)
 
 test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + memory)
 
-s3-up: fixtures ## Start + provision the MinIO test backend (buckets + fixtures + fault proxy)
+s3-up: fixtures ## Start + provision the MinIO test service (buckets + fixtures + fault proxy)
 	docker compose -f $(S3_COMPOSE) up -d --wait minio fault-proxy
 	docker compose -f $(S3_COMPOSE) run --rm minio-init
 
-s3-down: ## Stop and remove the MinIO test backend
+s3-down: ## Stop and remove the MinIO test service
 	docker compose -f $(S3_COMPOSE) down -v
 
 s3-assert-no-incomplete: ## Assert no orphaned multipart uploads remain (run after test-common-s3)
