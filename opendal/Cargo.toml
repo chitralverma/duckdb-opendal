@@ -1,58 +1,68 @@
 [package]
 name = "duckdb-opendal"
 version = "0.1.0"
+
+description = "OpenDAL FFI core for the duckdb-opendal filesystem extension"
 edition = "2021"
 license = "MIT"
 rust-version = "1.91"
-description = "OpenDAL FFI core for the duckdb-opendal filesystem extension"
 
 [lib]
-# Static link into the DuckDB C++ extension (via Corrosion).
 crate-type = ["staticlib"]
 
 [profile.release]
-# panic=unwind (the release default) pinned explicitly: `abort` would take down
-# the DuckDB host process on a Rust panic — we catch panics at the FFI boundary.
-panic = "unwind"
-# Non-default: whole-program LTO in one codegen unit; strip the staticlib.
-lto = true
+# Never abort the DuckDB host on a Rust panic; panics are caught at the FFI boundary.
 codegen-units = 1
+lto = true
+panic = "unwind"
 strip = true
 
+[features]
+# Compiled-in OpenDAL services; each maps to opendal/services-<name>. Build a
+# subset with `--no-default-features --features services-<name>`.
+default = ["services-memory", "services-fs", "services-s3"]
+services-fs = ["opendal/services-fs"]
+services-memory = ["opendal/services-memory"]
+services-s3 = ["opendal/services-s3"]
+
+[dependencies.opendal]
+default-features = false
+features = [
+  "executors-tokio",
+  "http-transport-reqwest-rustls-no-provider",
+  "layers-retry",
+  "layers-timeout",
+  "layers-concurrent-limit",
+  "layers-foyer",
+]
+git = "https://github.com/apache/opendal.git"
+rev = "318051086ba99a2c02ac2492105faf4aceb73815"
+
 [dependencies]
-# default-features off so we pick the rustls crypto provider (ring, not the
-# default aws-lc-rs — aws-lc-sys fails its ARMv8 asm build under MSVC on
-opendal = { git = "https://github.com/apache/opendal.git", rev = "318051086ba99a2c02ac2492105faf4aceb73815", default-features = false, features = [
-    "executors-tokio",
-    "http-transport-reqwest-rustls-no-provider",
-
-    # layers
-    "layers-retry",
-    "layers-timeout",
-    "layers-concurrent-limit",
-    "layers-foyer",
-
-    # services
-    "services-memory",
-    "services-fs",
-    "services-s3",
-] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-opendal-http-transport-reqwest = { git = "https://github.com/apache/opendal.git", rev = "318051086ba99a2c02ac2492105faf4aceb73815", default-features = false, features = ["rustls-no-provider"] }
-# Match opendal-layer-foyer's transitive foyer version.
-foyer = "0.22"
-tokio = { version = "1", features = ["rt-multi-thread"] }
-# Capability is serialized to enumerate its bool fields generically.
-serde_json = "1"
-# BufMut for the zero-extra-copy Reader::read_into path.
+# ring provider, not the default aws-lc-rs: aws-lc-sys fails its ARMv8 asm build
+# under MSVC on windows_arm64.
 bytes = "1"
+foyer = "0.22" # match opendal-layer-foyer's transitive version
 futures = "0.3"
-human-units = { version = "=0.5.4", default-features = false, features = ["std", "iec-units"] }
+human-units = { version = "=0.5.4", default-features = false, features = [
+  "std",
+  "iec-units",
+] }
+opendal-http-transport-reqwest = { git = "https://github.com/apache/opendal.git", rev = "318051086ba99a2c02ac2492105faf4aceb73815", default-features = false, features = [
+  "rustls-no-provider",
+] }
 percent-encoding = "2"
+rustls = { version = "0.23", default-features = false, features = [
+  "ring",
+  "std",
+  "tls12",
+  "logging",
+] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [build-dependencies]
 cbindgen = "0.29"
-# Resolve the opendal version from Cargo.toml at build time.
 toml = "0.9"
 
 [dev-dependencies]
