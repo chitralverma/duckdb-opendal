@@ -1,0 +1,67 @@
+# Self-seeding MinIO backend for the s3:// test tier (see docs/testing.md).
+#
+# Use the Makefile targets (they sequence the one-shot init correctly):
+#   make s3-up                # start minio + fault-proxy, create buckets
+#   make test-common-s3       # run the s3 tier
+#   make s3-assert-no-incomplete
+#   make s3-down
+#
+# minio-init is a one-shot that creates the buckets the tests write into; it is
+# started via `docker compose run` after minio is healthy (a one-shot service
+# makes `up --wait` report failure, so it is not part of the waited-on set). The
+# common + service suites self-seed their own objects, so no fixtures are
+# uploaded here (external-object read coverage is a later migration step).
+# fault-proxy fronts MinIO on 19101 and fails CompleteMultipartUpload for the
+# abort-test prefix.
+
+name: opendal-s3-test
+
+services:
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-09-22T00-33-43Z
+    ports:
+      - "19100:9000"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2024-09-16T17-43-14Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 minioadmin minioadmin
+        mc mb --ignore-existing local/warehouse
+        mc mb --ignore-existing local/vault
+        echo 'FINISHED SETTING UP MINIO'
+
+  fault-proxy:
+    image: python:3.12-alpine
+    depends_on:
+      minio:
+        condition: service_healthy
+    ports:
+      - "19101:9101"
+    volumes:
+      - ./fault_proxy.py:/app/fault_proxy.py:ro
+    environment:
+      FAULT_PROXY_UPSTREAM_HOST: minio
+      FAULT_PROXY_UPSTREAM_PORT: "9000"
+      FAULT_PROXY_BIND_HOST: "0.0.0.0"
+      FAULT_PROXY_BIND_PORT: "9101"
+    command: ["python3", "/app/fault_proxy.py"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 9101), 2)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

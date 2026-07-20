@@ -16,8 +16,11 @@ include extension-ci-tools/makefiles/duckdb_extension.Makefile
 # The common suite (test/sql/common/*) is service-agnostic: each config supplies
 # ${OPENDAL_BASE} + the backend secret. Service-specific quirks live in
 # test/sql/services/<svc>.test. See docs/testing.md.
-.PHONY: test-common-fs test-common-memory test-common-s3 test-local
+.PHONY: test-common-fs test-common-memory test-common-s3 test-local \
+        s3-up s3-down s3-assert-no-incomplete
 UNITTEST_BIN := ./build/release/test/unittest
+S3_COMPOSE := test/services/s3/docker-compose.yml
+S3_MC := docker compose -f $(S3_COMPOSE) run --rm --entrypoint sh minio-init -c
 
 test-common-fs: ## Run the common suite + fs quirks over fs:// (no infra)
 	DUCKDB_TEST_CONFIG=test/configs/fs.json $(UNITTEST_BIN) "test/sql/common/*"
@@ -26,11 +29,24 @@ test-common-fs: ## Run the common suite + fs quirks over fs:// (no infra)
 test-common-memory: ## Run the common suite over memory:// (no infra)
 	DUCKDB_TEST_CONFIG=test/configs/memory.json $(UNITTEST_BIN) "test/sql/common/*"
 
-test-common-s3: ## Run the common suite + s3 quirks over s3:// (needs MinIO: scripts/s3_test_seed.sh up)
+test-common-s3: ## Run the common suite + s3 quirks over s3:// (needs `make s3-up` first)
 	DUCKDB_TEST_CONFIG=test/configs/s3.json $(UNITTEST_BIN) "test/sql/common/*"
 	DUCKDB_TEST_CONFIG=test/configs/s3.json $(UNITTEST_BIN) "test/sql/services/s3.test"
 
 test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + memory)
+
+s3-up: ## Start + provision the MinIO test backend (buckets + fault proxy)
+	docker compose -f $(S3_COMPOSE) up -d --wait minio fault-proxy
+	docker compose -f $(S3_COMPOSE) run --rm minio-init
+
+s3-down: ## Stop and remove the MinIO test backend
+	docker compose -f $(S3_COMPOSE) down -v
+
+s3-assert-no-incomplete: ## Assert no orphaned multipart uploads remain (run after test-common-s3)
+	@$(S3_MC) "mc alias set local http://minio:9000 minioadmin minioadmin >/dev/null 2>&1; \
+	  out=\$$(mc ls --recursive --incomplete local/warehouse/abort-test); \
+	  if [ -n \"\$$out\" ]; then echo 'incomplete multipart uploads remain:'; echo \"\$$out\"; exit 1; fi; \
+	  echo 'No incomplete multipart uploads remain.'"
 
 # ── Rust convenience targets (crate lives in opendal/core) ───────────────────
 .PHONY: rust-build rust-test rust-fmt cpp-fmt format-all rust-lint rust-clean cargo-clean clean-all help

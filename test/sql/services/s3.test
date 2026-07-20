@@ -168,8 +168,8 @@ SELECT * FROM opendal_stat('s3://invalid-config-bucket/file');
 failed to deserialize config
 
 # Force CompleteMultipartUpload to fail while allowing AbortMultipartUpload, via
-# the fault proxy. The seed helper's `assert-no-incomplete` action verifies no
-# orphaned multipart uploads remain after this test finishes.
+# the fault proxy. `make s3-assert-no-incomplete` verifies no orphaned multipart
+# uploads remain after this test finishes.
 statement ok
 CREATE SECRET s3_abort_test (
     TYPE s3, SCOPE 's3://warehouse/abort-test',
