@@ -34,6 +34,72 @@ jobs:
       extension_name: opendal
       format_checks: 'format;tidy'
 
+  # Runs the SQLLogicTest tiers (docs/testing.md): the common suite against every
+  # backend the planner discovers, plus per-service quirks. Emulator-backed
+  # backends (s3/MinIO) run on every PR incl. forks; secret-gated backends are
+  # dropped when secrets are unavailable. Builds the extension once, then loops
+  # the backends (cheaper than rebuilding DuckDB per matrix cell); the planner
+  # emits matrix-ready JSON if this is later split into a build-once + matrix.
+  sql-tests:
+    name: SQL tests
+    runs-on: ubuntu-latest
+    env:
+      GEN: ninja
+      HAVE_SECRETS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+
+      - name: Install build tools
+        run: sudo apt-get update -y -qq && sudo apt-get install -y -qq ninja-build ccache
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-sqltests-ccache-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-sqltests-ccache-
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-sqltests-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-sqltests-cargo-
+
+      - name: Build extension
+        run: make
+
+      - name: Run test tiers
+        run: |
+          set -euo pipefail
+          names=$(python3 test/services/plan.py --have-secrets "$HAVE_SECRETS" --names)
+          provisioned=$(python3 test/services/plan.py --have-secrets "$HAVE_SECRETS" --provisioned)
+          echo "backends: $names"
+          echo "provisioned: $provisioned"
+          for name in $names; do
+            echo "::group::backend $name"
+            if echo " $provisioned " | grep -q " $name "; then
+              make "$name-up"
+              make "test-common-$name"
+              if make -n "$name-assert-no-incomplete" >/dev/null 2>&1; then
+                make "$name-assert-no-incomplete"
+              fi
+              make "$name-down"
+            else
+              make "test-common-$name"
+            fi
+            echo "::endgroup::"
+          done
+
   create-release-draft:
     name: Create draft release with built binaries
     needs:
