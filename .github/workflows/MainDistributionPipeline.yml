@@ -25,7 +25,7 @@ jobs:
       # - Windows MinGW target: Rtools MinGW toolchain is missing libgcc_eh.a which is required by rustc for the gnu target. Rely on standard MSVC instead.
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw'
 
-  code-quality-check:
+  code-quality-check-cpp:
     name: Code Quality Check
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5-variegata
     with:
@@ -33,6 +33,54 @@ jobs:
       ci_tools_version: v1.5-variegata
       extension_name: opendal
       format_checks: 'format;tidy'
+
+  code-quality-check-rust:
+    name: Rust Code Quality Check
+    runs-on: ubuntu-22.04
+
+    env:
+      GEN: ninja
+
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout current repository
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Rust Format Check
+        shell: bash
+        run: make rust-fmt-check
+
+      - name: Clippy
+        shell: bash
+        run: make rust-lint
+
+      - name: Build Rust library
+        shell: bash
+        run: make rust-build
+
+      - name: Run Rust tests
+        shell: bash
+        run: make rust-test
 
   create-release-draft:
     name: Create draft release with built binaries
