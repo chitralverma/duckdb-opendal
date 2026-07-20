@@ -1,6 +1,7 @@
 # name: test/sql/services/fs.test
 # description: fs://-specific behavior (on-disk validity, capabilities, cache warning)
 # group: [services]
+
 #
 # Self-contained: always exercises the local fs backend regardless of the active
 # --test-config, so it creates its own fs secret and uses explicit fs:// URLs.

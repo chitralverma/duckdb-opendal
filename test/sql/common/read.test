@@ -1,6 +1,7 @@
 # name: test/sql/common/read.test
 # description: Read path (parquet/csv) over any OpenDAL backend
 # group: [common]
+
 #
 # Runs against every enabled service via --test-config test/configs/<svc>.json,
 # which sets ${OPENDAL_BASE} (the backend base URL) and creates the secret.

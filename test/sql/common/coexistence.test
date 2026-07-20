@@ -1,6 +1,7 @@
 # name: test/sql/common/coexistence.test
 # description: Native-filesystem override setting + dispatch diagnostic
 # group: [common]
+
 #
 # Backend-agnostic (no I/O): exercises the per-scheme override toggle and the
 # CanHandleFile -> IsManuallySet dispatch coupling. Runs under any --test-config.

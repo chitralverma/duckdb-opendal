@@ -1,6 +1,7 @@
 # name: test/sql/common/capabilities.test
 # description: Version scalar + basic introspection scalars
 # group: [common]
+
 #
 # Backend-agnostic scalar surface; runs under any --test-config.
 

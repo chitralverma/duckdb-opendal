@@ -1,6 +1,7 @@
 # name: test/sql/common/uri_parsing.test
 # description: Scheme/authority/path URL contract (memory path-only, file:// alias)
 # group: [common]
+
 #
 # Self-contained: uses explicit memory://, fs:// and file:// schemes (not
 # ${OPENDAL_BASE}) and creates its own secrets, so it runs under any config.

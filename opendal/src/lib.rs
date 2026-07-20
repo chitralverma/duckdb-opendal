@@ -365,7 +365,10 @@ mod tests {
         assert_eq!(unsafe { od_dir_exists(op, dir_slash.as_ptr(), &mut e) }, 1);
         assert_eq!(unsafe { od_dir_exists(op, dir_bare.as_ptr(), &mut e) }, 1);
         assert_eq!(unsafe { od_dir_exists(op, p_one.as_ptr(), &mut e) }, 0);
-        assert_eq!(unsafe { od_dir_exists(op, missing_dir.as_ptr(), &mut e) }, 0);
+        assert_eq!(
+            unsafe { od_dir_exists(op, missing_dir.as_ptr(), &mut e) },
+            0
+        );
 
         // list a/ recursively
         let dir = CString::new("a/").unwrap();

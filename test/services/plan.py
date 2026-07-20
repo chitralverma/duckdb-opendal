@@ -52,7 +52,9 @@ def discover():
             {
                 "name": name,
                 "config": _rel(os.path.join(CONFIGS_DIR, entry)),
-                "service_test": _rel(service_test) if os.path.exists(service_test) else "",
+                "service_test": _rel(service_test)
+                if os.path.exists(service_test)
+                else "",
                 "compose": _rel(compose) if os.path.exists(compose) else "",
                 "needs_secrets": os.path.exists(marker),
             }
@@ -65,7 +67,9 @@ def main():
     parser.add_argument("--have-secrets", choices=["true", "false"], default="true")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--names", action="store_true", help="print all backend names")
-    group.add_argument("--provisioned", action="store_true", help="print names with a compose file")
+    group.add_argument(
+        "--provisioned", action="store_true", help="print names with a compose file"
+    )
     args = parser.parse_args()
 
     backends = discover()
