@@ -82,12 +82,15 @@ jobs:
           for name in $names; do
             echo "::group::backend $name"
             if echo " $provisioned " | grep -q " $name "; then
-              make "$name-up"
-              make "test-common-$name"
-              if make -n "$name-assert-no-incomplete" >/dev/null 2>&1; then
-                make "$name-assert-no-incomplete"
+              # Always tear down (even on failure) so a later backend can reuse ports.
+              rc=0
+              make "$name-up" || rc=$?
+              if [ "$rc" -eq 0 ]; then make "test-common-$name" || rc=$?; fi
+              if [ "$rc" -eq 0 ] && make -n "$name-assert-no-incomplete" >/dev/null 2>&1; then
+                make "$name-assert-no-incomplete" || rc=$?
               fi
-              make "$name-down"
+              make "$name-down" || true
+              [ "$rc" -eq 0 ] || exit "$rc"
             else
               make "test-common-$name"
             fi

@@ -39,8 +39,6 @@ git = "https://github.com/apache/opendal.git"
 rev = "318051086ba99a2c02ac2492105faf4aceb73815"
 
 [dependencies]
-# ring provider, not the default aws-lc-rs: aws-lc-sys fails its ARMv8 asm build
-# under MSVC on windows_arm64.
 bytes = "1"
 foyer = "0.22" # match opendal-layer-foyer's transitive version
 futures = "0.3"
@@ -52,6 +50,8 @@ opendal-http-transport-reqwest = { git = "https://github.com/apache/opendal.git"
   "rustls-no-provider",
 ] }
 percent-encoding = "2"
+# ring provider, not the default aws-lc-rs: aws-lc-sys fails its ARMv8 asm build
+# under MSVC on windows_arm64.
 rustls = { version = "0.23", default-features = false, features = [
   "ring",
   "std",
