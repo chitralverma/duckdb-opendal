@@ -12,6 +12,19 @@ require parquet
 
 require-env OPENDAL_S3_ENDPOINT
 
+# External-object reads: warehouse/external/* is uploaded by `mc` at provisioning
+# time (make s3-up), i.e. written by a different client, not opendal's writer.
+# This verifies the read path on foreign objects (the common suite self-seeds).
+query II
+SELECT count(*), sum(d) FROM read_parquet('s3://warehouse/external/ext_seed.parquet');
+----
+100	9900
+
+query II
+SELECT count(*), max(id) FROM read_csv('s3://warehouse/external/ext_seed.csv');
+----
+50	49
+
 # S3 supports list_with_limit (contrast with the local fs backend, which rejects
 # it): the typed option is accepted rather than failing fast. (On S3 the limit is
 # a page-size hint, not a result cap, so we only assert it is honored.)

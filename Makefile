@@ -32,7 +32,9 @@ test-common-%: ## Run the common suite for a backend (e.g. test-common-fs)
 
 test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + memory)
 
-s3-up: ## Start + provision the MinIO test backend (buckets + fault proxy)
+s3-up: ## Start + provision the MinIO test backend (buckets + fixtures + fault proxy)
+	mkdir -p test/services/s3/fixtures
+	./build/release/duckdb -c "COPY (SELECT range AS id, range * 2 AS d FROM range(100)) TO 'test/services/s3/fixtures/ext_seed.parquet' (FORMAT parquet); COPY (SELECT range AS id, 'v' || range AS v FROM range(50)) TO 'test/services/s3/fixtures/ext_seed.csv' (FORMAT csv, HEADER);"
 	docker compose -f $(S3_COMPOSE) up -d --wait minio fault-proxy
 	docker compose -f $(S3_COMPOSE) run --rm minio-init
 

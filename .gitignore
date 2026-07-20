@@ -19,3 +19,6 @@ target/
 # uv formatting/tooling venv
 .venv/
 scripts/__pycache__/
+
+# generated external-object test fixtures (created by `make s3-up`)
+test/services/*/fixtures/
