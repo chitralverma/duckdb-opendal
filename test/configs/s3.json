@@ -4,6 +4,7 @@
   "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
   "test_env": [
     { "env_name": "OPENDAL_BASE", "env_value": "s3://warehouse/odfs" },
+    { "env_name": "OPENDAL_EXTERNAL_BASE", "env_value": "s3://warehouse/external" },
     { "env_name": "OPENDAL_S3_BUCKET", "env_value": "warehouse" },
     { "env_name": "OPENDAL_S3_ENDPOINT", "env_value": "http://127.0.0.1:19100" },
     { "env_name": "OPENDAL_S3_ACCESS_KEY_ID", "env_value": "minioadmin" },

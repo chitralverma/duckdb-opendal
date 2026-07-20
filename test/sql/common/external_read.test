@@ -1,0 +1,31 @@
+# name: test/sql/common/external_read.test
+# description: Read objects written by a different client (not opendal's writer)
+# group: [common]
+
+#
+# ${OPENDAL_EXTERNAL_BASE} points at a prefix seeded at provisioning time by the
+# backend's init sidecar (e.g. `mc cp` for s3), i.e. objects opendal did not
+# write. Only configs whose backend is externally seeded set this var, so the
+# file is skipped for in-process backends (memory) and any backend without an
+# external seed. The fixtures are the shared set from `make fixtures`.
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_EXTERNAL_BASE
+
+query II
+SELECT count(*), sum(d) FROM read_parquet('${OPENDAL_EXTERNAL_BASE}/ext_seed.parquet');
+----
+100	9900
+
+query II
+SELECT count(*), max(id) FROM read_csv('${OPENDAL_EXTERNAL_BASE}/ext_seed.csv');
+----
+50	49
+
+query I
+SELECT count(*) FROM glob('${OPENDAL_EXTERNAL_BASE}/*');
+----
+2
