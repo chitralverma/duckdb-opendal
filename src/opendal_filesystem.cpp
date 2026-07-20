@@ -628,11 +628,7 @@ bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<Fi
 	}
 	OdOperator *op = OperatorFor(scheme, auth, directory, opener);
 	OdError err = {};
-	// Prefix-aware: on object stores a directory is a non-empty key prefix (stat
-	// on the bare prefix is NotFound), so od_dir_exists falls back to a list
-	// probe. This keeps DuckDB's DirectoryExists-gated flows (e.g. partitioned
-	// COPY ... OVERWRITE clearing old files) working on s3/gcs/etc.
-	// Workaround for apache/opendal#6761 (stat cannot differentiate dir vs file).
+	// Prefix-aware (object stores have no real dirs); see apache/opendal#6761.
 	int8_t exists = od_dir_exists(op, rel.c_str(), &err);
 	ThrowIfError(err, "opendal: dir_exists: " + directory);
 	return exists == 1;

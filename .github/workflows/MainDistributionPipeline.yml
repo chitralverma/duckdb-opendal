@@ -1,6 +1,4 @@
-#
-# This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
-#
+# Build, test, and (optionally) release the extension.
 name: Main Extension Distribution Pipeline
 on:
   push:
@@ -34,12 +32,8 @@ jobs:
       extension_name: opendal
       format_checks: 'format;tidy'
 
-  # Runs the SQLLogicTest tiers (docs/testing.md): the common suite against every
-  # backend the planner discovers, plus per-service quirks. Emulator-backed
-  # backends (s3/MinIO) run on every PR incl. forks; secret-gated backends are
-  # dropped when secrets are unavailable. Builds the extension once, then loops
-  # the backends (cheaper than rebuilding DuckDB per matrix cell); the planner
-  # emits matrix-ready JSON if this is later split into a build-once + matrix.
+  # Build once, then run the SQLLogicTest tiers against every backend the planner
+  # discovers (docs/testing.md). Secret-gated backends are dropped without secrets.
   sql-tests:
     name: SQL tests
     runs-on: ubuntu-latest

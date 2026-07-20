@@ -95,17 +95,9 @@ pub unsafe extern "C" fn od_stat(
 /// Check whether `path` names a directory. Returns 1 if it does, 0 if not, -1 on
 /// error (with `*err` populated).
 ///
-/// Object stores (s3, gcs, …) have no real directories — a "directory" is just a
-/// key prefix with objects under it, and `stat` on the bare prefix returns
-/// NotFound. So this first tries `stat` (which resolves real directory markers,
-/// including local-fs directories), and on NotFound falls back to listing the
-/// prefix and checking for at least one child. This lets DuckDB's
-/// `DirectoryExists`-gated flows (e.g. partitioned `COPY ... OVERWRITE`, which
-/// clears existing files via RemoveFiles) work on prefix-only backends.
-///
-/// Workaround for apache/opendal#6761 (stat cannot differentiate dir vs file
-/// without a trailing-slash hint → NotFound on a bare prefix). Simplify to a
-/// single stat once that upstream feature lands.
+/// On object stores a directory is a key prefix, so `stat` on the bare prefix is
+/// NotFound; fall back to a one-child list probe. Workaround for
+/// apache/opendal#6761; simplify to a single stat once that lands.
 ///
 /// # Safety
 /// - `op` must be a live handle from `od_operator_new`.
@@ -135,31 +127,21 @@ pub unsafe extern "C" fn od_dir_exists(
             }
         };
 
-        // 1) stat resolves real directory markers (local fs, and backends that
-        //    keep dir objects).
+        // stat resolves real directory markers (local fs).
         match block_on(odop.op.stat(path)) {
             Ok(meta) => {
-                if meta.is_dir() {
-                    set_ok(err);
-                    return 1;
-                }
-                // A file exists at this exact path — not a directory.
                 set_ok(err);
-                return 0;
+                return if meta.is_dir() { 1 } else { 0 };
             }
-            Err(e) if e.kind() == opendal::ErrorKind::NotFound => {
-                // fall through to the prefix probe
-            }
+            Err(e) if e.kind() == opendal::ErrorKind::NotFound => {}
             Err(e) => {
                 set_opendal_error(err, &e);
                 return -1;
             }
         }
 
-        // 2) Prefix probe: on object stores a directory is a non-empty key
-        //    prefix. List with a trailing slash and look for one child.
+        // Prefix probe: a directory is a non-empty key prefix.
         if !odop.cap.list {
-            // No stat hit and the backend cannot list → treat as absent.
             set_ok(err);
             return 0;
         }

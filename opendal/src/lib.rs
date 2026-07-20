@@ -355,10 +355,8 @@ mod tests {
         assert_eq!(unsafe { od_exists(op, p_one.as_ptr(), &mut e) }, 1);
         assert_eq!(unsafe { od_exists(op, p_missing.as_ptr(), &mut e) }, 0);
 
-        // dir_exists: a non-empty prefix is a directory, with or without a
-        // trailing slash (memory has no dir markers, so this exercises the
-        // list-probe fallback). A file is not a directory; a missing prefix is
-        // absent.
+        // dir_exists: non-empty prefix (± trailing slash) is a dir; file and
+        // missing prefix are not.
         let dir_slash = CString::new("a/").unwrap();
         let dir_bare = CString::new("a").unwrap();
         let missing_dir = CString::new("nope/").unwrap();

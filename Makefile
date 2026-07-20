@@ -12,27 +12,17 @@ DUCKDB_SRCDIR := ./duckdb/
 # stays the default goal, so a bare `make` still builds the extension.
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
-# ── SQLLogicTest targets: one common suite, run per backend via a test-config ─
-# The common suite (test/sql/common/*) is service-agnostic: each config supplies
-# ${OPENDAL_BASE} + the backend secret. Service-specific quirks live in
-# test/sql/services/<svc>.test. See docs/testing.md.
+# ── SQLLogicTest targets: common suite run per backend (see docs/testing.md) ──
 .PHONY: test-local fixtures s3-up s3-down s3-assert-no-incomplete
 UNITTEST_BIN := ./build/release/test/unittest
 FIXTURES_DIR := test/services/fixtures
 S3_COMPOSE := test/services/s3/docker-compose.yml
 S3_MC := docker compose -f $(S3_COMPOSE) run --rm --entrypoint sh minio-init -c
 
-# Shared external-object fixtures: a canonical parquet + csv generated once with
-# DuckDB and uploaded (unchanged) by every provisioned backend's init sidecar to
-# <backend>/external/, so common/external_read.test can verify reads of objects
-# opendal did not write. Backend-agnostic, so all backends share one set.
 fixtures: ## Generate the shared external-object test fixtures
 	mkdir -p $(FIXTURES_DIR)
 	./build/release/duckdb -c "COPY (SELECT range AS id, range * 2 AS d FROM range(100)) TO '$(FIXTURES_DIR)/ext_seed.parquet' (FORMAT parquet); COPY (SELECT range AS id, 'v' || range AS v FROM range(50)) TO '$(FIXTURES_DIR)/ext_seed.csv' (FORMAT csv, HEADER);"
 
-# Run the common suite (and the backend's own quirks test, if any) against one
-# backend. `make test-common-<name>` works for any test/configs/<name>.json —
-# adding an infra-free backend needs no Makefile change.
 test-common-%: ## Run the common suite for a backend (e.g. test-common-fs)
 	DUCKDB_TEST_CONFIG=test/configs/$*.json $(UNITTEST_BIN) "test/sql/common/*"
 	@if [ -f test/sql/services/$*.test ]; then \
