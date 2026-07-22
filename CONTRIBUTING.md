@@ -26,7 +26,7 @@ test/sql/common/           functionality tests, run against every service
 test/sql/services/         service-specific quirks only
 test/configs/              per-service --test-config JSON + auth_<svc>.sql
 test/services/             docker-compose provisioning + plan.py + shared fixtures/
-duckdb/, extension-ci-tools/   pinned submodules (v1.5.4)
+duckdb/, extension-ci-tools/   pinned submodules (v1.5.5)
 ```
 
 > Generated files (`src/include/rust.h`) are produced by cbindgen — never hand-edit.

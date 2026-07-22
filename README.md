@@ -6,6 +6,24 @@ Query, glob, and write files (Parquet, CSV, JSON, etc.) directly on remote and l
 
 ---
 
+## Installation
+
+Install the signed extension from the DuckDB community repository:
+
+```sql
+INSTALL opendal FROM community;
+LOAD opendal;
+```
+
+> **Requires DuckDB ≥ 1.5.5.** Community binaries are published per DuckDB
+> version; the `opendal` extension is built for the current stable release
+> (currently v1.5.5). On older versions, `INSTALL opendal FROM community` will
+> return an HTTP 404 — upgrade DuckDB to the latest patch release. To target an
+> older DuckDB, build from source (see below) against the matching version and
+> load the binary with `allow_unsigned_extensions`.
+
+---
+
 ## Key Features
 
 - **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `s3://`, and `memory://` — with more services coming soon) directly within DuckDB queries.
