@@ -104,6 +104,9 @@ jobs:
             echo "::endgroup::"
           done
 
+  # Optional for the community registry (which builds from source at
+  # description.yml:ref), but the project's only source of downloadable
+  # per-platform binaries (unsigned/manual/air-gapped installs). See MAINTAINING.md.
   create-release-draft:
     name: Create draft release with built binaries
     needs:

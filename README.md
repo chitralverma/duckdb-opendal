@@ -132,19 +132,22 @@ SET opendal_override_native_filesystems = '';
 
 ---
 
-## Building from Source
+## Compatibility
 
-```sh
-git clone --recurse-submodules https://github.com/chitralverma/duckdb-opendal.git
-cd duckdb-opendal
-GEN=ninja make
-```
+**Use the latest DuckDB release to get the latest services.** Community binaries
+are published per DuckDB version and the extension is built for the current
+stable release, so the set of available services and fixes tracks the extension
+build for *your* DuckDB (see [Installation](#installation)). Check your installed
+version with `SELECT opendal_version();` and cross-reference the matrix below.
 
-This produces `./build/release/duckdb` (a shell with the extension preloaded) and
-`./build/release/extension/opendal/opendal.duckdb_extension` (the loadable binary).
+Each release pins a DuckDB version and an Apache OpenDAL revision:
 
-For architecture, testing, and how to add a service, see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+| Extension | DuckDB | OpenDAL rev | Services              |
+| --------- | ------ | ----------- | --------------------- |
+| 0.1.0     | v1.5.5 | `3180510`   | `fs`, `memory`, `s3`  |
+
+See the [CHANGELOG](CHANGELOG.md) for per-version details, and
+[MAINTAINING.md](MAINTAINING.md) for how these versions are upgraded.
 
 ---
 

@@ -1,7 +1,9 @@
 # Contributing to duckdb-opendal
 
 Developer guide: how the extension is put together, how to build it, and how to
-test it. For user-facing features and SQL usage, see the [README](README.md).
+test it. For user-facing features and SQL usage, see the [README](README.md). For
+maintainer tasks — upgrading DuckDB / OpenDAL and cutting releases — see
+[MAINTAINING.md](MAINTAINING.md).
 
 ## Architecture
 
