@@ -26,11 +26,18 @@ whether it is a **patch** within the current minor line or a **minor/major** bum
    git add duckdb
    git submodule status duckdb   # confirm the new commit + (tag)
    ```
-2. **Pin `extension-ci-tools`** to the branch/tag matching the target DuckDB:
-   - Patch within the same minor → keep the current release branch
-     (e.g. `v1.5-variegata` for the 1.5 line); usually no change.
-   - Minor/major bump → move to the new release branch (e.g. `v1.6-*`) and update
-     the `branch` hint for `extension-ci-tools` in `.gitmodules` to match.
+2. **Pin the `extension-ci-tools` submodule** to the head of the DuckDB
+   release-line branch, matching `ci_tools_version` in the workflow:
+   ```sh
+   git -C extension-ci-tools fetch --depth 1 origin <line-branch>   # e.g. v1.5-variegata
+   git -C extension-ci-tools checkout --detach origin/<line-branch>
+   git add extension-ci-tools
+   ```
+   - Patch within the same minor → same line branch (e.g. `v1.5-variegata`);
+     usually already current.
+   - Minor/major bump → the new line branch (e.g. `v1.6-*`).
+   Keep the `.gitmodules` `branch` hint for **both** `duckdb` and
+   `extension-ci-tools` set to that release-line branch.
 3. **Update `.github/workflows/MainDistributionPipeline.yml`**:
    - `duckdb_version` in `duckdb-stable-build` and `code-quality-check`.
    - `ci_tools_version` in both jobs (only changes on a minor/major bump).
@@ -65,8 +72,9 @@ The upgrade is complete only when:
 
 ## Then
 
-Cut a release with the `extension-release` skill so the tag, `description.yml:ref`,
-and the deployed community binary all advance together.
+Cut a release with the `extension-release` skill so the tag, the
+community-extensions `description.yml:ref`, and the deployed community binary all
+advance together.
 
 ## References
 

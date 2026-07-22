@@ -15,12 +15,8 @@ INSTALL opendal FROM community;
 LOAD opendal;
 ```
 
-> **Requires DuckDB ≥ 1.5.5.** Community binaries are published per DuckDB
-> version; the `opendal` extension is built for the current stable release
-> (currently v1.5.5). On older versions, `INSTALL opendal FROM community` will
-> return an HTTP 404 — upgrade DuckDB to the latest patch release. To target an
-> older DuckDB, build from source (see below) against the matching version and
-> load the binary with `allow_unsigned_extensions`.
+> **Requires DuckDB ≥ 1.5.5.** Community binaries are per DuckDB version; older
+> DuckDB returns HTTP 404 on `INSTALL`. See [Compatibility](#compatibility).
 
 ---
 
@@ -136,15 +132,17 @@ SET opendal_override_native_filesystems = '';
 
 **Use the latest DuckDB release to get the latest services.** Community binaries
 are published per DuckDB version and the extension is built for the current
-stable release, so the set of available services and fixes tracks the extension
-build for *your* DuckDB (see [Installation](#installation)). Check your installed
-version with `SELECT opendal_version();` and cross-reference the matrix below.
+stable release, so available services and fixes track the build for *your*
+DuckDB. On older DuckDB, `INSTALL opendal FROM community` returns HTTP 404 —
+upgrade to the latest patch, or [build from source](CONTRIBUTING.md#building)
+against your version and load with `allow_unsigned_extensions`. Check your
+installed version with `SELECT opendal_version();`.
 
-Each release pins a DuckDB version and an Apache OpenDAL revision:
+Each release pins a DuckDB version and an Apache OpenDAL release or revision:
 
-| Extension | DuckDB | OpenDAL rev | Services              |
-| --------- | ------ | ----------- | --------------------- |
-| 0.1.0     | v1.5.5 | `3180510`   | `fs`, `memory`, `s3`  |
+| Extension | DuckDB | OpenDAL   | Services              |
+| --------- | ------ | --------- | --------------------- |
+| 0.1.0     | v1.5.5 | `3180510` | `fs`, `memory`, `s3`  |
 
 See the [CHANGELOG](CHANGELOG.md) for per-version details, and
 [MAINTAINING.md](MAINTAINING.md) for how these versions are upgraded.

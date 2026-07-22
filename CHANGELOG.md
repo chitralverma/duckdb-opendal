@@ -15,25 +15,9 @@ Apache OpenDAL revision; see the compatibility matrix in the
 
 ## [Unreleased]
 
-### Changed
+## [0.1.0] - 2026-07-22
 
-- Target **DuckDB v1.5.5** (bumped from v1.5.4); the `duckdb` submodule and the
-  CI `duckdb_version` inputs now pin v1.5.5.
-
-### Fixed
-
-- Community registry build: declare `requires_toolchains` as a scalar string so
-  the Rust toolchain is installed inside the Linux (manylinux) Docker build
-  (previously `rustc` was not found during CMake configure).
-
-### Docs
-
-- Add **Installation** and **Compatibility** sections to the README.
-- Add this `CHANGELOG.md` and a maintainer guide (`MAINTAINING.md`).
-
-## [0.1.0] - 2026-07-16
-
-Initial alpha release.
+Initial alpha release, built for DuckDB v1.5.5.
 
 ### Added
 

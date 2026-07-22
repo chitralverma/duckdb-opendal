@@ -9,9 +9,13 @@ A release freezes all three version axes (DuckDB, OpenDAL, extension) into one
 commit and publishes it to the DuckDB community registry. See `MAINTAINING.md`
 for the axis model.
 
-**Invariant to uphold:** the git tag, `description.yml:ref`, and the deployed
-community binary must all point to the **same commit**. (Historical drift:
-`v0.1.0` tag was behind the deployed ref — do not repeat this.)
+**Invariant to uphold:** the git tag, the community-extensions
+`description.yml:ref`, and the deployed community binary must all point to the
+**same commit**. Cut each release from a single commit so they cannot drift.
+
+The extension's registry `description.yml` lives only in the `community-extensions`
+repo (`extensions/opendal/description.yml`) — there is **no copy in this repo**.
+`opendal/Cargo.toml` is the source of truth for the version.
 
 ## Inputs
 
@@ -21,10 +25,9 @@ DuckDB / OpenDAL upgrades for this release are already merged.
 ## Workflow (do not skip ahead)
 
 1. **Pre-flight**: `main` is green; working tree clean; decide the version.
-2. **Bump the version** in both, kept equal:
-   - `opendal/Cargo.toml` → `version`
-   - `description.yml` → `extension.version`
-   Run a build so `opendal/Cargo.lock` picks up the new version.
+2. **Bump the version** in `opendal/Cargo.toml` (`version`) — the source of truth.
+   Run a build so `opendal/Cargo.lock` picks up the new version. Do **not** bump
+   `pyproject.toml` (that is the `duckdb-opendal-tooling` venv, not the extension).
 3. **Update `CHANGELOG.md`**:
    - Rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`.
    - Add a fresh empty `## [Unreleased]`.
@@ -41,14 +44,13 @@ DuckDB / OpenDAL upgrades for this release are already merged.
    This triggers `create-release-draft`, which builds the per-platform binaries
    and drafts a GitHub release with generated notes. Fold those notes into the
    CHANGELOG section if they add detail, then **publish the draft release**.
-7. **Bump `description.yml:ref`** to `<release-sha>` in this repo (commit + push),
-   so the registry builds exactly the tagged commit.
-8. **Sync the community-extensions registry**:
-   - Update `extensions/opendal/description.yml` in the `community-extensions`
-     checkout so it is **byte-identical** to this repo's `description.yml`
-     (same `version` and `ref`).
+7. **Update the community-extensions `description.yml`**
+   (`extensions/opendal/description.yml` in the `community-extensions` checkout):
+   set `version` to `X.Y.Z` and `ref` to `<release-sha>`, so the registry builds
+   exactly the tagged commit.
+8. **Open/refresh the community-extensions PR**:
    - If the extension is not yet listed, open the add-extension PR; otherwise open
-     a follow-up PR that bumps `version` + `ref`.
+     a follow-up PR bumping `version` + `ref`.
    - Push to update the PR. Community CI needs maintainer approval for fork PRs.
 9. **Verify deployment** once merged (CDN is per DuckDB version):
    ```sh
@@ -60,9 +62,10 @@ DuckDB / OpenDAL upgrades for this release are already merged.
 
 The release is complete only when:
 
-- `vX.Y.Z` tag, this repo's `description.yml:ref`, and the community entry's `ref`
-  are the **same commit**.
-- `opendal/Cargo.toml` and `description.yml` versions match `X.Y.Z`.
+- `vX.Y.Z` tag and the community-extensions `description.yml:ref` are the **same
+  commit**.
+- `opendal/Cargo.toml` version and the community-extensions `description.yml`
+  version match `X.Y.Z`.
 - `CHANGELOG.md` has the dated `X.Y.Z` section and a fresh `[Unreleased]`.
 - The GitHub release is published with per-platform assets.
 - The community-extensions PR is updated (and, once merged + built, the CDN
@@ -70,8 +73,9 @@ The release is complete only when:
 
 ## Notes
 
-- The community registry builds from source at `ref`; it ignores the GitHub
-  release assets. The GitHub release exists for downloadable binaries
-  (older-DuckDB / unsigned / air-gapped installs) and version anchoring.
-- A description-only change (`version`/`ref`) is what re-triggers the community
-  build+deploy; keep the two `description.yml` files identical.
+- The community registry builds from source at the community-extensions
+  `description.yml:ref`; it ignores the GitHub release assets. The GitHub release
+  exists for downloadable binaries (older-DuckDB / unsigned / air-gapped installs)
+  and version anchoring.
+- A `description.yml`-only change (`version` / `ref`) in `community-extensions` is
+  what re-triggers the community build + deploy.
