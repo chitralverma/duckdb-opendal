@@ -12,7 +12,7 @@ DUCKDB_SRCDIR := ./duckdb/
 # stays the default goal, so a bare `make` still builds the extension.
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
-# ── SQLLogicTest targets: common suite run per service (see docs/testing.md) ──
+# ── SQLLogicTest targets: common suite run per service (see CONTRIBUTING.md) ──
 .PHONY: test-local fixtures s3-up s3-down s3-assert-no-incomplete
 UNITTEST_BIN := ./build/release/test/unittest
 FIXTURES_DIR := test/services/fixtures

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan the SQL test matrix from the test/ layout (see docs/testing.md).
+"""Plan the SQL test matrix from the test/ layout (see CONTRIBUTING.md, Testing).
 
 A "service" is any test/configs/<name>.json. For each one we derive:
 
