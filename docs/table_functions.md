@@ -96,3 +96,13 @@ A mismatch fails instead of risking a truncated segmented copy.
 Copy is a side effect, not a DuckDB transaction. Query rollback cannot undo a
 completed remote copy. Mutation starts only when the table function is scanned;
 an optimized-away function or `LIMIT 0` does not copy.
+
+## `opendal_schemes`
+
+```sql
+SELECT scheme FROM opendal_schemes() ORDER BY scheme;
+```
+
+One row per OpenDAL service scheme compiled into this build (derived from the
+`services-*` Cargo features), including scheme aliases (e.g. `file` for `fs`).
+Takes no arguments and needs no secret.

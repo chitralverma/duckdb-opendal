@@ -30,6 +30,7 @@ LOAD opendal;
   - `opendal_glob()` — Performs pattern-based file listing.
   - `opendal_du()` — Returns aggregated size rollups grouped by parent directory.
   - `opendal_copy()` — Efficiently copies objects within or across storage services (drains OpenDAL's native server-side `Copier` where supported, or falls back to chunked streaming).
+  - `opendal_schemes()` — Lists the storage schemes compiled into this build.
 - **Scoped Secrets**: Configure credentials, custom endpoints, and regions with bucket/path specificity using DuckDB's native secret manager.
 - **Configurable Layers**: Tuning of retry behavior, timeout ceilings, concurrent request limits, and data caching per secret or globally.
 - **Built-in Data Caching**: Support for in-memory and persistent on-disk data caching (leveraging Foyer) without any manual query adjustments.

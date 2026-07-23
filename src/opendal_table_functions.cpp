@@ -489,6 +489,47 @@ static void AddListOptions(TableFunction &function) {
 	function.named_parameters["deleted"] = LogicalType::BOOLEAN;
 }
 
+struct SchemesBindData : public TableFunctionData {};
+
+struct SchemesGlobalState : public GlobalTableFunctionState {
+	std::unique_ptr<OdSchemeList, void (*)(OdSchemeList *)> list {nullptr, od_schemes_free};
+	idx_t count = 0;
+	idx_t offset = 0;
+};
+
+static unique_ptr<FunctionData> SchemesBind(ClientContext &, TableFunctionBindInput &, vector<LogicalType> &types,
+                                            vector<string> &names) {
+	names = {"scheme"};
+	types = {LogicalType::VARCHAR};
+	return make_uniq<SchemesBindData>();
+}
+
+static unique_ptr<GlobalTableFunctionState> SchemesInit(ClientContext &, TableFunctionInitInput &) {
+	auto state = make_uniq<SchemesGlobalState>();
+	OdError err = {};
+	OdSchemeList *list = od_schemes(&err);
+	if (!list) {
+		ThrowIfError(err, "schemes", "");
+		throw IOException("opendal schemes: null scheme list");
+	}
+	ClearError(err);
+	state->list.reset(list);
+	state->count = od_schemes_len(list);
+	return std::move(state);
+}
+
+static void SchemesFunc(ClientContext &, TableFunctionInput &data, DataChunk &output) {
+	auto &state = data.global_state->Cast<SchemesGlobalState>();
+	idx_t count = 0;
+	while (state.offset < state.count && count < STANDARD_VECTOR_SIZE) {
+		const char *scheme = od_schemes_entry(state.list.get(), state.offset);
+		output.SetValue(0, count, scheme ? Value(scheme) : Value(LogicalType::VARCHAR));
+		state.offset++;
+		count++;
+	}
+	output.SetCardinality(count);
+}
+
 void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *fs) {
 	auto info = make_shared_ptr<OpenDalTableInfo>(fs);
 	TableFunction stat("opendal_stat", {LogicalType::VARCHAR}, EntryFunc, StatBind, EntryInit);
@@ -523,6 +564,9 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	copy.named_parameters["chunk_size"] = LogicalType::UBIGINT;
 	copy.function_info = info;
 	loader.RegisterFunction(copy);
+
+	TableFunction schemes("opendal_schemes", {}, SchemesFunc, SchemesBind, SchemesInit);
+	loader.RegisterFunction(schemes);
 }
 
 } // namespace duckdb

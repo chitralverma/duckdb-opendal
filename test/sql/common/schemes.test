@@ -1,0 +1,25 @@
+# name: test/sql/common/schemes.test
+# description: opendal_schemes() lists compiled-in schemes
+# group: [common]
+
+require opendal
+
+# Default build compiles fs, file, memory, s3.
+query I
+SELECT count(*) >= 3 FROM opendal_schemes();
+----
+true
+
+query I
+SELECT list_contains(list(scheme), 'memory')
+       AND list_contains(list(scheme), 's3')
+       AND list_contains(list(scheme), 'fs')
+FROM opendal_schemes();
+----
+true
+
+# Schemes are unique.
+query I
+SELECT count(*) = count(DISTINCT scheme) FROM opendal_schemes();
+----
+true
