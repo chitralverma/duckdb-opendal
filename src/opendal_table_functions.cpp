@@ -44,7 +44,12 @@ struct OpenDalTableInfo : public TableFunctionInfo {
 	OpenDalFileSystem *fs;
 };
 
-enum class EntryScanKind : uint8_t { STAT, LIST, GLOB };
+enum class EntryScanKind : uint8_t { STAT, LIST };
+
+// '*' '?' '[' switch opendal_ls from a directory listing to glob mode.
+static bool HasGlob(const std::string &path) {
+	return path.find_first_of("*?[") != std::string::npos;
+}
 
 struct EntryBindData : public TableFunctionData {
 	OpenDalFileSystem *fs;
@@ -157,11 +162,6 @@ static unique_ptr<FunctionData> ListBind(ClientContext &, TableFunctionBindInput
 	return BindEntry(EntryScanKind::LIST, input, return_types, names);
 }
 
-static unique_ptr<FunctionData> GlobBind(ClientContext &, TableFunctionBindInput &input,
-                                         vector<LogicalType> &return_types, vector<string> &names) {
-	return BindEntry(EntryScanKind::GLOB, input, return_types, names);
-}
-
 static unique_ptr<GlobalTableFunctionState> EntryInit(ClientContext &context, TableFunctionInitInput &input) {
 	auto &bind = input.bind_data->Cast<EntryBindData>();
 	if (!bind.fs) {
@@ -192,15 +192,11 @@ static unique_ptr<GlobalTableFunctionState> EntryInit(ClientContext &context, Ta
 		options.recursive = bind.recursive;
 		options.versions = bind.versions;
 		options.deleted = bind.deleted;
-		cursor = bind.kind == EntryScanKind::GLOB ? od_table_glob_open(op, path.c_str(), options, &err)
-		                                          : od_table_list_open(op, path.c_str(), nullptr, options, &err);
+		cursor = HasGlob(path) ? od_table_glob_open(op, path.c_str(), options, &err)
+		                       : od_table_list_open(op, path.c_str(), nullptr, options, &err);
 	}
 	if (!cursor) {
-		ThrowIfError(err,
-		             bind.kind == EntryScanKind::STAT   ? "stat"
-		             : bind.kind == EntryScanKind::GLOB ? "glob"
-		                                                : "list",
-		             bind.target);
+		ThrowIfError(err, bind.kind == EntryScanKind::STAT ? "stat" : "list", bind.target);
 		throw IOException("opendal table scan: null cursor for '" + bind.target + "'");
 	}
 	ClearError(err);
@@ -668,11 +664,6 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	AddListOptions(list);
 	list.function_info = info;
 	loader.RegisterFunction(list);
-
-	TableFunction glob("opendal_glob", {LogicalType::VARCHAR}, EntryFunc, GlobBind, EntryInit);
-	AddListOptions(glob);
-	glob.function_info = info;
-	loader.RegisterFunction(glob);
 
 	TableFunction du("opendal_du", {LogicalType::VARCHAR}, DuFunc, DuBind, DuInit);
 	du.named_parameters["limit"] = LogicalType::UBIGINT;

@@ -1,5 +1,5 @@
 # name: test/sql/common/listing.test
-# description: Table functions opendal_ls / opendal_stat / opendal_du / opendal_glob
+# description: Table functions opendal_ls (incl. glob) / opendal_stat / opendal_du
 # group: [common]
 
 require opendal
@@ -43,9 +43,9 @@ FROM opendal_stat('${OPENDAL_BASE}/listing/single.parquet');
 ----
 single.parquet	true
 
-# opendal_glob matches full paths and returns file entries.
+# opendal_ls in glob mode matches full paths and returns file entries.
 query I
-SELECT count(*) FROM opendal_glob('${OPENDAL_BASE}/listing/tree/**/*.parquet')
+SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/listing/tree/**/*.parquet')
 WHERE metadata.mode = 'file';
 ----
 3

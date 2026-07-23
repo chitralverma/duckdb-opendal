@@ -51,17 +51,18 @@ SELECT * FROM opendal_ls(
 `limit` is a DuckDB SQL keyword, so quote it when used as a named argument.
 OpenDAL treats it as a backend page-size hint, not a total row limit.
 
-## `opendal_glob`
+A path containing a glob wildcard (`*`, `?`, or `[`) switches `opendal_ls` to
+glob mode instead of a plain directory listing:
 
 ```sql
-SELECT *
-FROM opendal_glob('s3://bucket/data/**/part-[0-9].parquet');
+SELECT * FROM opendal_ls('s3://bucket/data/**/part-[0-9].parquet');
 ```
 
 Globs match full operator-relative paths. `*` and `?` do not cross `/`; `**`
-does. Character classes and ranges are supported. List options accepted by
-`opendal_ls` are also accepted by `opendal_glob`; globbing always lists
-recursively from the static prefix before the first wildcard.
+does. Character classes and ranges are supported. Glob mode always lists
+recursively from the static prefix before the first wildcard, and accepts the
+same list options as a plain listing. (DuckDB's built-in `glob()` also routes
+through the filesystem; `opendal_ls` adds the entry-metadata columns.)
 
 ## `opendal_du`
 

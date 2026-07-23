@@ -39,7 +39,7 @@ SELECT count(*) FROM opendal_copy(
 ) LIMIT 0;
 
 query I
-SELECT count(*) FROM opendal_glob('${OPENDAL_BASE}/copy/not_copied*.parquet');
+SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/copy/not_copied*.parquet');
 ----
 0
 
@@ -54,6 +54,6 @@ SELECT * FROM opendal_copy(
 does not match source size
 
 query I
-SELECT count(*) FROM opendal_glob('${OPENDAL_BASE}/copy/hint*.parquet');
+SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/copy/hint*.parquet');
 ----
 0
