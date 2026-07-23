@@ -1,43 +1,28 @@
-# Build, test, and (optionally) release the extension.
+# Staged pipeline: checks (cpp | rust) -> tests (rust + sql) -> build -> release (tags).
 name: Main Extension Distribution Pipeline
-# Label runs by branch + event (pull_request runs otherwise display the PR title).
 run-name: Pipeline — ${{ github.head_ref || github.ref_name }} (${{ github.event_name }})
 on:
-  # Only build main + tags on push; feature branches are covered by pull_request,
-  # so an open PR does not run the pipeline twice. Tags are required by the
-  # create-release-draft job.
   push:
     branches: [main]
     tags: ['**']
   pull_request:
   workflow_dispatch:
   # Daily rebuild against the latest v1.5.x patch (duckdb_version tracks a branch).
-  # Runs on main, not a tag, so create-release-draft stays skipped.
   schedule:
     - cron: '0 6 * * *'
 
+# One run per branch/PR/tag; a new push cancels the in-flight run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' && github.sha || '' }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
-jobs:
-  duckdb-stable-build:
-    name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
-    with:
-      # Track the v1.5 release branch (auto-picks v1.5.x patches). Flip only on a
-      # DuckDB minor bump. See MAINTAINING.md.
-      duckdb_version: v1.5-variegata
-      ci_tools_version: v1.5-variegata
-      extension_name: opendal
-      extra_toolchains: "rust"
-      # Exclude:
-      # - WASM targets: extension-ci-tools pins rust-toolchain@1.86 which is below opendal's MSRV (1.91). See https://github.com/duckdb/extension-ci-tools/issues/385
-      # - Windows MinGW target: Rtools MinGW toolchain is missing libgcc_eh.a which is required by rustc for the gnu target. Rely on standard MSVC instead.
-      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw'
+# Least-privilege default; create-release-draft overrides with contents: write.
+permissions:
+  contents: read
 
-  code-quality-check:
-    name: Code Quality Check
+jobs:
+  cpp-checks:
+    name: C++ checks (format, tidy)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5-variegata
     with:
       duckdb_version: v1.5-variegata
@@ -45,13 +30,72 @@ jobs:
       extension_name: opendal
       format_checks: 'format;tidy'
 
-  # Build once, then run the SQLLogicTest tiers against every service the planner
-  # discovers (CONTRIBUTING.md, Testing). Secret-gated services are dropped without secrets.
+  rust-checks:
+    name: Rust checks (fmt, clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-registry-${{ hashFiles('opendal/Cargo.lock') }}
+          restore-keys: cargo-registry-
+      - name: Cache rust target
+        uses: actions/cache@v4
+        with:
+          path: opendal/target/
+          key: rust-target-${{ runner.os }}-${{ hashFiles('opendal/Cargo.lock') }}
+          restore-keys: rust-target-${{ runner.os }}-
+      - name: Rust format check
+        run: make rust-fmt-check
+      - name: Clippy
+        run: make rust-lint
+
+  rust-tests:
+    name: Rust tests
+    needs: [cpp-checks, rust-checks]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-registry-${{ hashFiles('opendal/Cargo.lock') }}
+          restore-keys: cargo-registry-
+      - name: Cache rust target
+        uses: actions/cache@v4
+        with:
+          path: opendal/target/
+          key: rust-target-${{ runner.os }}-${{ hashFiles('opendal/Cargo.lock') }}
+          restore-keys: rust-target-${{ runner.os }}-
+      - name: Rust tests
+        run: make rust-test
+
   sql-tests:
     name: SQL tests
+    needs: [cpp-checks, rust-checks]
     runs-on: ubuntu-latest
     env:
       GEN: ninja
+      CCACHE_DIR: ${{ github.workspace }}/ccache_dir
       HAVE_SECRETS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
@@ -65,12 +109,23 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache ccache
-        uses: actions/cache@v4
+      # ccache: extension-ci-tools rotating-key pattern (own lineage — the reusable
+      # linux build compiles inside manylinux docker, so its cache can't be reused).
+      - name: Generate timestamp for Ccache entry
+        id: ccache_timestamp
+        run: echo "timestamp=$(date -u '+%Y-%m-%d-%H;%M;%S')" >> "$GITHUB_OUTPUT"
+
+      - name: Create Ccache directory
+        run: mkdir -p ccache_dir
+
+      - name: Load Ccache
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.ccache
-          key: ${{ runner.os }}-sqltests-ccache-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-sqltests-ccache-
+          path: ./ccache_dir
+          key: ccache-sqltests-${{ runner.os }}-v1.5-variegata-${{ steps.ccache_timestamp.outputs.timestamp }}
+          restore-keys: |
+            ccache-sqltests-${{ runner.os }}-v1.5-variegata-
+            ccache-sqltests-${{ runner.os }}-
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -79,11 +134,17 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          key: ${{ runner.os }}-sqltests-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-sqltests-cargo-
+          key: cargo-registry-${{ hashFiles('opendal/Cargo.lock') }}
+          restore-keys: cargo-registry-
 
       - name: Build extension
         run: make
+
+      - name: Save Ccache
+        uses: actions/cache/save@v4
+        with:
+          path: ./ccache_dir
+          key: ccache-sqltests-${{ runner.os }}-v1.5-variegata-${{ steps.ccache_timestamp.outputs.timestamp }}
 
       - name: Run test tiers
         run: |
@@ -110,13 +171,29 @@ jobs:
             echo "::endgroup::"
           done
 
-  # Optional for the community registry (which builds from source at
-  # description.yml:ref), but the project's only source of downloadable
-  # per-platform binaries (unsigned/manual/air-gapped installs). See MAINTAINING.md.
+  # Per-platform binaries. Tests already ran, so skip_tests — build + upload only.
+  build:
+    name: Build extension binaries
+    needs: [rust-tests, sql-tests]
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
+    with:
+      # Track the v1.5 release branch (auto-picks v1.5.x patches). Flip only on a
+      # DuckDB minor bump. See MAINTAINING.md.
+      duckdb_version: v1.5-variegata
+      ci_tools_version: v1.5-variegata
+      extension_name: opendal
+      extra_toolchains: "rust"
+      skip_tests: true
+      # Exclude:
+      # - WASM targets: extension-ci-tools pins rust-toolchain@1.86 which is below opendal's MSRV (1.91). See https://github.com/duckdb/extension-ci-tools/issues/385
+      # - Windows MinGW target: Rtools MinGW toolchain is missing libgcc_eh.a which is required by rustc for the gnu target. Rely on standard MSVC instead.
+      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw'
+
+  # Downloadable per-platform binaries (unsigned/manual installs); the community
+  # registry builds from source and doesn't use these. See MAINTAINING.md.
   create-release-draft:
     name: Create draft release with built binaries
-    needs:
-      - duckdb-stable-build
+    needs: [build]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

@@ -45,7 +45,7 @@ s3-assert-no-incomplete: ## Assert no orphaned multipart uploads remain (run aft
 	  echo 'No incomplete multipart uploads remain.'"
 
 # ── Rust convenience targets (crate lives in opendal/core) ───────────────────
-.PHONY: rust-build rust-test rust-fmt cpp-fmt format-all rust-lint rust-clean cargo-clean clean-all help
+.PHONY: rust-build rust-test rust-fmt rust-fmt-check cpp-fmt format-all rust-lint rust-clean cargo-clean clean-all help
 CARGO_MANIFEST := opendal/Cargo.toml
 
 rust-build: ## Build the Rust core (release)
@@ -56,6 +56,9 @@ rust-test: ## Run the Rust unit tests
 
 rust-fmt: ## Format the Rust sources
 	cargo fmt --manifest-path $(CARGO_MANIFEST)
+
+rust-fmt-check: ## Check Rust formatting without modifying files (CI)
+	cargo fmt --manifest-path $(CARGO_MANIFEST) --all -- --check
 
 format-all: format rust-fmt ## Format both C++ and Rust sources
 
