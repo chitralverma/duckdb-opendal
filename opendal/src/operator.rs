@@ -32,6 +32,8 @@ pub struct OdOperator {
     /// instead of re-deriving it (which clones the Arc-backed ServiceInfo) on
     /// every read/write/stat/list.
     pub(crate) cap: opendal::Capability,
+    /// Effective operator root, cached at construction for `od_operator_root`.
+    pub(crate) info_root: CString,
     pub(crate) warning: Option<std::ffi::CString>,
 }
 
@@ -112,13 +114,16 @@ pub unsafe extern "C" fn od_operator_new(
             Ok(op) => {
                 let applied = config.apply_layers(op);
                 let op = applied.op;
-                let cap = op.info().capability();
+                let info = op.info();
+                let cap = info.capability();
+                let info_root = CString::new(info.root()).unwrap_or_default();
                 set_ok(err);
                 Box::into_raw(Box::new(OdOperator {
                     op,
                     scheme,
                     io: config.io,
                     cap,
+                    info_root,
                     warning: applied
                         .warning
                         .and_then(|warning| std::ffi::CString::new(warning).ok()),
@@ -148,6 +153,24 @@ pub unsafe extern "C" fn od_operator_warning(op: *const OdOperator) -> *const c_
                 .warning
                 .as_ref()
                 .map_or(std::ptr::null(), |warning| warning.as_ptr())
+        }
+    }))
+    .unwrap_or(std::ptr::null())
+}
+
+/// Borrow the operator's effective root (canonicalized/normalized by OpenDAL),
+/// or null.
+///
+/// # Safety
+/// `op` must be null or a live handle from `od_operator_new`, alive for the
+/// returned pointer's lifetime.
+#[no_mangle]
+pub unsafe extern "C" fn od_operator_root(op: *const OdOperator) -> *const c_char {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if op.is_null() {
+            std::ptr::null()
+        } else {
+            (*op).info_root.as_ptr()
         }
     }))
     .unwrap_or(std::ptr::null())

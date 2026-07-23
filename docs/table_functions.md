@@ -106,3 +106,27 @@ SELECT scheme FROM opendal_schemes() ORDER BY scheme;
 One row per OpenDAL service scheme compiled into this build (derived from the
 `services-*` Cargo features), including scheme aliases (e.g. `file` for `fs`).
 Takes no arguments and needs no secret.
+
+## `opendal_info`
+
+```sql
+SELECT * FROM opendal_info('s3://bucket/prefix/');
+```
+
+Describes whether a URL can be served by the extension. Columns:
+
+- `scheme`: the URL scheme.
+- `supported`: whether the scheme is compiled into this build.
+- `secret_name`: the name of the SCOPE-matched secret, or `NULL` if none is
+  configured.
+- `usable`: whether an operator could be built (scheme supported *and* required
+  configuration present).
+- `root`: the operator's root, when usable.
+- `capabilities`: `MAP(VARCHAR, BOOLEAN)` of the operator's capabilities, when
+  usable.
+- `message`: when not usable, the reason — including a hint to configure a secret
+  when a supported scheme is missing required configuration (e.g. an `fs` root or
+  S3 credentials).
+
+Built operators are cached and deduplicated by effective configuration, so
+`opendal_info` reuses the same operator a subsequent read/write would use.

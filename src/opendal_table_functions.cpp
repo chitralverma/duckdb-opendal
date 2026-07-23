@@ -2,11 +2,14 @@
 
 #include "opendal_filesystem.hpp"
 
+#include "duckdb/common/error_data.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 
 #include "rust.h"
 
+#include <algorithm>
+#include <cctype>
 #include <map>
 #include <string>
 
@@ -530,6 +533,130 @@ static void SchemesFunc(ClientContext &, TableFunctionInput &data, DataChunk &ou
 	output.SetCardinality(count);
 }
 
+struct InfoBindData : public TableFunctionData {
+	OpenDalFileSystem *fs;
+	std::string url;
+};
+
+struct InfoGlobalState : public GlobalTableFunctionState {
+	bool done = false;
+};
+
+// Lowercased scheme from `scheme://...`, or "" — registry-independent so an
+// unsupported scheme is still reported.
+static std::string LexicalScheme(const std::string &url) {
+	auto pos = url.find("://");
+	if (pos == std::string::npos || pos == 0) {
+		return std::string();
+	}
+	std::string scheme = url.substr(0, pos);
+	std::transform(scheme.begin(), scheme.end(), scheme.begin(),
+	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	return scheme;
+}
+
+static unique_ptr<FunctionData> InfoBind(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
+                                         vector<string> &names) {
+	auto result = make_uniq<InfoBindData>();
+	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
+	result->url = input.inputs[0].GetValue<string>();
+	names = {"scheme", "supported", "secret_name", "usable", "root", "capabilities", "message"};
+	types = {LogicalType::VARCHAR, LogicalType::BOOLEAN, LogicalType::VARCHAR,
+	         LogicalType::BOOLEAN, LogicalType::VARCHAR, LogicalType::MAP(LogicalType::VARCHAR, LogicalType::BOOLEAN),
+	         LogicalType::VARCHAR};
+	return std::move(result);
+}
+
+static unique_ptr<GlobalTableFunctionState> InfoInit(ClientContext &, TableFunctionInitInput &) {
+	return make_uniq<InfoGlobalState>();
+}
+
+static Value CapabilitiesMap(OdOperator *op, const std::string &url) {
+	OdError err = {};
+	OdCapabilityList *caps = od_capabilities(op, &err);
+	if (!caps) {
+		ThrowIfError(err, "capabilities", url);
+		throw IOException("opendal info: null capability list for '" + url + "'");
+	}
+	ClearError(err);
+	std::unique_ptr<OdCapabilityList, void (*)(OdCapabilityList *)> guard(caps, od_capabilities_free);
+	vector<Value> keys, values;
+	idx_t n = od_capabilities_len(caps);
+	keys.reserve(n);
+	values.reserve(n);
+	for (idx_t i = 0; i < n; i++) {
+		OdCapability entry = {};
+		OdError entry_err = {};
+		if (od_capabilities_entry(caps, i, &entry, &entry_err) && entry.name) {
+			keys.emplace_back(entry.name);
+			values.push_back(Value::BOOLEAN(entry.supported != 0));
+		}
+		ClearError(entry_err);
+	}
+	return Value::MAP(LogicalType::VARCHAR, LogicalType::BOOLEAN, std::move(keys), std::move(values));
+}
+
+static void InfoFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+	auto &state = data.global_state->Cast<InfoGlobalState>();
+	if (state.done) {
+		output.SetCardinality(0);
+		return;
+	}
+	state.done = true;
+	auto &bind = data.bind_data->Cast<InfoBindData>();
+	if (!bind.fs) {
+		throw InvalidInputException("opendal info: filesystem not available");
+	}
+	std::string scheme = LexicalScheme(bind.url);
+	if (scheme.empty()) {
+		throw InvalidInputException("opendal info: expected a 'scheme://...' URL: " + bind.url);
+	}
+	bool supported = od_scheme_supported(scheme.c_str()) != 0;
+
+	Value secret_name(LogicalType::VARCHAR);
+	Value usable = Value::BOOLEAN(false);
+	Value root(LogicalType::VARCHAR);
+	Value capabilities(LogicalType::MAP(LogicalType::VARCHAR, LogicalType::BOOLEAN));
+	Value message(LogicalType::VARCHAR);
+
+	if (!supported) {
+		message =
+		    Value("scheme '" + scheme +
+		          "' is not compiled into this build; SELECT scheme FROM opendal_schemes() for available schemes");
+	} else {
+		std::string matched = bind.fs->MatchedSecretName(&context, scheme, bind.url);
+		if (!matched.empty()) {
+			secret_name = Value(matched);
+		}
+		std::string sc, auth, path;
+		if (!bind.fs->ParsePublic(bind.url, sc, auth, path)) {
+			message = Value("could not resolve URL: " + bind.url);
+		} else {
+			// Build failures (usually missing config/secret) land in `message`
+			// rather than aborting the query.
+			try {
+				auto *op = bind.fs->OperatorForPublic(sc, auth, bind.url, &context);
+				usable = Value::BOOLEAN(true);
+				if (auto *rt = od_operator_root(op)) {
+					root = Value(rt);
+				}
+				capabilities = CapabilitiesMap(op, bind.url);
+			} catch (const std::exception &e) {
+				message = Value(ErrorData(e).RawMessage());
+			}
+		}
+	}
+
+	output.SetValue(0, 0, Value(scheme));
+	output.SetValue(1, 0, Value::BOOLEAN(supported));
+	output.SetValue(2, 0, secret_name);
+	output.SetValue(3, 0, usable);
+	output.SetValue(4, 0, root);
+	output.SetValue(5, 0, capabilities);
+	output.SetValue(6, 0, message);
+	output.SetCardinality(1);
+}
+
 void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *fs) {
 	auto info = make_shared_ptr<OpenDalTableInfo>(fs);
 	TableFunction stat("opendal_stat", {LogicalType::VARCHAR}, EntryFunc, StatBind, EntryInit);
@@ -567,6 +694,10 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 
 	TableFunction schemes("opendal_schemes", {}, SchemesFunc, SchemesBind, SchemesInit);
 	loader.RegisterFunction(schemes);
+
+	TableFunction info_function("opendal_info", {LogicalType::VARCHAR}, InfoFunc, InfoBind, InfoInit);
+	info_function.function_info = info;
+	loader.RegisterFunction(info_function);
 }
 
 } // namespace duckdb
