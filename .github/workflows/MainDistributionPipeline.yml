@@ -42,7 +42,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index/
@@ -51,7 +51,7 @@ jobs:
           key: cargo-registry-${{ hashFiles('opendal/Cargo.lock') }}
           restore-keys: cargo-registry-
       - name: Cache rust target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: opendal/target/
           key: rust-target-${{ runner.os }}-${{ hashFiles('opendal/Cargo.lock') }}
@@ -72,7 +72,7 @@ jobs:
           submodules: 'recursive'
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index/
@@ -81,7 +81,7 @@ jobs:
           key: cargo-registry-${{ hashFiles('opendal/Cargo.lock') }}
           restore-keys: cargo-registry-
       - name: Cache rust target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: opendal/target/
           key: rust-target-${{ runner.os }}-${{ hashFiles('opendal/Cargo.lock') }}
@@ -119,7 +119,7 @@ jobs:
         run: mkdir -p ccache_dir
 
       - name: Load Ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ./ccache_dir
           key: ccache-sqltests-${{ runner.os }}-v1.5-variegata-${{ steps.ccache_timestamp.outputs.timestamp }}
@@ -128,7 +128,7 @@ jobs:
             ccache-sqltests-${{ runner.os }}-
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index/
@@ -141,7 +141,7 @@ jobs:
         run: make
 
       - name: Save Ccache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ./ccache_dir
           key: ccache-sqltests-${{ runner.os }}-v1.5-variegata-${{ steps.ccache_timestamp.outputs.timestamp }}
