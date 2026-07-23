@@ -15,6 +15,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: true
 
+# Least-privilege default; create-release-draft overrides with contents: write.
+permissions:
+  contents: read
+
 jobs:
   cpp-checks:
     name: C++ checks (format, tidy)
