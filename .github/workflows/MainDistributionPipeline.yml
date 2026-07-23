@@ -11,8 +11,9 @@ on:
   schedule:
     - cron: '0 6 * * *'
 
+# One run per branch/PR/tag; a new push cancels the in-flight run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' && github.sha || '' }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 # Least-privilege default; create-release-draft overrides with contents: write.
