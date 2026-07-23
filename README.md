@@ -142,7 +142,9 @@ Each release pins a DuckDB version and an Apache OpenDAL release or revision:
 
 | Extension | DuckDB | OpenDAL   | Services              |
 | --------- | ------ | --------- | --------------------- |
-| 0.1.0     | v1.5.5 | `3180510` | `fs`, `memory`, `s3`  |
+| 0.1.0     | v1.5.x | `3180510` | `fs`, `memory`, `s3`  |
+
+`v1.5.x` = any patch on the DuckDB v1.5 line.
 
 See the [CHANGELOG](CHANGELOG.md) for per-version details, and
 [MAINTAINING.md](MAINTAINING.md) for how these versions are upgraded.

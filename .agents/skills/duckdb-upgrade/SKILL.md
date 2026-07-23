@@ -1,52 +1,56 @@
 ---
 name: duckdb-upgrade
-description: Upgrade duckdb-opendal to a new DuckDB release — bump the duckdb and extension-ci-tools submodules together, update the CI workflow (duckdb_version / ci_tools_version), refresh docs and the compatibility matrix, then build and test. Use when the user asks to upgrade DuckDB, bump the duckdb submodule, sync to a new DuckDB tag, or target a new DuckDB version.
+description: Move duckdb-opendal to a new DuckDB MINOR release line (e.g. v1.5 -> v1.6) — flip the duckdb + extension-ci-tools submodules and the CI workflow from one release-line branch to the next, refresh docs, then build and test. Patch releases (v1.5.x) need NO action (auto-tracked). Use when the user asks to upgrade DuckDB to a new minor, move to a new release line, or a new DuckDB minor broke the build.
 ---
 
-# Upgrade duckdb-opendal to a new DuckDB release
+# Move duckdb-opendal to a new DuckDB minor line
 
-DuckDB and `extension-ci-tools` move **together**; OpenDAL and the extension
-version are separate axes (see `MAINTAINING.md`). This skill only advances the
-DuckDB axis. Do not bump the OpenDAL `rev` or the extension `version` here unless
-a compilation failure forces an OpenDAL compatibility fix.
+The pipeline tracks the DuckDB **release-line branch** (e.g. `v1.5-variegata`) via
+`duckdb_version`, not a pinned patch tag. Consequences:
+
+- **Patch** (`v1.5.5` → `v1.5.6`): **do nothing.** The moving branch ref picks it
+  up; the daily `schedule` run in `MainDistributionPipeline.yml` rebuilds + tests
+  against it. This skill is **not** needed.
+- **Minor** (`v1.5.x` → `v1.6.x`): flip everything to the new line branch — the
+  steps below.
+
+DuckDB and `extension-ci-tools` move **together**. Do not touch the OpenDAL `rev`
+or the extension `version` here unless a compile failure forces an OpenDAL
+compatibility fix (that is axis B / the release, see `MAINTAINING.md`).
 
 ## Inputs
 
-Confirm the target DuckDB tag (e.g. `v1.5.6`) before making changes. Determine
-whether it is a **patch** within the current minor line or a **minor/major** bump
-— this decides the `extension-ci-tools` branch.
+Confirm the target minor and its DuckDB **release-line branch** name
+(`vX.Y-<codename>`):
+
+```sh
+git ls-remote --heads https://github.com/duckdb/duckdb "vX.Y*"
+git ls-remote --heads https://github.com/duckdb/extension-ci-tools "vX.Y*"
+```
 
 ## Workflow (do not skip ahead)
 
-1. **Pin the `duckdb` submodule** to the target tag:
+1. **`.gitmodules`**: set the `branch` hint for **both** `duckdb` and
+   `extension-ci-tools` to the new line branch (`vX.Y-<codename>`).
+2. **Point both submodules at the new line-branch head**:
    ```sh
-   git -C duckdb fetch --tags --depth 1 origin refs/tags/$TARGET:refs/tags/$TARGET
-   git -C duckdb checkout --detach tags/$TARGET
+   for sub in duckdb extension-ci-tools; do
+     git -C "$sub" fetch --depth 1 origin <line-branch>
+     git -C "$sub" checkout --detach FETCH_HEAD
+   done
    git -C duckdb submodule update --init --recursive
-   git add duckdb
-   git submodule status duckdb   # confirm the new commit + (tag)
+   git add duckdb extension-ci-tools
+   git submodule status duckdb extension-ci-tools
    ```
-2. **Pin the `extension-ci-tools` submodule** to the head of the DuckDB
-   release-line branch, matching `ci_tools_version` in the workflow:
-   ```sh
-   git -C extension-ci-tools fetch --depth 1 origin <line-branch>   # e.g. v1.5-variegata
-   git -C extension-ci-tools checkout --detach origin/<line-branch>
-   git add extension-ci-tools
-   ```
-   - Patch within the same minor → same line branch (e.g. `v1.5-variegata`);
-     usually already current.
-   - Minor/major bump → the new line branch (e.g. `v1.6-*`).
-   Keep the `.gitmodules` `branch` hint for **both** `duckdb` and
-   `extension-ci-tools` set to that release-line branch.
 3. **Update `.github/workflows/MainDistributionPipeline.yml`**:
-   - `duckdb_version` in `duckdb-stable-build` and `code-quality-check`.
-   - `ci_tools_version` in both jobs (only changes on a minor/major bump).
-   - The `@vX.Y-*` ref on the reusable `_extension_*` workflows if the ci-tools
-     branch changed.
+   - `duckdb_version` and `ci_tools_version` in `duckdb-stable-build` and
+     `code-quality-check` → the new line branch.
+   - The `@vX.Y-*` ref on the reusable `_extension_distribution.yml` /
+     `_extension_code_quality.yml` workflows → the new line.
 4. **Update docs**:
    - The submodule-pin note in `CONTRIBUTING.md`.
    - The DuckDB column of the compatibility matrix in `README.md`.
-   - Add a `### Changed` entry under `[Unreleased]` in `CHANGELOG.md`.
+   - A `### Changed` entry under `[Unreleased]` in `CHANGELOG.md`.
 5. **Format**: `uv run make format-all`.
 6. **Build**: `GEN=ninja make` (static + loadable targets must link).
 7. **Test**:
@@ -60,15 +64,14 @@ whether it is a **patch** within the current minor line or a **minor/major** bum
 
 ## Verification
 
-The upgrade is complete only when:
+Complete only when:
 
-- `git submodule status duckdb` shows the target tag, and `extension-ci-tools`
-  matches the DuckDB release line.
-- `MainDistributionPipeline.yml` names the same DuckDB release in every job.
+- `.gitmodules` + both submodules + `MainDistributionPipeline.yml`
+  (`duckdb_version`, `ci_tools_version`, reusable-workflow refs) all name the **new**
+  line branch.
 - The static and loadable `opendal` targets link.
 - `make rust-test`, `make test-local`, and the S3 tier pass.
-- `README.md` matrix, `CONTRIBUTING.md`, and `CHANGELOG.md` reflect the new
-  DuckDB version.
+- `README.md` matrix, `CONTRIBUTING.md`, and `CHANGELOG.md` reflect the new line.
 
 ## Then
 

@@ -15,6 +15,12 @@ Apache OpenDAL revision; see the compatibility matrix in the
 
 ## [Unreleased]
 
+### Changed
+
+- CI/build tracks the DuckDB `v1.5-variegata` release line (any `v1.5.x` patch)
+  instead of a pinned tag; a daily scheduled run rebuilds against the latest
+  patch. DuckDB patch bumps now need no repo change.
+
 ## [0.1.0] - 2026-07-22
 
 Initial alpha release, built for DuckDB v1.5.5.

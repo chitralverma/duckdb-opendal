@@ -11,6 +11,10 @@ on:
     tags: ['**']
   pull_request:
   workflow_dispatch:
+  # Daily rebuild against the latest v1.5.x patch (duckdb_version tracks a branch).
+  # Runs on main, not a tag, so create-release-draft stays skipped.
+  schedule:
+    - cron: '0 6 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' && github.sha || '' }}
@@ -21,7 +25,9 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
-      duckdb_version: v1.5.5
+      # Track the v1.5 release branch (auto-picks v1.5.x patches). Flip only on a
+      # DuckDB minor bump. See MAINTAINING.md.
+      duckdb_version: v1.5-variegata
       ci_tools_version: v1.5-variegata
       extension_name: opendal
       extra_toolchains: "rust"
@@ -34,7 +40,7 @@ jobs:
     name: Code Quality Check
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5-variegata
     with:
-      duckdb_version: v1.5.5
+      duckdb_version: v1.5-variegata
       ci_tools_version: v1.5-variegata
       extension_name: opendal
       format_checks: 'format;tidy'

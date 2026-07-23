@@ -13,7 +13,7 @@ matrix](README.md#compatibility) records them per release.
 
 | Axis | Pinned by | Moves when |
 | --- | --- | --- |
-| **A. DuckDB** (+ `extension-ci-tools`, together) | `duckdb` submodule, `extension-ci-tools` submodule, and `duckdb_version` / `ci_tools_version` in `.github/workflows/MainDistributionPipeline.yml` | DuckDB ships a new release |
+| **A. DuckDB** (+ `extension-ci-tools`, together) | `duckdb_version` / `ci_tools_version` in `.github/workflows/MainDistributionPipeline.yml` + the `duckdb` / `extension-ci-tools` submodules — all pointed at the DuckDB **release-line branch** (`v1.5-variegata`) | DuckDB ships a new **minor** (patches auto-tracked) |
 | **B. OpenDAL** | release version **or** git `rev` on the two OpenDAL deps in `opendal/Cargo.toml` + `opendal/Cargo.lock` | you want newer OpenDAL, a fix, or new-service support |
 | **C. The extension** | `version` in `opendal/Cargo.toml` (source of truth), mirrored to the `community-extensions` registry `description.yml`, plus the compiled-in service set (`opendal/Cargo.toml [features]`) | you ship features or fixes |
 
@@ -25,36 +25,41 @@ matrix](README.md#compatibility) records them per release.
 
 ## Axis A — Upgrade DuckDB (+ extension-ci-tools)
 
-DuckDB and `extension-ci-tools` must move together. See the
-[`duckdb-upgrade`](.agents/skills/duckdb-upgrade/SKILL.md) skill for the
-step-by-step checklist. Summary:
+The pipeline tracks the DuckDB **release-line branch** (`v1.5-variegata`), not a
+pinned patch tag. So:
 
-1. **Choose the target tag** (e.g. `v1.5.6`).
-   - **Patch** within the same minor (e.g. `v1.5.5` → `v1.5.6`): `extension-ci-tools`
-     stays on the same release branch (`v1.5-variegata` for the 1.5 line).
-   - **Minor/major** bump (e.g. `v1.5.x` → `v1.6.x`): `extension-ci-tools` moves to
-     the new release branch (e.g. `v1.6-*`), and OpenDAL/the C++ layer may need
-     compatibility fixes.
-2. **Bump the `duckdb` submodule** to `tags/$TARGET`
-   (`git -C duckdb fetch --tags && git -C duckdb checkout --detach tags/$TARGET`,
-   then `git submodule update --init --recursive duckdb`, then `git add duckdb`).
-3. **Bump the `extension-ci-tools` submodule** to the head of the DuckDB
-   release-line branch (`v1.5-variegata` for the 1.5 line), matching
-   `ci_tools_version` in the workflow. This only changes on a minor/major bump.
-   Keep the `.gitmodules` `branch` hint for both `duckdb` and `extension-ci-tools`
-   set to that release-line branch.
-4. **Update `.github/workflows/MainDistributionPipeline.yml`**: `duckdb_version`
-   and `ci_tools_version` in the `duckdb-stable-build` and `code-quality-check`
-   jobs (and the `@vX.Y-*` ref on the reusable `_extension_*` workflows if the
-   ci-tools branch changed).
-5. **Update docs**: the submodule-pin note in `CONTRIBUTING.md` and the
-   [compatibility matrix](README.md#compatibility).
-6. **Verify**: `make format-all`, then build (`GEN=ninja make`), then
-   `make rust-test`, `make test-local`, and the S3 tier
+| Event | Action |
+| --- | --- |
+| **Patch** (`v1.5.5` → `v1.5.6`) | **Nothing** — the daily run covers it. |
+| **Minor** (`v1.5.x` → `v1.6.x`) | Flip to the new line branch (see below). |
+
+**Daily health check:** the `schedule` cron in `MainDistributionPipeline.yml`
+rebuilds + tests against the current `v1.5-variegata` head. It runs on `main`
+(not a tag) → `create-release-draft` skipped, nothing published. A red run = a new
+DuckDB patch broke us → fix, then cut a release.
+
+### Minor bump (only) — see the [`duckdb-upgrade`](.agents/skills/duckdb-upgrade/SKILL.md) skill
+
+1. **New line branch** = `vX.Y-<codename>` (e.g. `v1.6-*`). Find it:
+   `git ls-remote --heads https://github.com/duckdb/duckdb "vX.Y*"`.
+2. **`.gitmodules`**: set the `branch` hint for both `duckdb` and
+   `extension-ci-tools` to the new line branch.
+3. **Submodules**: point both at the new line-branch head
+   (`git -C <sub> fetch --depth 1 origin <line-branch>` →
+   `git -C <sub> checkout --detach FETCH_HEAD` → `git add <sub>`).
+4. **`MainDistributionPipeline.yml`**: `duckdb_version`, `ci_tools_version`, and the
+   `@vX.Y-*` ref on the reusable `_extension_*` workflows → new line branch.
+5. **Docs**: submodule-pin note in `CONTRIBUTING.md`, the
+   [compatibility matrix](README.md#compatibility), and `CHANGELOG.md`.
+6. **Verify**: `make format-all`, build (`GEN=ninja make`), then `make rust-test`,
+   `make test-local`, and the S3 tier
    (`make s3-up && make test-common-s3 && make s3-assert-no-incomplete && make s3-down`).
-7. **Review** `git diff --submodule=log` and note any C-API compatibility changes
-   in the commit / PR body.
+7. **Review** `git diff --submodule=log`; note any C-API compatibility changes.
 8. Proceed to **[Releasing](#releasing)**.
+
+> **Reproducibility trade-off:** a branch ref is a moving target — a re-run can
+> build against a newer DuckDB commit than before. Release binaries are pinned by
+> the git tag's submodule commits at tag time; the registry builds its own DuckDB.
 
 ---
 
