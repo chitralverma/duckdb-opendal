@@ -1,0 +1,33 @@
+# name: test/sql/common/logging.test
+# description: Native DuckDB FileSystem structured logging integration
+# group: [common]
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_BASE
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+# Our reads/writes emit DuckDB's native structured FileSystem log entries
+# (fs/path/op/bytes/pos), queryable via duckdb_logs_parsed('FileSystem').
+statement ok
+CALL enable_logging(level='trace', storage='memory');
+
+statement ok
+COPY (SELECT range AS id FROM range(200)) TO '${OPENDAL_BASE}/logging/f.parquet' (FORMAT parquet);
+
+statement ok
+SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/logging/f.parquet');
+
+# We logged at least one OPEN, READ, WRITE and CLOSE against our filesystem.
+query I
+SELECT count(DISTINCT op) FROM duckdb_logs_parsed('FileSystem')
+WHERE fs = 'OpenDalFileSystem' AND op IN ('OPEN','READ','WRITE','CLOSE');
+----
+4
+
+statement ok
+CALL disable_logging();

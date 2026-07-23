@@ -63,7 +63,7 @@ pub unsafe extern "C" fn od_remove(
         let cap = o.cap;
         guard(&o.scheme, cap.delete, "delete")?;
         if recursive != 0 {
-            // Recursion is provided by OpenDAL's raw layer even when a backend
+            // Recursion is provided by OpenDAL's raw layer even when a service
             // does not advertise `delete_with_recursive`, so we guard only
             // `delete`.
             block_on(o.op.delete_with(p).recursive(true).into_future()).map_err(MutErr::Opendal)

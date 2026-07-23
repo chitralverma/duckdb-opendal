@@ -1,91 +1,181 @@
+# Build, test, and (optionally) release the extension.
 #
-# This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
-#
+# Staged pipeline (each stage gates the next):
+#   checks (parallel):  cpp-checks (format, tidy) | rust-checks (fmt, clippy)
+#   -> tests:           rust-tests + sql-tests
+#   -> build:           per-platform binaries (linux/macos/windows)
+#   -> release:         draft GitHub release (tags only)
 name: Main Extension Distribution Pipeline
+# Label runs by branch + event (pull_request runs otherwise display the PR title).
+run-name: Pipeline — ${{ github.head_ref || github.ref_name }} (${{ github.event_name }})
 on:
+  # Only build main + tags on push; feature branches are covered by pull_request,
+  # so an open PR does not run the pipeline twice. Tags are required by the release.
   push:
+    branches: [main]
+    tags: ['**']
   pull_request:
   workflow_dispatch:
+  # Daily rebuild against the latest v1.5.x patch (duckdb_version tracks a branch).
+  # Runs on main, not a tag, so release stays skipped.
+  schedule:
+    - cron: '0 6 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: true
 
 jobs:
-  duckdb-stable-build:
+  # ── Stage 1: checks (parallel) ──────────────────────────────────────────────
+  cpp-checks:
+    name: C++ checks (format, tidy)
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5-variegata
+    with:
+      duckdb_version: v1.5-variegata
+      ci_tools_version: v1.5-variegata
+      extension_name: opendal
+      format_checks: 'format;tidy'
+
+  rust-checks:
+    name: Rust checks (fmt, clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-rustchecks-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-rustchecks-
+      - name: Rust format check
+        run: make rust-fmt-check
+      - name: Clippy
+        run: make rust-lint
+
+  # ── Stage 2: tests (after checks) ───────────────────────────────────────────
+  rust-tests:
+    name: Rust tests
+    needs: [cpp-checks, rust-checks]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-rusttests-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-rusttests-
+      - name: Rust tests
+        run: make rust-test
+
+  # Build once, then run the SQLLogicTest tiers against every service the planner
+  # discovers (CONTRIBUTING.md, Testing). Secret-gated services are dropped without secrets.
+  sql-tests:
+    name: SQL tests
+    needs: [cpp-checks, rust-checks]
+    runs-on: ubuntu-latest
+    env:
+      GEN: ninja
+      HAVE_SECRETS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+
+      - name: Install build tools
+        run: sudo apt-get update -y -qq && sudo apt-get install -y -qq ninja-build ccache
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-sqltests-ccache-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-sqltests-ccache-
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-sqltests-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-sqltests-cargo-
+
+      - name: Build extension
+        run: make
+
+      - name: Run test tiers
+        run: |
+          set -euo pipefail
+          names=$(python3 test/services/plan.py --have-secrets "$HAVE_SECRETS" --names)
+          provisioned=$(python3 test/services/plan.py --have-secrets "$HAVE_SECRETS" --provisioned)
+          echo "services: $names"
+          echo "provisioned: $provisioned"
+          for name in $names; do
+            echo "::group::service $name"
+            if echo " $provisioned " | grep -q " $name "; then
+              # Always tear down (even on failure) so a later service can reuse ports.
+              rc=0
+              make "$name-up" || rc=$?
+              if [ "$rc" -eq 0 ]; then make "test-common-$name" || rc=$?; fi
+              if [ "$rc" -eq 0 ] && make -n "$name-assert-no-incomplete" >/dev/null 2>&1; then
+                make "$name-assert-no-incomplete" || rc=$?
+              fi
+              make "$name-down" || true
+              [ "$rc" -eq 0 ] || exit "$rc"
+            else
+              make "test-common-$name"
+            fi
+            echo "::endgroup::"
+          done
+
+  # ── Stage 3: build per-platform binaries (after tests) ──────────────────────
+  # Tests already ran above, so skip_tests here — this stage only builds + uploads.
+  build:
     name: Build extension binaries
+    needs: [rust-tests, sql-tests]
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
-      duckdb_version: v1.5.4
+      # Track the v1.5 release branch (auto-picks v1.5.x patches). Flip only on a
+      # DuckDB minor bump. See MAINTAINING.md.
+      duckdb_version: v1.5-variegata
       ci_tools_version: v1.5-variegata
       extension_name: opendal
       extra_toolchains: "rust"
+      skip_tests: true
       # Exclude:
       # - WASM targets: extension-ci-tools pins rust-toolchain@1.86 which is below opendal's MSRV (1.91). See https://github.com/duckdb/extension-ci-tools/issues/385
       # - Windows MinGW target: Rtools MinGW toolchain is missing libgcc_eh.a which is required by rustc for the gnu target. Rely on standard MSVC instead.
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw'
 
-  code-quality-check-cpp:
-    name: Code Quality Check
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5-variegata
-    with:
-      duckdb_version: v1.5.4
-      ci_tools_version: v1.5-variegata
-      extension_name: opendal
-      format_checks: 'format;tidy'
-
-  code-quality-check-rust:
-    name: Rust Code Quality Check
-    runs-on: ubuntu-22.04
-
-    env:
-      GEN: ninja
-
-    steps:
-      - uses: actions/checkout@v4
-        name: Checkout current repository
-        with:
-          fetch-depth: 0
-          submodules: 'recursive'
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Rust Format Check
-        shell: bash
-        run: make rust-fmt-check
-
-      - name: Clippy
-        shell: bash
-        run: make rust-lint
-
-      - name: Build Rust library
-        shell: bash
-        run: make rust-build
-
-      - name: Run Rust tests
-        shell: bash
-        run: make rust-test
-
+  # ── Stage 4: release (tags only) ────────────────────────────────────────────
+  # Optional for the community registry (which builds from source at
+  # description.yml:ref), but the project's only source of downloadable
+  # per-platform binaries (unsigned/manual/air-gapped installs). See MAINTAINING.md.
   create-release-draft:
     name: Create draft release with built binaries
-    needs:
-      - duckdb-stable-build
+    needs: [build]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

@@ -1,0 +1,52 @@
+# name: test/sql/common/errors.test
+# description: Break paths — invalid config/options propagate, never silently drop
+# group: [common]
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_BASE
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+statement ok
+COPY (SELECT range AS id FROM range(100)) TO '${OPENDAL_BASE}/errors/data.parquet' (FORMAT parquet);
+
+# Invalid cross-service values are rejected when the effective operator is built;
+# they are never silently dropped to defaults.
+statement ok
+SET GLOBAL opendal_retry_config = MAP{'max_times':'banana'};
+
+statement error
+SELECT * FROM opendal_stat('${OPENDAL_BASE}/errors/data.parquet');
+----
+invalid retry.max_times='banana'
+
+# FileExists/Glob must propagate the same operator error rather than converting
+# it into "No files found" or an empty wildcard result.
+statement error
+SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/errors/data.parquet');
+----
+invalid retry.max_times='banana'
+
+statement error
+SELECT count(*) FROM glob('${OPENDAL_BASE}/errors/data.parquet');
+----
+invalid retry.max_times='banana'
+
+statement ok
+RESET opendal_retry_config;
+
+# Unknown cache option is rejected, not ignored.
+statement ok
+SET GLOBAL opendal_cache_config = MAP{'shradz':'4'};
+
+statement error
+SELECT * FROM opendal_stat('${OPENDAL_BASE}/errors/data.parquet');
+----
+unknown OpenDAL option 'cache.shradz'
+
+statement ok
+RESET opendal_cache_config;

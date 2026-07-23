@@ -1,0 +1,59 @@
+# name: test/sql/common/copy.test
+# description: opendal_copy (same-operator copy) over any OpenDAL service
+# group: [common]
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_BASE
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+statement ok
+COPY (SELECT range AS id FROM range(1000))
+TO '${OPENDAL_BASE}/copy/src.parquet' (FORMAT parquet);
+
+# Same-operator copy uses OpenDAL Copier where supported and falls back to a
+# Reader->Writer transfer otherwise. Success emits one row after commit.
+query II
+SELECT bytes_copied > 0, metadata.mode
+FROM opendal_copy(
+    '${OPENDAL_BASE}/copy/src.parquet',
+    '${OPENDAL_BASE}/copy/dst.parquet'
+);
+----
+true	file
+
+query I
+SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/copy/dst.parquet');
+----
+1000
+
+# Mutation happens in the scan callback, not bind/init. LIMIT 0 must not copy.
+statement ok
+SELECT count(*) FROM opendal_copy(
+    '${OPENDAL_BASE}/copy/src.parquet',
+    '${OPENDAL_BASE}/copy/not_copied.parquet'
+) LIMIT 0;
+
+query I
+SELECT count(*) FROM opendal_glob('${OPENDAL_BASE}/copy/not_copied*.parquet');
+----
+0
+
+# Content length is a validated planning hint and must never truncate transfer.
+statement error
+SELECT * FROM opendal_copy(
+    '${OPENDAL_BASE}/copy/src.parquet',
+    '${OPENDAL_BASE}/copy/hint.parquet',
+    source_content_length_hint := 1
+);
+----
+does not match source size
+
+query I
+SELECT count(*) FROM opendal_glob('${OPENDAL_BASE}/copy/hint*.parquet');
+----
+0

@@ -1,13 +1,28 @@
 #!/usr/bin/env python3
-"""MinIO proxy that fails CompleteMultipartUpload for one test prefix."""
+"""MinIO proxy that fails CompleteMultipartUpload for one test prefix.
 
+Used by test/sql/services/s3.test to force a multipart-completion failure while
+still allowing the abort, proving no orphaned uploads remain. Runs as the
+`fault-proxy` service in test/services/s3/docker-compose.yml.
+
+Configuration (env, with standalone-friendly defaults):
+  FAULT_PROXY_UPSTREAM_HOST   upstream MinIO host      (default 127.0.0.1)
+  FAULT_PROXY_UPSTREAM_PORT   upstream MinIO port      (default 19100)
+  FAULT_PROXY_BIND_HOST       address to listen on     (default 127.0.0.1)
+  FAULT_PROXY_BIND_PORT       port to listen on        (default 19101)
+  FAULT_PROXY_FAIL_PREFIX     path prefix to fail      (default /warehouse/abort-test/)
+"""
+
+import os
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-UPSTREAM_HOST = "127.0.0.1"
-UPSTREAM_PORT = 19100
-FAIL_PREFIX = "/warehouse/abort-test/"
+UPSTREAM_HOST = os.environ.get("FAULT_PROXY_UPSTREAM_HOST", "127.0.0.1")
+UPSTREAM_PORT = int(os.environ.get("FAULT_PROXY_UPSTREAM_PORT", "19100"))
+BIND_HOST = os.environ.get("FAULT_PROXY_BIND_HOST", "127.0.0.1")
+BIND_PORT = int(os.environ.get("FAULT_PROXY_BIND_PORT", "19101"))
+FAIL_PREFIX = os.environ.get("FAULT_PROXY_FAIL_PREFIX", "/warehouse/abort-test/")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -45,11 +60,7 @@ class Handler(BaseHTTPRequestHandler):
     def proxy(self):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length) if length else None
-        headers = {
-            key: value
-            for key, value in self.headers.items()
-            if key.lower() != "connection"
-        }
+        headers = {key: value for key, value in self.headers.items() if key.lower() != "connection"}
         connection = HTTPConnection(UPSTREAM_HOST, UPSTREAM_PORT, timeout=30)
         try:
             connection.request(self.command, self.path, body=body, headers=headers)
@@ -75,4 +86,4 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", 19101), Handler).serve_forever()
+    ThreadingHTTPServer((BIND_HOST, BIND_PORT), Handler).serve_forever()

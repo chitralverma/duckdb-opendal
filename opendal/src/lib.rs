@@ -38,7 +38,7 @@ pub use operator::{
     od_schemes_entry, od_schemes_free, od_schemes_len, OdOperator, OdSchemeList,
 };
 pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
-pub use stat::{od_exists, od_stat, OdMetadata};
+pub use stat::{od_dir_exists, od_exists, od_stat, OdMetadata};
 pub use table::{
     od_copy_cursor_free, od_copy_cursor_next, od_du_cursor_free, od_du_cursor_next,
     od_table_copy_open, od_table_cursor_free, od_table_cursor_next, od_table_du_open,
@@ -355,13 +355,26 @@ mod tests {
         assert_eq!(unsafe { od_exists(op, p_one.as_ptr(), &mut e) }, 1);
         assert_eq!(unsafe { od_exists(op, p_missing.as_ptr(), &mut e) }, 0);
 
+        // dir_exists: non-empty prefix (± trailing slash) is a dir; file and
+        // missing prefix are not.
+        let dir_slash = CString::new("a/").unwrap();
+        let dir_bare = CString::new("a").unwrap();
+        let missing_dir = CString::new("nope/").unwrap();
+        assert_eq!(unsafe { od_dir_exists(op, dir_slash.as_ptr(), &mut e) }, 1);
+        assert_eq!(unsafe { od_dir_exists(op, dir_bare.as_ptr(), &mut e) }, 1);
+        assert_eq!(unsafe { od_dir_exists(op, p_one.as_ptr(), &mut e) }, 0);
+        assert_eq!(
+            unsafe { od_dir_exists(op, missing_dir.as_ptr(), &mut e) },
+            0
+        );
+
         // list a/ recursively
         let dir = CString::new("a/").unwrap();
         let mut lerr = OdError::ok();
         let list = unsafe { od_list(op, dir.as_ptr(), 1, &mut lerr) };
         assert!(!list.is_null());
         let n = unsafe { od_list_len(list) };
-        // Expect our two files (dir markers may or may not appear depending on backend).
+        // Expect our two files (dir markers may or may not appear depending on service).
         let mut files = 0;
         for i in 0..n {
             let mut ent = OdEntry {
@@ -470,7 +483,7 @@ mod tests {
         assert_eq!(serr.code as i32, OdErrorCode::InvalidInput as i32);
         unsafe { od_string_free(serr.message) };
 
-        // rename → if the backend supports it, the old path is gone and the new
+        // rename → if the service supports it, the old path is gone and the new
         // one exists. The memory service does not support server-side rename, so
         // tolerate Unsupported here (the C++ layer falls back to copy+delete).
         let dst = CString::new("out/renamed.txt").unwrap();
@@ -778,7 +791,7 @@ mod tests {
         assert!(!probe("definitely_not_a_capability"));
 
         // rename must fail-fast with Unsupported + a clear message, without
-        // touching the backend.
+        // touching the service.
         let from = CString::new("a.txt").unwrap();
         let to = CString::new("b.txt").unwrap();
         let mut merr = OdError::ok();

@@ -1,14 +1,28 @@
 # duckdb-opendal (`opendal`)
 
-A DuckDB extension that integrates [Apache OpenDAL](https://opendal.apache.org/) as a virtual filesystem, enabling transparent read and write access to multiple storage backends through a unified SQL interface.
+A DuckDB extension that integrates [Apache OpenDAL](https://opendal.apache.org/) as a virtual filesystem, enabling transparent read and write access to multiple storage services through a unified SQL interface.
 
 Query, glob, and write files (Parquet, CSV, JSON, etc.) directly on remote and local storage using standard SQL.
 
 ---
 
+## Installation
+
+Install the signed extension from the DuckDB community repository:
+
+```sql
+INSTALL opendal FROM community;
+LOAD opendal;
+```
+
+> **Requires DuckDB ≥ 1.5.5.** Community binaries are per DuckDB version; older
+> DuckDB returns HTTP 404 on `INSTALL`. See [Compatibility](#compatibility).
+
+---
+
 ## Key Features
 
-- **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `s3://`, and `memory://` — with more backends coming soon) directly within DuckDB queries.
+- **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `s3://`, and `memory://` — with more services coming soon) directly within DuckDB queries.
 - **Table Functions**:
   - `opendal_version()` — Returns extension and core OpenDAL library versions.
   - `opendal_stat()` — Returns metadata for a single path (such as mode, size, and user_metadata).
@@ -114,54 +128,34 @@ SET opendal_override_native_filesystems = '';
 
 ---
 
-## Building from Source
+## Compatibility
 
-### Prerequisites
+**Use the latest DuckDB release to get the latest services.** Community binaries
+are published per DuckDB version and the extension is built for the current
+stable release, so available services and fixes track the build for *your*
+DuckDB. On older DuckDB, `INSTALL opendal FROM community` returns HTTP 404 —
+upgrade to the latest patch, or [build from source](CONTRIBUTING.md#building)
+against your version and load with `allow_unsigned_extensions`. Check your
+installed version with `SELECT opendal_version();`.
 
-- **Rust toolchain** (stable, MSRV 1.91+)
-- **CMake** (v3.22+)
-- **Compiler**: GCC / Clang (Linux/macOS) or MSVC (Windows)
-- **Ninja** or **Make**
+Each release pins a DuckDB version and an Apache OpenDAL release or revision:
 
-### Build Steps
+| Extension | DuckDB | OpenDAL   | Services              |
+| --------- | ------ | --------- | --------------------- |
+| 0.1.0     | v1.5.x | `3180510` | `fs`, `memory`, `s3`  |
 
-Clone the repository and submodules:
-```sh
-git clone --recurse-submodules https://github.com/chitralverma/duckdb-opendal.git
-cd duckdb-opendal
-```
+`v1.5.x` = any patch on the DuckDB v1.5 line.
 
-Build the extension:
-```sh
-# Defaults to Makefile generator
-make
-
-# Or build using Ninja (recommended)
-GEN=ninja make
-```
-
-This will compile the Rust core FFI crate, C++ wrapper extension, and produce the loadable binary:
-- `./build/release/duckdb` (DuckDB shell with the extension preloaded)
-- `./build/release/extension/opendal/opendal.duckdb_extension` (the loadable binary)
+See the [CHANGELOG](CHANGELOG.md) for per-version details, and
+[MAINTAINING.md](MAINTAINING.md) for how these versions are upgraded.
 
 ---
 
-## Testing
+## Contributing
 
-Run the SQL logic tests:
-```sh
-make test
-```
-
-Run the Rust core unit tests:
-```sh
-make rust-test
-```
-
-Run code formatting checks:
-```sh
-uv run make format-all
-```
+Bug reports, feature requests, and pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the developer guide (build, test, and
+architecture).
 
 ---
 

@@ -1,0 +1,15 @@
+{
+  "description": "opendal common suite over s3:// (MinIO emulator)",
+  "init_script": "test/configs/auth_s3.sql",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
+  "test_env": [
+    { "env_name": "OPENDAL_BASE", "env_value": "s3://warehouse/odfs" },
+    { "env_name": "OPENDAL_EXTERNAL_BASE", "env_value": "s3://warehouse/external" },
+    { "env_name": "OPENDAL_S3_BUCKET", "env_value": "warehouse" },
+    { "env_name": "OPENDAL_S3_ENDPOINT", "env_value": "http://127.0.0.1:19100" },
+    { "env_name": "OPENDAL_S3_ACCESS_KEY_ID", "env_value": "minioadmin" },
+    { "env_name": "OPENDAL_S3_SECRET_ACCESS_KEY", "env_value": "minioadmin" },
+    { "env_name": "OPENDAL_S3_REGION", "env_value": "us-east-1" },
+    { "env_name": "OPENDAL_S3_PROXY_ENDPOINT", "env_value": "http://127.0.0.1:19101" }
+  ]
+}
