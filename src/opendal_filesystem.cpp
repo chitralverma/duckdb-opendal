@@ -79,7 +79,7 @@ static void ThrowIfError(OdError &err, const std::string &context) {
 	if (err.code == OdErrorCode::Ok) {
 		return;
 	}
-	std::string msg = context + ": " + err.message;
+	std::string msg = err.message ? context + ": " + err.message : context;
 	od_string_free(err.message);
 	err.message = nullptr;
 	throw IOException(msg);
