@@ -1,23 +1,13 @@
-# Build, test, and (optionally) release the extension.
-#
-# Staged pipeline (each stage gates the next):
-#   checks (parallel):  cpp-checks (format, tidy) | rust-checks (fmt, clippy)
-#   -> tests:           rust-tests + sql-tests
-#   -> build:           per-platform binaries (linux/macos/windows)
-#   -> release:         draft GitHub release (tags only)
+# Staged pipeline: checks (cpp | rust) -> tests (rust + sql) -> build -> release (tags).
 name: Main Extension Distribution Pipeline
-# Label runs by branch + event (pull_request runs otherwise display the PR title).
 run-name: Pipeline — ${{ github.head_ref || github.ref_name }} (${{ github.event_name }})
 on:
-  # Only build main + tags on push; feature branches are covered by pull_request,
-  # so an open PR does not run the pipeline twice. Tags are required by the release.
   push:
     branches: [main]
     tags: ['**']
   pull_request:
   workflow_dispatch:
   # Daily rebuild against the latest v1.5.x patch (duckdb_version tracks a branch).
-  # Runs on main, not a tag, so release stays skipped.
   schedule:
     - cron: '0 6 * * *'
 
@@ -26,7 +16,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Stage 1: checks (parallel) ──────────────────────────────────────────────
   cpp-checks:
     name: C++ checks (format, tidy)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5-variegata
@@ -47,21 +36,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: actions/cache@v4
+      - name: Cache cargo registry
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-rustchecks-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-rustchecks-
+          key: cargo-registry-${{ hashFiles('opendal/Cargo.lock') }}
+          restore-keys: cargo-registry-
+      - name: Cache rust target
+        uses: actions/cache@v4
+        with:
+          path: opendal/target/
+          key: rust-target-${{ runner.os }}-${{ hashFiles('opendal/Cargo.lock') }}
+          restore-keys: rust-target-${{ runner.os }}-
       - name: Rust format check
         run: make rust-fmt-check
       - name: Clippy
         run: make rust-lint
 
-  # ── Stage 2: tests (after checks) ───────────────────────────────────────────
   rust-tests:
     name: Rust tests
     needs: [cpp-checks, rust-checks]
@@ -72,26 +66,31 @@ jobs:
           fetch-depth: 0
           submodules: 'recursive'
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/cache@v4
+      - name: Cache cargo registry
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-rusttests-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-rusttests-
+          key: cargo-registry-${{ hashFiles('opendal/Cargo.lock') }}
+          restore-keys: cargo-registry-
+      - name: Cache rust target
+        uses: actions/cache@v4
+        with:
+          path: opendal/target/
+          key: rust-target-${{ runner.os }}-${{ hashFiles('opendal/Cargo.lock') }}
+          restore-keys: rust-target-${{ runner.os }}-
       - name: Rust tests
         run: make rust-test
 
-  # Build once, then run the SQLLogicTest tiers against every service the planner
-  # discovers (CONTRIBUTING.md, Testing). Secret-gated services are dropped without secrets.
   sql-tests:
     name: SQL tests
     needs: [cpp-checks, rust-checks]
     runs-on: ubuntu-latest
     env:
       GEN: ninja
+      CCACHE_DIR: ${{ github.workspace }}/ccache_dir
       HAVE_SECRETS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
@@ -105,12 +104,23 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache ccache
-        uses: actions/cache@v4
+      # ccache: extension-ci-tools rotating-key pattern (own lineage — the reusable
+      # linux build compiles inside manylinux docker, so its cache can't be reused).
+      - name: Generate timestamp for Ccache entry
+        id: ccache_timestamp
+        run: echo "timestamp=$(date -u '+%Y-%m-%d-%H;%M;%S')" >> "$GITHUB_OUTPUT"
+
+      - name: Create Ccache directory
+        run: mkdir -p ccache_dir
+
+      - name: Load Ccache
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.ccache
-          key: ${{ runner.os }}-sqltests-ccache-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-sqltests-ccache-
+          path: ./ccache_dir
+          key: ccache-sqltests-${{ runner.os }}-v1.5-variegata-${{ steps.ccache_timestamp.outputs.timestamp }}
+          restore-keys: |
+            ccache-sqltests-${{ runner.os }}-v1.5-variegata-
+            ccache-sqltests-${{ runner.os }}-
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -119,11 +129,17 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          key: ${{ runner.os }}-sqltests-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-sqltests-cargo-
+          key: cargo-registry-${{ hashFiles('opendal/Cargo.lock') }}
+          restore-keys: cargo-registry-
 
       - name: Build extension
         run: make
+
+      - name: Save Ccache
+        uses: actions/cache/save@v4
+        with:
+          path: ./ccache_dir
+          key: ccache-sqltests-${{ runner.os }}-v1.5-variegata-${{ steps.ccache_timestamp.outputs.timestamp }}
 
       - name: Run test tiers
         run: |
@@ -150,8 +166,7 @@ jobs:
             echo "::endgroup::"
           done
 
-  # ── Stage 3: build per-platform binaries (after tests) ──────────────────────
-  # Tests already ran above, so skip_tests here — this stage only builds + uploads.
+  # Per-platform binaries. Tests already ran, so skip_tests — build + upload only.
   build:
     name: Build extension binaries
     needs: [rust-tests, sql-tests]
@@ -169,10 +184,8 @@ jobs:
       # - Windows MinGW target: Rtools MinGW toolchain is missing libgcc_eh.a which is required by rustc for the gnu target. Rely on standard MSVC instead.
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw'
 
-  # ── Stage 4: release (tags only) ────────────────────────────────────────────
-  # Optional for the community registry (which builds from source at
-  # description.yml:ref), but the project's only source of downloadable
-  # per-platform binaries (unsigned/manual/air-gapped installs). See MAINTAINING.md.
+  # Downloadable per-platform binaries (unsigned/manual installs); the community
+  # registry builds from source and doesn't use these. See MAINTAINING.md.
   create-release-draft:
     name: Create draft release with built binaries
     needs: [build]
