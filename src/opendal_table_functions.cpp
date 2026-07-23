@@ -61,10 +61,8 @@ struct EntryBindData : public TableFunctionData {
 	std::string start_after;
 	int64_t if_modified_since_ms = 0;
 	int64_t if_unmodified_since_ms = 0;
-	idx_t limit = 0;
 	bool has_if_modified_since = false;
 	bool has_if_unmodified_since = false;
-	bool has_limit = false;
 	bool recursive = false;
 	bool versions = false;
 	bool deleted = false;
@@ -135,14 +133,6 @@ static unique_ptr<FunctionData> BindEntry(EntryScanKind kind, TableFunctionBindI
 	if (kind == EntryScanKind::STAT) {
 		ReadCommonOptions(input, *result);
 	} else {
-		auto limit = input.named_parameters.find("limit");
-		if (limit != input.named_parameters.end() && !limit->second.IsNull()) {
-			result->has_limit = true;
-			result->limit = limit->second.GetValue<idx_t>();
-			if (result->limit == 0) {
-				throw InvalidInputException("opendal list: limit must be positive");
-			}
-		}
 		result->start_after = StringParameter(input.named_parameters, "start_after");
 		result->recursive = BoolParameter(input.named_parameters, "recursive");
 		result->versions = BoolParameter(input.named_parameters, "versions");
@@ -186,8 +176,6 @@ static unique_ptr<GlobalTableFunctionState> EntryInit(ClientContext &context, Ta
 		cursor = od_table_stat_open(op, path.c_str(), options, &err);
 	} else {
 		OdListOptions options = {};
-		options.limit = bind.limit;
-		options.has_limit = bind.has_limit;
 		options.start_after = bind.start_after.empty() ? nullptr : bind.start_after.c_str();
 		options.recursive = bind.recursive;
 		options.versions = bind.versions;
@@ -270,9 +258,7 @@ static void EntryFunc(ClientContext &, TableFunctionInput &data, DataChunk &outp
 struct DuBindData : public TableFunctionData {
 	OpenDalFileSystem *fs;
 	std::string url;
-	idx_t limit = 0;
 	std::string start_after;
-	bool has_limit = false;
 	bool versions = false;
 	bool deleted = false;
 };
@@ -293,8 +279,6 @@ static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context, Table
 	}
 	auto *op = bind.fs->OperatorForPublic(scheme, authority, bind.url, &context);
 	OdListOptions options = {};
-	options.limit = bind.limit;
-	options.has_limit = bind.has_limit;
 	options.start_after = bind.start_after.empty() ? nullptr : bind.start_after.c_str();
 	options.versions = bind.versions;
 	options.deleted = bind.deleted;
@@ -318,14 +302,6 @@ static unique_ptr<FunctionData> DuBind(ClientContext &, TableFunctionBindInput &
 	auto result = make_uniq<DuBindData>();
 	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
 	result->url = input.inputs[0].GetValue<string>();
-	auto limit = input.named_parameters.find("limit");
-	if (limit != input.named_parameters.end() && !limit->second.IsNull()) {
-		result->has_limit = true;
-		result->limit = limit->second.GetValue<idx_t>();
-		if (result->limit == 0) {
-			throw InvalidInputException("opendal du: limit must be positive");
-		}
-	}
 	result->start_after = StringParameter(input.named_parameters, "start_after");
 	result->versions = BoolParameter(input.named_parameters, "versions");
 	result->deleted = BoolParameter(input.named_parameters, "deleted");
@@ -481,7 +457,6 @@ static void AddStatOptions(TableFunction &function) {
 }
 
 static void AddListOptions(TableFunction &function) {
-	function.named_parameters["limit"] = LogicalType::UBIGINT;
 	function.named_parameters["start_after"] = LogicalType::VARCHAR;
 	function.named_parameters["recursive"] = LogicalType::BOOLEAN;
 	function.named_parameters["versions"] = LogicalType::BOOLEAN;
@@ -666,7 +641,6 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	loader.RegisterFunction(list);
 
 	TableFunction du("opendal_du", {LogicalType::VARCHAR}, DuFunc, DuBind, DuInit);
-	du.named_parameters["limit"] = LogicalType::UBIGINT;
 	du.named_parameters["start_after"] = LogicalType::VARCHAR;
 	du.named_parameters["versions"] = LogicalType::BOOLEAN;
 	du.named_parameters["deleted"] = LogicalType::BOOLEAN;

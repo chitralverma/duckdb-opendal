@@ -41,15 +41,11 @@ All named arguments are optional and map to OpenDAL `StatOptions`.
 SELECT * FROM opendal_ls(
     's3://bucket/prefix/',
     recursive := true,
-    "limit" := 1000,
     start_after := 'prefix/key',
     versions := false,
     deleted := false
 );
 ```
-
-`limit` is a DuckDB SQL keyword, so quote it when used as a named argument.
-OpenDAL treats it as a backend page-size hint, not a total row limit.
 
 A path containing a glob wildcard (`*`, `?`, or `[`) switches `opendal_ls` to
 glob mode instead of a plain directory listing:
@@ -68,7 +64,7 @@ through the filesystem; `opendal_ls` adds the entry-metadata columns.)
 
 `opendal_du` retains per-parent-directory rollups and accepts a file, directory,
 or glob target. Files and glob matches are grouped by parent. It accepts
-`"limit"`, `start_after`, `versions`, and `deleted` list options.
+`start_after`, `versions`, and `deleted` list options.
 
 ## `opendal_copy`
 

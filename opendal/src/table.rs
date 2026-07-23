@@ -28,8 +28,6 @@ pub struct OdStatOptions {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct OdListOptions {
-    pub limit: usize,
-    pub has_limit: u8,
     pub start_after: *const c_char,
     pub recursive: u8,
     pub versions: u8,
@@ -182,11 +180,11 @@ fn stat_options(raw: OdStatOptions) -> Result<StatOptions, String> {
 
 fn list_options(raw: OdListOptions) -> Result<ListOptions, String> {
     Ok(ListOptions {
-        limit: (raw.has_limit != 0).then_some(raw.limit),
         start_after: optional_cstr(raw.start_after, "start_after")?,
         recursive: raw.recursive != 0,
         versions: raw.versions != 0,
         deleted: raw.deleted != 0,
+        ..Default::default()
     })
 }
 
@@ -492,12 +490,6 @@ pub unsafe extern "C" fn od_table_list_open(
         for check in [
             require_option(
                 &odop.scheme,
-                options.limit.is_some(),
-                odop.cap.list_with_limit,
-                "list_with_limit",
-            ),
-            require_option(
-                &odop.scheme,
                 options.start_after.is_some(),
                 odop.cap.list_with_start_after,
                 "list_with_start_after",
@@ -709,7 +701,7 @@ fn parent(path: &str) -> &str {
 pub unsafe extern "C" fn od_table_du_open(
     op: *const OdOperator,
     target: *const c_char,
-    mut raw_options: OdListOptions,
+    raw_options: OdListOptions,
     err: *mut OdError,
 ) -> *mut OdDuCursor {
     ffi_guard!(err, std::ptr::null_mut(), "od_table_du_open", {
@@ -737,7 +729,6 @@ pub unsafe extern "C" fn od_table_du_open(
             }
         };
         let entries: Result<Vec<(String, Metadata)>, opendal::Error> = if has_glob(target) {
-            raw_options.recursive = 1;
             match block_on(odop.op.list_options(
                 glob_root(target),
                 ListOptions {
