@@ -62,7 +62,7 @@ through the filesystem; `opendal_ls` adds the entry-metadata columns.)
 
 ## `opendal_du`
 
-`opendal_du` retains per-parent-directory rollups and accepts a file, directory,
+`opendal_du` reports per-parent-directory rollups and accepts a file, directory,
 or glob target. Files and glob matches are grouped by parent. It accepts
 `start_after`, `versions`, and `deleted` list options.
 
@@ -79,16 +79,24 @@ SELECT * FROM opendal_copy(
 );
 ```
 
-When both URLs resolve to the same effective operator and native copy is
-supported, the function drains OpenDAL's server-side `Copier`. Otherwise it
-streams bounded chunks from an OpenDAL `Reader` into an OpenDAL `Writer`, using
-each URL's independently scoped secret. Transfer failures abort the destination
-writer. One row is returned only after destination commit:
+The source may be a single file, a directory, or a glob pattern. For a directory
+or glob the destination is treated as a prefix and each matched file is copied
+preserving its path relative to the static base (the source directory, or the
+prefix before the first wildcard). One row is returned per copied object after
+its destination commit:
 
 `source`, `destination`, `bytes_copied`, `metadata`.
 
-`source_content_length_hint` is validated against a version-aware source stat.
-A mismatch fails instead of risking a truncated segmented copy.
+When both URLs resolve to the same effective operator and native copy is
+supported, each file drains OpenDAL's server-side `Copier`; otherwise it streams
+bounded chunks from an OpenDAL `Reader` into an OpenDAL `Writer`, using each
+URL's independently scoped secret. Transfer failures abort the destination
+writer.
+
+`source_content_length_hint` and `source_version` apply to a single-file copy
+only; both are rejected for directory/glob sources. The hint is validated against
+a version-aware source stat — a mismatch fails instead of risking a truncated
+segmented copy.
 
 Copy is a side effect, not a DuckDB transaction. Query rollback cannot undo a
 completed remote copy. Mutation starts only when the table function is scanned;

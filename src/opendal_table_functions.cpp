@@ -354,6 +354,8 @@ struct CopyBindData : public TableFunctionData {
 };
 
 struct CopyGlobalState : public GlobalTableFunctionState {
+	std::unique_ptr<OdCopyCursor, void (*)(OdCopyCursor *)> cursor {nullptr, od_copy_cursor_free};
+	bool opened = false;
 	bool finished = false;
 };
 
@@ -390,13 +392,9 @@ static unique_ptr<GlobalTableFunctionState> CopyInit(ClientContext &context, Tab
 	return make_uniq<CopyGlobalState>();
 }
 
-static void CopyFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-	auto &state = data.global_state->Cast<CopyGlobalState>();
-	if (state.finished) {
-		output.SetCardinality(0);
-		return;
-	}
-	auto &bind = data.bind_data->Cast<CopyBindData>();
+// Open the copy cursor lazily on first scan (not bind/init) so LIMIT 0 / an
+// optimized-away call copies nothing.
+static void OpenCopyCursor(ClientContext &context, const CopyBindData &bind, CopyGlobalState &state) {
 	if (!bind.fs) {
 		throw InvalidInputException("opendal copy: filesystem not available");
 	}
@@ -422,30 +420,47 @@ static void CopyFunc(ClientContext &context, TableFunctionInput &data, DataChunk
 	options.chunk_size = bind.chunk_size;
 	options.has_chunk_size = bind.has_chunk_size;
 	OdError err = {};
-	std::unique_ptr<OdCopyCursor, void (*)(OdCopyCursor *)> cursor(
-	    od_table_copy_open(source_op, source_path.c_str(), destination_op, destination_path.c_str(), options, &err),
-	    od_copy_cursor_free);
+	OdCopyCursor *cursor =
+	    od_table_copy_open(source_op, source_path.c_str(), destination_op, destination_path.c_str(), options, &err);
 	if (!cursor) {
 		ThrowIfError(err, "copy", bind.source + "' -> '" + bind.destination);
 		throw IOException("opendal copy: null cursor");
 	}
 	ClearError(err);
-	OdCopyRow row = {};
-	auto result = od_copy_cursor_next(cursor.get(), &row, &err);
-	if (result < 0) {
-		ThrowIfError(err, "copy", bind.source + "' -> '" + bind.destination);
-	}
-	ClearError(err);
-	state.finished = true;
-	if (result == 0) {
+	state.cursor.reset(cursor);
+	state.opened = true;
+}
+
+static void CopyFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+	auto &state = data.global_state->Cast<CopyGlobalState>();
+	if (state.finished) {
 		output.SetCardinality(0);
 		return;
 	}
-	output.SetValue(0, 0, Value(bind.source));
-	output.SetValue(1, 0, Value(bind.destination));
-	output.SetValue(2, 0, Value::UBIGINT(row.bytes_copied));
-	output.SetValue(3, 0, MetadataValue(row.metadata));
-	output.SetCardinality(1);
+	auto &bind = data.bind_data->Cast<CopyBindData>();
+	if (!state.opened) {
+		OpenCopyCursor(context, bind, state);
+	}
+	idx_t count = 0;
+	while (count < STANDARD_VECTOR_SIZE) {
+		OdCopyRow row = {};
+		OdError err = {};
+		auto result = od_copy_cursor_next(state.cursor.get(), &row, &err);
+		if (result < 0) {
+			ThrowIfError(err, "copy", bind.source + "' -> '" + bind.destination);
+		}
+		ClearError(err);
+		if (result == 0) {
+			state.finished = true;
+			break;
+		}
+		output.SetValue(0, count, Value(row.source));
+		output.SetValue(1, count, Value(row.destination));
+		output.SetValue(2, count, Value::UBIGINT(row.bytes_copied));
+		output.SetValue(3, count, MetadataValue(row.metadata));
+		count++;
+	}
+	output.SetCardinality(count);
 }
 
 static void AddStatOptions(TableFunction &function) {
@@ -463,6 +478,7 @@ static void AddListOptions(TableFunction &function) {
 	function.named_parameters["deleted"] = LogicalType::BOOLEAN;
 }
 
+// ── opendal_schemes() — schemes compiled into this build ─────────────────────
 struct SchemesBindData : public TableFunctionData {};
 
 struct SchemesGlobalState : public GlobalTableFunctionState {
@@ -504,6 +520,7 @@ static void SchemesFunc(ClientContext &, TableFunctionInput &data, DataChunk &ou
 	output.SetCardinality(count);
 }
 
+// ── opendal_info(path) — descriptor: support, secret, root, capabilities ─────
 struct InfoBindData : public TableFunctionData {
 	OpenDalFileSystem *fs;
 	std::string url;
@@ -635,6 +652,7 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	stat.function_info = info;
 	loader.RegisterFunction(stat);
 
+	// opendal_ls also handles glob patterns (wildcards in the path).
 	TableFunction list("opendal_ls", {LogicalType::VARCHAR}, EntryFunc, ListBind, EntryInit);
 	AddListOptions(list);
 	list.function_info = info;
@@ -657,9 +675,11 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	copy.function_info = info;
 	loader.RegisterFunction(copy);
 
+	// opendal_schemes() lists compiled-in schemes; no filesystem/secret needed.
 	TableFunction schemes("opendal_schemes", {}, SchemesFunc, SchemesBind, SchemesInit);
 	loader.RegisterFunction(schemes);
 
+	// opendal_info(path) describes support/secret/operator/capabilities for a URL.
 	TableFunction info_function("opendal_info", {LogicalType::VARCHAR}, InfoFunc, InfoBind, InfoInit);
 	info_function.function_info = info;
 	loader.RegisterFunction(info_function);

@@ -85,6 +85,8 @@ pub struct OdCopyOptions {
 
 #[repr(C)]
 pub struct OdCopyRow {
+    pub source: *const c_char,
+    pub destination: *const c_char,
     pub bytes_copied: u64,
     pub metadata: OdEntryMetadata,
 }
@@ -100,9 +102,16 @@ pub struct OdDuCursor {
     current: Option<OwnedDuRow>,
 }
 
+/// One completed copy: bytes transferred, source path, and destination row.
+struct OwnedCopyRow {
+    bytes_copied: u64,
+    source: CString,
+    destination: OwnedRow,
+}
+
 pub struct OdCopyCursor {
-    row: Option<(u64, OwnedRow)>,
-    current: Option<(u64, OwnedRow)>,
+    rows: std::vec::IntoIter<OwnedCopyRow>,
+    current: Option<OwnedCopyRow>,
 }
 
 struct OwnedRow {
@@ -897,6 +906,108 @@ fn abort_writer(writer: &mut opendal::Writer, primary: opendal::Error) -> openda
     }
 }
 
+fn strip_base<'a>(base: &str, path: &'a str) -> &'a str {
+    path.strip_prefix(base).unwrap_or(path)
+}
+
+fn join_dest(prefix: &str, rel: &str) -> String {
+    if prefix.is_empty() {
+        rel.to_owned()
+    } else if prefix.ends_with('/') {
+        format!("{prefix}{rel}")
+    } else {
+        format!("{prefix}/{rel}")
+    }
+}
+
+/// Copy one object via the server-side Copier (same operator + copy support) or
+/// a bounded Reader->Writer stream. Caller validates capabilities and supplies
+/// the authoritative `source_size`. Returns bytes copied + destination metadata.
+unsafe fn copy_one(
+    source_op: &OdOperator,
+    destination_op: &OdOperator,
+    source: &str,
+    destination: &str,
+    base_options: &CopyOptions,
+    same_op_copy: bool,
+    source_size: u64,
+) -> Result<(u64, Metadata), opendal::Error> {
+    let mut options = base_options.clone();
+    options.source_content_length_hint = Some(source_size);
+    let (bytes_copied, completion_metadata) = if same_op_copy {
+        let mut copier = block_on(source_op.op.copier_options(
+            source,
+            destination,
+            options.clone(),
+        ))?;
+        let mut copied = 0u64;
+        loop {
+            match block_on(copier.next()) {
+                Ok(Some(bytes)) => {
+                    copied = copied.checked_add(bytes as u64).ok_or_else(|| {
+                        let _ = block_on(copier.abort());
+                        opendal::Error::new(
+                            opendal::ErrorKind::Unexpected,
+                            "copy byte count overflow",
+                        )
+                    })?;
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    let _ = block_on(copier.abort());
+                    return Err(error);
+                }
+            }
+        }
+        let metadata = block_on(copier.close())?;
+        (copied.max(source_size), metadata)
+    } else {
+        let mut reader_options = ReaderOptions {
+            version: options.source_version.clone(),
+            content_length_hint: Some(source_size),
+            concurrent: options.concurrent,
+            chunk: options.chunk,
+            ..Default::default()
+        };
+        if reader_options.concurrent == 0 {
+            reader_options.concurrent = 1;
+        }
+        let reader = block_on(source_op.op.reader_options(source, reader_options))?;
+        let writer_options = WriteOptions {
+            if_not_exists: options.if_not_exists,
+            if_match: options.if_match.clone(),
+            concurrent: options.concurrent,
+            chunk: options.chunk,
+            ..Default::default()
+        };
+        let mut writer = block_on(
+            destination_op
+                .op
+                .writer_options(destination, writer_options),
+        )?;
+        let chunk = options.chunk.unwrap_or(8 * 1024 * 1024) as u64;
+        let mut offset = 0u64;
+        while offset < source_size {
+            let end = source_size.min(offset.saturating_add(chunk));
+            let buffer = match block_on(reader.read(offset..end)) {
+                Ok(buffer) => buffer,
+                Err(error) => return Err(abort_writer(&mut writer, error)),
+            };
+            if let Err(error) = block_on(writer.write(buffer)) {
+                return Err(abort_writer(&mut writer, error));
+            }
+            offset = end;
+        }
+        match block_on(writer.close()) {
+            Ok(metadata) => (offset, metadata),
+            Err(error) => return Err(abort_writer(&mut writer, error)),
+        }
+    };
+    // Copy is committed; a denied destination stat must not fail the operation.
+    let metadata = block_on(destination_op.op.stat(destination)).unwrap_or(completion_metadata);
+    Ok((bytes_copied, metadata))
+}
+
 /// # Safety
 ///
 /// - `source_op` and `destination_op` must be valid, non-null [`OdOperator`]
@@ -945,7 +1056,7 @@ pub unsafe extern "C" fn od_table_copy_open(
                 return std::ptr::null_mut();
             }
         };
-        let mut options = match copy_options(raw_options) {
+        let options = match copy_options(raw_options) {
             Ok(options) => options,
             Err(message) => {
                 set_error(err, OdErrorCode::InvalidInput, message);
@@ -954,8 +1065,10 @@ pub unsafe extern "C" fn od_table_copy_open(
         };
         let source_op = &*source_op;
         let destination_op = &*destination_op;
-        if std::ptr::eq(source_op, destination_op) && source_op.cap.copy {
-            for check in [
+        let same_op_copy = std::ptr::eq(source_op, destination_op) && source_op.cap.copy;
+        // Per-operator capability guards, validated once for every planned file.
+        let checks = if same_op_copy {
+            vec![
                 require_option(
                     &source_op.scheme,
                     options.if_not_exists,
@@ -974,14 +1087,11 @@ pub unsafe extern "C" fn od_table_copy_open(
                     source_op.cap.copy_with_source_version,
                     "copy_with_source_version",
                 ),
-            ] {
-                if let Err((code, message)) = check {
-                    set_error(err, code, message);
-                    return std::ptr::null_mut();
-                }
-            }
+            ]
         } else {
-            for check in [
+            vec![
+                require(&source_op.scheme, source_op.cap.read, "read"),
+                require(&destination_op.scheme, destination_op.cap.write, "write"),
                 require_option(
                     &source_op.scheme,
                     options.source_version.is_some(),
@@ -1000,174 +1110,157 @@ pub unsafe extern "C" fn od_table_copy_open(
                     destination_op.cap.write_with_if_match,
                     "write_with_if_match",
                 ),
-            ] {
-                if let Err((code, message)) = check {
-                    set_error(err, code, message);
-                    return std::ptr::null_mut();
-                }
-            }
-        }
-        let source_metadata = match block_on(source_op.op.stat_options(
-            source,
-            StatOptions {
-                version: options.source_version.clone(),
-                ..Default::default()
-            },
-        )) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                set_opendal_error(err, &error);
+            ]
+        };
+        for check in checks {
+            if let Err((code, message)) = check {
+                set_error(err, code, message);
                 return std::ptr::null_mut();
             }
-        };
-        let source_size = source_metadata.content_length();
-        if let Some(hint) = options.source_content_length_hint {
-            if hint != source_size {
+        }
+        // Plan (source, destination, size) pairs. Directory/glob copies keep the
+        // path relative to the static base; hint/version are single-file only.
+        let mut pairs: Vec<(String, String, u64)> = Vec::new();
+        if has_glob(source) {
+            if options.source_content_length_hint.is_some() || options.source_version.is_some() {
                 set_error(
                     err,
                     OdErrorCode::InvalidInput,
-                    format!(
-                        "source_content_length_hint={hint} does not match source size {source_size}"
-                    ),
+                    "source_content_length_hint and source_version are only valid for single-file copy",
                 );
                 return std::ptr::null_mut();
             }
-        }
-        // Segmented copiers plan source ranges from this hint. Version-aware
-        // stat is authoritative; validated size prevents truncated copies.
-        options.source_content_length_hint = Some(source_size);
-        let result: Result<(u64, Metadata), opendal::Error> =
-            if std::ptr::eq(source_op, destination_op) && source_op.cap.copy {
-                match block_on(
-                    source_op
-                        .op
-                        .copier_options(source, destination, options.clone()),
-                ) {
-                    Ok(mut copier) => {
-                        let mut copied = 0u64;
-                        loop {
-                            match block_on(copier.next()) {
-                                Ok(Some(bytes)) => {
-                                    copied = match copied.checked_add(bytes as u64) {
-                                        Some(value) => value,
-                                        None => {
-                                            let _ = block_on(copier.abort());
-                                            set_error(
-                                                err,
-                                                OdErrorCode::Unexpected,
-                                                "copy byte count overflow",
-                                            );
-                                            return std::ptr::null_mut();
-                                        }
-                                    };
-                                }
-                                Ok(None) => break,
-                                Err(error) => {
-                                    let _ = block_on(copier.abort());
-                                    set_opendal_error(err, &error);
-                                    return std::ptr::null_mut();
-                                }
-                            }
-                        }
-                        block_on(copier.close()).map(|metadata| (copied.max(source_size), metadata))
-                    }
-                    Err(error) => Err(error),
-                }
-            } else {
-                if let Err((code, message)) = require(&source_op.scheme, source_op.cap.read, "read")
-                {
-                    set_error(err, code, message);
-                    return std::ptr::null_mut();
-                }
-                if let Err((code, message)) =
-                    require(&destination_op.scheme, destination_op.cap.write, "write")
-                {
-                    set_error(err, code, message);
-                    return std::ptr::null_mut();
-                }
-                let size = source_size;
-                let mut reader_options = ReaderOptions {
-                    version: options.source_version.clone(),
-                    content_length_hint: options.source_content_length_hint.or(Some(size)),
-                    concurrent: options.concurrent,
-                    chunk: options.chunk,
+            let base = glob_root(source);
+            let pattern = source.trim_start_matches('/');
+            let entries = match block_on(source_op.op.list_options(
+                base,
+                ListOptions {
+                    recursive: true,
                     ..Default::default()
-                };
-                if reader_options.concurrent == 0 {
-                    reader_options.concurrent = 1;
-                }
-                let reader = match block_on(source_op.op.reader_options(source, reader_options)) {
-                    Ok(reader) => reader,
-                    Err(error) => {
-                        set_opendal_error(err, &error);
-                        return std::ptr::null_mut();
-                    }
-                };
-                let writer_options = WriteOptions {
-                    if_not_exists: options.if_not_exists,
-                    if_match: options.if_match.clone(),
-                    concurrent: options.concurrent,
-                    chunk: options.chunk,
-                    ..Default::default()
-                };
-                let mut writer = match block_on(
-                    destination_op
-                        .op
-                        .writer_options(destination, writer_options),
-                ) {
-                    Ok(writer) => writer,
-                    Err(error) => {
-                        set_opendal_error(err, &error);
-                        return std::ptr::null_mut();
-                    }
-                };
-                let chunk = options.chunk.unwrap_or(8 * 1024 * 1024) as u64;
-                let mut offset = 0u64;
-                while offset < size {
-                    let end = size.min(offset.saturating_add(chunk));
-                    let buffer = match block_on(reader.read(offset..end)) {
-                        Ok(buffer) => buffer,
-                        Err(error) => {
-                            let error = abort_writer(&mut writer, error);
-                            set_opendal_error(err, &error);
-                            return std::ptr::null_mut();
-                        }
-                    };
-                    if let Err(error) = block_on(writer.write(buffer)) {
-                        let error = abort_writer(&mut writer, error);
-                        set_opendal_error(err, &error);
-                        return std::ptr::null_mut();
-                    }
-                    offset = end;
-                }
-                match block_on(writer.close()) {
-                    Ok(metadata) => Ok((offset, metadata)),
-                    Err(error) => Err(abort_writer(&mut writer, error)),
+                },
+            )) {
+                Ok(entries) => entries,
+                Err(error) => {
+                    set_opendal_error(err, &error);
+                    return std::ptr::null_mut();
                 }
             };
-        let (bytes_copied, completion_metadata) = match result {
-            Ok(result) => result,
-            Err(error) => {
-                set_opendal_error(err, &error);
-                return std::ptr::null_mut();
+            for entry in entries {
+                let (path, metadata) = entry.into_parts();
+                if !metadata.is_file() || !glob_matches(pattern.as_bytes(), path.as_bytes()) {
+                    continue;
+                }
+                let dest = join_dest(destination, strip_base(base, &path));
+                pairs.push((path, dest, metadata.content_length()));
             }
-        };
-        let metadata = match block_on(destination_op.op.stat(destination)) {
-            Ok(metadata) => metadata,
-            // Copy is committed and cannot be rolled back. Avoid reporting a
-            // false operation failure when destination stat is not permitted.
-            Err(_) => completion_metadata,
-        };
-        let row = match OwnedRow::from_parts(destination.to_owned(), metadata) {
-            Ok(row) => row,
-            Err(message) => {
-                set_error(err, OdErrorCode::Unexpected, message);
-                return std::ptr::null_mut();
+        } else {
+            let source_metadata = match block_on(source_op.op.stat_options(
+                source,
+                StatOptions {
+                    version: options.source_version.clone(),
+                    ..Default::default()
+                },
+            )) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    set_opendal_error(err, &error);
+                    return std::ptr::null_mut();
+                }
+            };
+            if source_metadata.is_file() {
+                let source_size = source_metadata.content_length();
+                if let Some(hint) = options.source_content_length_hint {
+                    if hint != source_size {
+                        set_error(
+                            err,
+                            OdErrorCode::InvalidInput,
+                            format!(
+                                "source_content_length_hint={hint} does not match source size {source_size}"
+                            ),
+                        );
+                        return std::ptr::null_mut();
+                    }
+                }
+                pairs.push((source.to_owned(), destination.to_owned(), source_size));
+            } else {
+                if options.source_content_length_hint.is_some() || options.source_version.is_some()
+                {
+                    set_error(
+                        err,
+                        OdErrorCode::InvalidInput,
+                        "source_content_length_hint and source_version are only valid for single-file copy",
+                    );
+                    return std::ptr::null_mut();
+                }
+                let base = if source.ends_with('/') {
+                    source.to_owned()
+                } else {
+                    format!("{source}/")
+                };
+                let entries = match block_on(source_op.op.list_options(
+                    &base,
+                    ListOptions {
+                        recursive: true,
+                        ..Default::default()
+                    },
+                )) {
+                    Ok(entries) => entries,
+                    Err(error) => {
+                        set_opendal_error(err, &error);
+                        return std::ptr::null_mut();
+                    }
+                };
+                for entry in entries {
+                    let (path, metadata) = entry.into_parts();
+                    if !metadata.is_file() {
+                        continue;
+                    }
+                    let dest = join_dest(destination, strip_base(&base, &path));
+                    pairs.push((path, dest, metadata.content_length()));
+                }
             }
-        };
+        }
+
+        let mut rows = Vec::with_capacity(pairs.len());
+        for (source_path, dest_path, source_size) in pairs {
+            let (bytes_copied, metadata) = match copy_one(
+                source_op,
+                destination_op,
+                &source_path,
+                &dest_path,
+                &options,
+                same_op_copy,
+                source_size,
+            ) {
+                Ok(result) => result,
+                Err(error) => {
+                    set_opendal_error(err, &error);
+                    return std::ptr::null_mut();
+                }
+            };
+            let source = match cstring(&source_path, "copy source") {
+                Ok(source) => source,
+                Err(message) => {
+                    set_error(err, OdErrorCode::Unexpected, message);
+                    return std::ptr::null_mut();
+                }
+            };
+            let destination = match OwnedRow::from_parts(dest_path, metadata) {
+                Ok(row) => row,
+                Err(message) => {
+                    set_error(err, OdErrorCode::Unexpected, message);
+                    return std::ptr::null_mut();
+                }
+            };
+            rows.push(OwnedCopyRow {
+                bytes_copied,
+                source,
+                destination,
+            });
+        }
         set_ok(err);
         Box::into_raw(Box::new(OdCopyCursor {
-            row: Some((bytes_copied, row)),
+            rows: rows.into_iter(),
             current: None,
         }))
     })
@@ -1196,15 +1289,17 @@ pub unsafe extern "C" fn od_copy_cursor_next(
             return -1;
         }
         let cursor = &mut *cursor;
-        let Some(row) = cursor.row.take() else {
+        let Some(row) = cursor.rows.next() else {
             set_ok(err);
             return 0;
         };
         cursor.current = Some(row);
-        let (bytes_copied, row) = cursor.current.as_ref().unwrap();
+        let row = cursor.current.as_ref().unwrap();
         *out = OdCopyRow {
-            bytes_copied: *bytes_copied,
-            metadata: row.borrowed().metadata,
+            source: row.source.as_ptr(),
+            destination: row.destination.path.as_ptr(),
+            bytes_copied: row.bytes_copied,
+            metadata: row.destination.borrowed().metadata,
         };
         set_ok(err);
         1
