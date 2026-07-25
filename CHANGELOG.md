@@ -15,11 +15,31 @@ Apache OpenDAL revision; see the compatibility matrix in the
 
 ## [Unreleased]
 
+### Added
+
+- `opendal_schemes()` table function listing the storage schemes compiled into
+  the build.
+- `opendal_info(url)` table function describing a URL's scheme, support, matched
+  secret, usability, operator root, and capabilities; operator-build failures
+  are enriched with a `CREATE SECRET` hint.
+
 ### Changed
 
 - CI/build tracks the DuckDB `v1.5-variegata` release line (any `v1.5.x` patch)
   instead of a pinned tag; a daily scheduled run rebuilds against the latest
   patch. DuckDB patch bumps now need no repo change.
+- `opendal_ls` handles glob patterns directly (wildcards in the path); the
+  separate `opendal_glob` function is removed.
+- `opendal_copy` accepts file, directory, and glob sources, emitting one row per
+  copied object.
+- `cargo update`: serde_json 1.0.151, tokio 1.53.1, rustls 0.23.42,
+  futures 0.3.33.
+
+### Removed
+
+- `opendal_glob` table function (folded into `opendal_ls`).
+- The `limit` option on `opendal_ls` / `opendal_du` (it bounded entries scanned,
+  not rows returned).
 
 ## [0.1.0] - 2026-07-22
 
