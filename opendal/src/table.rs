@@ -110,7 +110,14 @@ struct OwnedCopyRow {
 }
 
 pub struct OdCopyCursor {
-    rows: std::vec::IntoIter<OwnedCopyRow>,
+    // Borrowed operator handles (owned + cached by the C++ filesystem; they
+    // outlive the cursor). Copies run lazily in `od_copy_cursor_next` so the
+    // open call neither blocks on the whole tree nor buffers every result row.
+    source_op: *const OdOperator,
+    destination_op: *const OdOperator,
+    options: CopyOptions,
+    same_op_copy: bool,
+    plan: std::vec::IntoIter<(String, String, u64)>,
     current: Option<OwnedCopyRow>,
 }
 
@@ -1063,6 +1070,8 @@ pub unsafe extern "C" fn od_table_copy_open(
                 return std::ptr::null_mut();
             }
         };
+        let source_op_ptr = source_op;
+        let destination_op_ptr = destination_op;
         let source_op = &*source_op;
         let destination_op = &*destination_op;
         let same_op_copy = std::ptr::eq(source_op, destination_op) && source_op.cap.copy;
@@ -1221,46 +1230,13 @@ pub unsafe extern "C" fn od_table_copy_open(
             }
         }
 
-        let mut rows = Vec::with_capacity(pairs.len());
-        for (source_path, dest_path, source_size) in pairs {
-            let (bytes_copied, metadata) = match copy_one(
-                source_op,
-                destination_op,
-                &source_path,
-                &dest_path,
-                &options,
-                same_op_copy,
-                source_size,
-            ) {
-                Ok(result) => result,
-                Err(error) => {
-                    set_opendal_error(err, &error);
-                    return std::ptr::null_mut();
-                }
-            };
-            let source = match cstring(&source_path, "copy source") {
-                Ok(source) => source,
-                Err(message) => {
-                    set_error(err, OdErrorCode::Unexpected, message);
-                    return std::ptr::null_mut();
-                }
-            };
-            let destination = match OwnedRow::from_parts(dest_path, metadata) {
-                Ok(row) => row,
-                Err(message) => {
-                    set_error(err, OdErrorCode::Unexpected, message);
-                    return std::ptr::null_mut();
-                }
-            };
-            rows.push(OwnedCopyRow {
-                bytes_copied,
-                source,
-                destination,
-            });
-        }
         set_ok(err);
         Box::into_raw(Box::new(OdCopyCursor {
-            rows: rows.into_iter(),
+            source_op: source_op_ptr,
+            destination_op: destination_op_ptr,
+            options,
+            same_op_copy,
+            plan: pairs.into_iter(),
             current: None,
         }))
     })
@@ -1289,11 +1265,44 @@ pub unsafe extern "C" fn od_copy_cursor_next(
             return -1;
         }
         let cursor = &mut *cursor;
-        let Some(row) = cursor.rows.next() else {
+        let Some((source_path, dest_path, source_size)) = cursor.plan.next() else {
             set_ok(err);
             return 0;
         };
-        cursor.current = Some(row);
+        let (bytes_copied, metadata) = match copy_one(
+            &*cursor.source_op,
+            &*cursor.destination_op,
+            &source_path,
+            &dest_path,
+            &cursor.options,
+            cursor.same_op_copy,
+            source_size,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                set_opendal_error(err, &error);
+                return -1;
+            }
+        };
+        let source = match cstring(&source_path, "copy source") {
+            Ok(source) => source,
+            Err(message) => {
+                set_error(err, OdErrorCode::Unexpected, message);
+                return -1;
+            }
+        };
+        let destination = match OwnedRow::from_parts(dest_path, metadata) {
+            Ok(row) => row,
+            Err(message) => {
+                set_error(err, OdErrorCode::Unexpected, message);
+                return -1;
+            }
+        };
+        cursor.current = Some(OwnedCopyRow {
+            bytes_copied,
+            source,
+            destination,
+        });
         let row = cursor.current.as_ref().unwrap();
         *out = OdCopyRow {
             source: row.source.as_ptr(),
