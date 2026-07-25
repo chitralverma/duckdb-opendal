@@ -19,16 +19,6 @@ set ignore_error_messages
 # (External-object reads live in common/external_read.test, gated on
 # OPENDAL_EXTERNAL_BASE — they run against every externally-seeded service.)
 
-# S3 supports list_with_limit (contrast with the local fs service, which rejects
-# it): the typed option is accepted rather than failing fast. (On S3 the limit is
-# a page-size hint, not a result cap, so we only assert it is honored.)
-statement ok
-COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
-TO 's3://warehouse/svc/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
-
-statement ok
-SELECT count(*) FROM opendal_ls('s3://warehouse/svc/tree/', recursive := true, "limit" := 100);
-
 # Overwrite replaces the object's contents. DuckDB writes a temp object then
 # moves it over the target; s3 has no server-side rename, so this exercises the
 # capability-driven copy+delete fallback.

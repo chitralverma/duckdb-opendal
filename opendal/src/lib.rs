@@ -34,8 +34,8 @@ pub use error::{OdError, OdErrorCode};
 pub use lister::{od_list, od_list_entry, od_list_free, od_list_len, OdEntry, OdEntryList};
 pub use mutate::{od_copy, od_create_dir, od_remove, od_rename};
 pub use operator::{
-    od_operator_free, od_operator_new, od_operator_warning, od_scheme_supported, od_schemes,
-    od_schemes_entry, od_schemes_free, od_schemes_len, OdOperator, OdSchemeList,
+    od_operator_free, od_operator_new, od_operator_root, od_operator_warning, od_scheme_supported,
+    od_schemes, od_schemes_entry, od_schemes_free, od_schemes_len, OdOperator, OdSchemeList,
 };
 pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
 pub use stat::{od_dir_exists, od_exists, od_stat, OdMetadata};

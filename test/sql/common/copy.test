@@ -39,7 +39,7 @@ SELECT count(*) FROM opendal_copy(
 ) LIMIT 0;
 
 query I
-SELECT count(*) FROM opendal_glob('${OPENDAL_BASE}/copy/not_copied*.parquet');
+SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/copy/not_copied*.parquet');
 ----
 0
 
@@ -54,6 +54,33 @@ SELECT * FROM opendal_copy(
 does not match source size
 
 query I
-SELECT count(*) FROM opendal_glob('${OPENDAL_BASE}/copy/hint*.parquet');
+SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/copy/hint*.parquet');
 ----
 0
+
+# Directory copy: every file under the source tree is copied, preserving the
+# path relative to the source directory under the destination prefix.
+statement ok
+COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
+TO '${OPENDAL_BASE}/copy/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+query I
+SELECT count(*) FROM opendal_copy('${OPENDAL_BASE}/copy/tree/', '${OPENDAL_BASE}/copy/tree_dst/');
+----
+3
+
+query I
+SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/copy/tree_dst/**/*.parquet') WHERE metadata.mode = 'file';
+----
+3
+
+# Glob copy: only matching files are copied, relative to the static prefix.
+query I
+SELECT count(*) FROM opendal_copy('${OPENDAL_BASE}/copy/tree/**/*.parquet', '${OPENDAL_BASE}/copy/glob_dst/');
+----
+3
+
+query I
+SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/copy/glob_dst/**/*.parquet');
+----
+60

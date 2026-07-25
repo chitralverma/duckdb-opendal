@@ -1,0 +1,19 @@
+# name: test/sql/common/schemes.test
+# description: opendal_schemes() lists compiled-in schemes
+# group: [common]
+
+require opendal
+
+# `memory` is always compiled into the OpenDAL core; other services are
+# feature-gated, so assert only the guaranteed scheme (keeps this green for
+# subset builds).
+query I
+SELECT list_contains(list(scheme), 'memory') FROM opendal_schemes();
+----
+true
+
+# At least one scheme, and schemes are unique.
+query I
+SELECT count(*) >= 1 AND count(*) = count(DISTINCT scheme) FROM opendal_schemes();
+----
+true

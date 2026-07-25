@@ -77,17 +77,6 @@ SELECT count(*) FROM glob('fs:///__TEST_DIR__/svc/ow_part/**/*.parquet');
 ----
 1
 
-# The local service does not support list_with_limit; the typed option fails fast
-# rather than being silently ignored.
-statement ok
-COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
-TO 'fs:///__TEST_DIR__/svc/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
-
-statement error
-SELECT count(*) FROM opendal_ls('fs:///__TEST_DIR__/svc/tree/', recursive := true, "limit" := 1);
-----
-does not support list_with_limit
-
 # Best-effort cache-build failure surfaces as a DuckDB WARNING (not stderr):
 # point disk_path at an existing file so cache-directory creation fails; the
 # filesystem operation still succeeds without a cache.

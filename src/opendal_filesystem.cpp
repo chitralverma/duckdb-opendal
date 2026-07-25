@@ -79,7 +79,7 @@ static void ThrowIfError(OdError &err, const std::string &context) {
 	if (err.code == OdErrorCode::Ok) {
 		return;
 	}
-	std::string msg = context + ": " + err.message;
+	std::string msg = err.message ? context + ": " + err.message : context;
 	od_string_free(err.message);
 	err.message = nullptr;
 	throw IOException(msg);
@@ -214,18 +214,21 @@ bool OpenDalFileSystem::ParsePublic(const std::string &url, std::string &out_sch
 
 // Merge a SCOPE-matched secret over global options. Service config is separate;
 // section prefixes (`io.`/`retry.`/`timeout.`/`cache.`) stay intact for Rust.
-static void ApplySecret(optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db,
-                        const std::string &scheme, const std::string &url, std::map<std::string, std::string> &config,
-                        std::map<std::string, std::string> &options) {
+// Merge a SCOPE-matched secret into config/options. Returns the matched
+// secret's name, or "" when none matched.
+static std::string ApplySecret(optional_ptr<ClientContext> context, optional_ptr<DatabaseInstance> db,
+                               const std::string &scheme, const std::string &url,
+                               std::map<std::string, std::string> &config,
+                               std::map<std::string, std::string> &options) {
 	if (!context && !db) {
-		return;
+		return std::string();
 	}
 	SecretManager *sm = context ? &SecretManager::Get(*context) : &SecretManager::Get(*db);
 	CatalogTransaction txn = context ? CatalogTransaction::GetSystemCatalogTransaction(*context)
 	                                 : CatalogTransaction::GetSystemTransaction(*db);
 	auto match = sm->LookupSecret(txn, url, scheme);
 	if (!match.HasMatch()) {
-		return;
+		return std::string();
 	}
 	const auto &base = *match.secret_entry->secret;
 	auto kv = dynamic_cast<const KeyValueSecret *>(&base);
@@ -244,6 +247,7 @@ static void ApplySecret(optional_ptr<ClientContext> context, optional_ptr<Databa
 			options[k] = v;
 		}
 	}
+	return base.GetName();
 }
 
 static std::string CanonicalSchemeUrl(const std::string &url, const std::string &scheme) {
@@ -294,6 +298,16 @@ OdOperator *OpenDalFileSystem::OperatorForCtx(const std::string &scheme, const s
 	return BuildOperator(scheme, authority, url, context, db);
 }
 
+std::string OpenDalFileSystem::MatchedSecretName(optional_ptr<ClientContext> context, const std::string &scheme,
+                                                 const std::string &url) {
+	optional_ptr<DatabaseInstance> db;
+	if (context) {
+		db = &DatabaseInstance::GetDatabase(*context);
+	}
+	std::map<std::string, std::string> config, options;
+	return ApplySecret(context, db, scheme, CanonicalSchemeUrl(url, scheme), config, options);
+}
+
 OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const std::string &authority,
                                              const std::string &url, optional_ptr<ClientContext> context,
                                              optional_ptr<DatabaseInstance> db) {
@@ -313,7 +327,7 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	// (AWS_ENDPOINT_URL/AWS_ENDPOINT/AWS_S3_ENDPOINT) and the full credential
 	// chain (env -> shared profile -> IMDS) via DefaultCredentialProvider.
 	// Injecting a partial subset here would only shadow that richer resolution.
-	ApplySecret(context, db, scheme, CanonicalSchemeUrl(url, scheme), config, options);
+	std::string secret_name = ApplySecret(context, db, scheme, CanonicalSchemeUrl(url, scheme), config, options);
 	uint64_t config_hash;
 	std::string key = ConfigIdentity(scheme, authority, config, options, config_hash);
 	std::string cache_namespace = std::to_string(config_hash);
@@ -355,7 +369,17 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	    keys.size(), option_key_ptrs.empty() ? nullptr : option_key_ptrs.data(),
 	    option_val_ptrs.empty() ? nullptr : option_val_ptrs.data(), option_keys.size(), cache_namespace.c_str(), &err);
 	if (!op) {
-		ThrowIfError(err, "opendal: failed to create operator for '" + uri + "'");
+		std::string detail = err.message ? std::string(err.message) : std::string("unknown error");
+		ClearError(err);
+		std::string message = "opendal: failed to create operator for '" + uri + "': " + detail;
+		// No secret + build failure is almost always missing service config
+		// (fs 'root', s3 creds/region); point the user at CREATE SECRET.
+		if (secret_name.empty()) {
+			message += "\nhint: no secret is configured for scheme '" + scheme +
+			           "'. Provide required settings via CREATE SECRET (TYPE " + scheme + ", SCOPE '" + uri +
+			           "', config MAP{...}).";
+		}
+		throw IOException(message);
 	}
 	ClearError(err);
 	if (auto warning = od_operator_warning(op)) {

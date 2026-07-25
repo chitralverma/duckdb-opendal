@@ -2,11 +2,14 @@
 
 #include "opendal_filesystem.hpp"
 
+#include "duckdb/common/error_data.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 
 #include "rust.h"
 
+#include <algorithm>
+#include <cctype>
 #include <map>
 #include <string>
 
@@ -41,7 +44,12 @@ struct OpenDalTableInfo : public TableFunctionInfo {
 	OpenDalFileSystem *fs;
 };
 
-enum class EntryScanKind : uint8_t { STAT, LIST, GLOB };
+enum class EntryScanKind : uint8_t { STAT, LIST };
+
+// '*' '?' '[' switch opendal_ls from a directory listing to glob mode.
+static bool HasGlob(const std::string &path) {
+	return path.find_first_of("*?[") != std::string::npos;
+}
 
 struct EntryBindData : public TableFunctionData {
 	OpenDalFileSystem *fs;
@@ -53,10 +61,8 @@ struct EntryBindData : public TableFunctionData {
 	std::string start_after;
 	int64_t if_modified_since_ms = 0;
 	int64_t if_unmodified_since_ms = 0;
-	idx_t limit = 0;
 	bool has_if_modified_since = false;
 	bool has_if_unmodified_since = false;
-	bool has_limit = false;
 	bool recursive = false;
 	bool versions = false;
 	bool deleted = false;
@@ -127,14 +133,6 @@ static unique_ptr<FunctionData> BindEntry(EntryScanKind kind, TableFunctionBindI
 	if (kind == EntryScanKind::STAT) {
 		ReadCommonOptions(input, *result);
 	} else {
-		auto limit = input.named_parameters.find("limit");
-		if (limit != input.named_parameters.end() && !limit->second.IsNull()) {
-			result->has_limit = true;
-			result->limit = limit->second.GetValue<idx_t>();
-			if (result->limit == 0) {
-				throw InvalidInputException("opendal list: limit must be positive");
-			}
-		}
 		result->start_after = StringParameter(input.named_parameters, "start_after");
 		result->recursive = BoolParameter(input.named_parameters, "recursive");
 		result->versions = BoolParameter(input.named_parameters, "versions");
@@ -152,11 +150,6 @@ static unique_ptr<FunctionData> StatBind(ClientContext &, TableFunctionBindInput
 static unique_ptr<FunctionData> ListBind(ClientContext &, TableFunctionBindInput &input,
                                          vector<LogicalType> &return_types, vector<string> &names) {
 	return BindEntry(EntryScanKind::LIST, input, return_types, names);
-}
-
-static unique_ptr<FunctionData> GlobBind(ClientContext &, TableFunctionBindInput &input,
-                                         vector<LogicalType> &return_types, vector<string> &names) {
-	return BindEntry(EntryScanKind::GLOB, input, return_types, names);
 }
 
 static unique_ptr<GlobalTableFunctionState> EntryInit(ClientContext &context, TableFunctionInitInput &input) {
@@ -183,21 +176,15 @@ static unique_ptr<GlobalTableFunctionState> EntryInit(ClientContext &context, Ta
 		cursor = od_table_stat_open(op, path.c_str(), options, &err);
 	} else {
 		OdListOptions options = {};
-		options.limit = bind.limit;
-		options.has_limit = bind.has_limit;
 		options.start_after = bind.start_after.empty() ? nullptr : bind.start_after.c_str();
 		options.recursive = bind.recursive;
 		options.versions = bind.versions;
 		options.deleted = bind.deleted;
-		cursor = bind.kind == EntryScanKind::GLOB ? od_table_glob_open(op, path.c_str(), options, &err)
-		                                          : od_table_list_open(op, path.c_str(), nullptr, options, &err);
+		cursor = HasGlob(path) ? od_table_glob_open(op, path.c_str(), options, &err)
+		                       : od_table_list_open(op, path.c_str(), nullptr, options, &err);
 	}
 	if (!cursor) {
-		ThrowIfError(err,
-		             bind.kind == EntryScanKind::STAT   ? "stat"
-		             : bind.kind == EntryScanKind::GLOB ? "glob"
-		                                                : "list",
-		             bind.target);
+		ThrowIfError(err, bind.kind == EntryScanKind::STAT ? "stat" : "list", bind.target);
 		throw IOException("opendal table scan: null cursor for '" + bind.target + "'");
 	}
 	ClearError(err);
@@ -271,9 +258,7 @@ static void EntryFunc(ClientContext &, TableFunctionInput &data, DataChunk &outp
 struct DuBindData : public TableFunctionData {
 	OpenDalFileSystem *fs;
 	std::string url;
-	idx_t limit = 0;
 	std::string start_after;
-	bool has_limit = false;
 	bool versions = false;
 	bool deleted = false;
 };
@@ -294,8 +279,6 @@ static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context, Table
 	}
 	auto *op = bind.fs->OperatorForPublic(scheme, authority, bind.url, &context);
 	OdListOptions options = {};
-	options.limit = bind.limit;
-	options.has_limit = bind.has_limit;
 	options.start_after = bind.start_after.empty() ? nullptr : bind.start_after.c_str();
 	options.versions = bind.versions;
 	options.deleted = bind.deleted;
@@ -319,14 +302,6 @@ static unique_ptr<FunctionData> DuBind(ClientContext &, TableFunctionBindInput &
 	auto result = make_uniq<DuBindData>();
 	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
 	result->url = input.inputs[0].GetValue<string>();
-	auto limit = input.named_parameters.find("limit");
-	if (limit != input.named_parameters.end() && !limit->second.IsNull()) {
-		result->has_limit = true;
-		result->limit = limit->second.GetValue<idx_t>();
-		if (result->limit == 0) {
-			throw InvalidInputException("opendal du: limit must be positive");
-		}
-	}
 	result->start_after = StringParameter(input.named_parameters, "start_after");
 	result->versions = BoolParameter(input.named_parameters, "versions");
 	result->deleted = BoolParameter(input.named_parameters, "deleted");
@@ -379,6 +354,8 @@ struct CopyBindData : public TableFunctionData {
 };
 
 struct CopyGlobalState : public GlobalTableFunctionState {
+	std::unique_ptr<OdCopyCursor, void (*)(OdCopyCursor *)> cursor {nullptr, od_copy_cursor_free};
+	bool opened = false;
 	bool finished = false;
 };
 
@@ -415,13 +392,9 @@ static unique_ptr<GlobalTableFunctionState> CopyInit(ClientContext &context, Tab
 	return make_uniq<CopyGlobalState>();
 }
 
-static void CopyFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-	auto &state = data.global_state->Cast<CopyGlobalState>();
-	if (state.finished) {
-		output.SetCardinality(0);
-		return;
-	}
-	auto &bind = data.bind_data->Cast<CopyBindData>();
+// Open the copy cursor lazily on first scan (not bind/init) so LIMIT 0 / an
+// optimized-away call copies nothing.
+static void OpenCopyCursor(ClientContext &context, const CopyBindData &bind, CopyGlobalState &state) {
 	if (!bind.fs) {
 		throw InvalidInputException("opendal copy: filesystem not available");
 	}
@@ -447,30 +420,47 @@ static void CopyFunc(ClientContext &context, TableFunctionInput &data, DataChunk
 	options.chunk_size = bind.chunk_size;
 	options.has_chunk_size = bind.has_chunk_size;
 	OdError err = {};
-	std::unique_ptr<OdCopyCursor, void (*)(OdCopyCursor *)> cursor(
-	    od_table_copy_open(source_op, source_path.c_str(), destination_op, destination_path.c_str(), options, &err),
-	    od_copy_cursor_free);
+	OdCopyCursor *cursor =
+	    od_table_copy_open(source_op, source_path.c_str(), destination_op, destination_path.c_str(), options, &err);
 	if (!cursor) {
 		ThrowIfError(err, "copy", bind.source + "' -> '" + bind.destination);
 		throw IOException("opendal copy: null cursor");
 	}
 	ClearError(err);
-	OdCopyRow row = {};
-	auto result = od_copy_cursor_next(cursor.get(), &row, &err);
-	if (result < 0) {
-		ThrowIfError(err, "copy", bind.source + "' -> '" + bind.destination);
-	}
-	ClearError(err);
-	state.finished = true;
-	if (result == 0) {
+	state.cursor.reset(cursor);
+	state.opened = true;
+}
+
+static void CopyFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+	auto &state = data.global_state->Cast<CopyGlobalState>();
+	if (state.finished) {
 		output.SetCardinality(0);
 		return;
 	}
-	output.SetValue(0, 0, Value(bind.source));
-	output.SetValue(1, 0, Value(bind.destination));
-	output.SetValue(2, 0, Value::UBIGINT(row.bytes_copied));
-	output.SetValue(3, 0, MetadataValue(row.metadata));
-	output.SetCardinality(1);
+	auto &bind = data.bind_data->Cast<CopyBindData>();
+	if (!state.opened) {
+		OpenCopyCursor(context, bind, state);
+	}
+	idx_t count = 0;
+	while (count < STANDARD_VECTOR_SIZE) {
+		OdCopyRow row = {};
+		OdError err = {};
+		auto result = od_copy_cursor_next(state.cursor.get(), &row, &err);
+		if (result < 0) {
+			ThrowIfError(err, "copy", bind.source + "' -> '" + bind.destination);
+		}
+		ClearError(err);
+		if (result == 0) {
+			state.finished = true;
+			break;
+		}
+		output.SetValue(0, count, Value(row.source));
+		output.SetValue(1, count, Value(row.destination));
+		output.SetValue(2, count, Value::UBIGINT(row.bytes_copied));
+		output.SetValue(3, count, MetadataValue(row.metadata));
+		count++;
+	}
+	output.SetCardinality(count);
 }
 
 static void AddStatOptions(TableFunction &function) {
@@ -482,11 +472,177 @@ static void AddStatOptions(TableFunction &function) {
 }
 
 static void AddListOptions(TableFunction &function) {
-	function.named_parameters["limit"] = LogicalType::UBIGINT;
 	function.named_parameters["start_after"] = LogicalType::VARCHAR;
 	function.named_parameters["recursive"] = LogicalType::BOOLEAN;
 	function.named_parameters["versions"] = LogicalType::BOOLEAN;
 	function.named_parameters["deleted"] = LogicalType::BOOLEAN;
+}
+
+// ── opendal_schemes() — schemes compiled into this build ─────────────────────
+struct SchemesBindData : public TableFunctionData {};
+
+struct SchemesGlobalState : public GlobalTableFunctionState {
+	std::unique_ptr<OdSchemeList, void (*)(OdSchemeList *)> list {nullptr, od_schemes_free};
+	idx_t count = 0;
+	idx_t offset = 0;
+};
+
+static unique_ptr<FunctionData> SchemesBind(ClientContext &, TableFunctionBindInput &, vector<LogicalType> &types,
+                                            vector<string> &names) {
+	names = {"scheme"};
+	types = {LogicalType::VARCHAR};
+	return make_uniq<SchemesBindData>();
+}
+
+static unique_ptr<GlobalTableFunctionState> SchemesInit(ClientContext &, TableFunctionInitInput &) {
+	auto state = make_uniq<SchemesGlobalState>();
+	OdError err = {};
+	OdSchemeList *list = od_schemes(&err);
+	if (!list) {
+		ThrowIfError(err, "schemes", "");
+		throw IOException("opendal schemes: null scheme list");
+	}
+	ClearError(err);
+	state->list.reset(list);
+	state->count = od_schemes_len(list);
+	return std::move(state);
+}
+
+static void SchemesFunc(ClientContext &, TableFunctionInput &data, DataChunk &output) {
+	auto &state = data.global_state->Cast<SchemesGlobalState>();
+	idx_t count = 0;
+	while (state.offset < state.count && count < STANDARD_VECTOR_SIZE) {
+		const char *scheme = od_schemes_entry(state.list.get(), state.offset);
+		output.SetValue(0, count, scheme ? Value(scheme) : Value(LogicalType::VARCHAR));
+		state.offset++;
+		count++;
+	}
+	output.SetCardinality(count);
+}
+
+// ── opendal_info(path) — descriptor: support, secret, root, capabilities ─────
+struct InfoBindData : public TableFunctionData {
+	OpenDalFileSystem *fs;
+	std::string url;
+};
+
+struct InfoGlobalState : public GlobalTableFunctionState {
+	bool done = false;
+};
+
+// Lowercased scheme from `scheme://...`, or "" — registry-independent so an
+// unsupported scheme is still reported.
+static std::string LexicalScheme(const std::string &url) {
+	auto pos = url.find("://");
+	if (pos == std::string::npos || pos == 0) {
+		return std::string();
+	}
+	std::string scheme = url.substr(0, pos);
+	std::transform(scheme.begin(), scheme.end(), scheme.begin(),
+	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	return scheme;
+}
+
+static unique_ptr<FunctionData> InfoBind(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
+                                         vector<string> &names) {
+	auto result = make_uniq<InfoBindData>();
+	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
+	result->url = input.inputs[0].GetValue<string>();
+	names = {"scheme", "supported", "secret_name", "usable", "root", "capabilities", "message"};
+	types = {LogicalType::VARCHAR, LogicalType::BOOLEAN, LogicalType::VARCHAR,
+	         LogicalType::BOOLEAN, LogicalType::VARCHAR, LogicalType::MAP(LogicalType::VARCHAR, LogicalType::BOOLEAN),
+	         LogicalType::VARCHAR};
+	return std::move(result);
+}
+
+static unique_ptr<GlobalTableFunctionState> InfoInit(ClientContext &, TableFunctionInitInput &) {
+	return make_uniq<InfoGlobalState>();
+}
+
+static Value CapabilitiesMap(OdOperator *op, const std::string &url) {
+	OdError err = {};
+	OdCapabilityList *caps = od_capabilities(op, &err);
+	if (!caps) {
+		ThrowIfError(err, "capabilities", url);
+		throw IOException("opendal info: null capability list for '" + url + "'");
+	}
+	ClearError(err);
+	std::unique_ptr<OdCapabilityList, void (*)(OdCapabilityList *)> guard(caps, od_capabilities_free);
+	vector<Value> keys, values;
+	idx_t n = od_capabilities_len(caps);
+	keys.reserve(n);
+	values.reserve(n);
+	for (idx_t i = 0; i < n; i++) {
+		OdCapability entry = {};
+		OdError entry_err = {};
+		if (od_capabilities_entry(caps, i, &entry, &entry_err) && entry.name) {
+			keys.emplace_back(entry.name);
+			values.push_back(Value::BOOLEAN(entry.supported != 0));
+		}
+		ClearError(entry_err);
+	}
+	return Value::MAP(LogicalType::VARCHAR, LogicalType::BOOLEAN, std::move(keys), std::move(values));
+}
+
+static void InfoFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+	auto &state = data.global_state->Cast<InfoGlobalState>();
+	if (state.done) {
+		output.SetCardinality(0);
+		return;
+	}
+	state.done = true;
+	auto &bind = data.bind_data->Cast<InfoBindData>();
+	if (!bind.fs) {
+		throw InvalidInputException("opendal info: filesystem not available");
+	}
+	std::string scheme = LexicalScheme(bind.url);
+	if (scheme.empty()) {
+		throw InvalidInputException("opendal info: expected a 'scheme://...' URL: " + bind.url);
+	}
+	bool supported = od_scheme_supported(scheme.c_str()) != 0;
+
+	Value secret_name(LogicalType::VARCHAR);
+	Value usable = Value::BOOLEAN(false);
+	Value root(LogicalType::VARCHAR);
+	Value capabilities(LogicalType::MAP(LogicalType::VARCHAR, LogicalType::BOOLEAN));
+	Value message(LogicalType::VARCHAR);
+
+	if (!supported) {
+		message =
+		    Value("scheme '" + scheme +
+		          "' is not compiled into this build; SELECT scheme FROM opendal_schemes() for available schemes");
+	} else {
+		std::string matched = bind.fs->MatchedSecretName(&context, scheme, bind.url);
+		if (!matched.empty()) {
+			secret_name = Value(matched);
+		}
+		std::string sc, auth, path;
+		if (!bind.fs->ParsePublic(bind.url, sc, auth, path)) {
+			message = Value("could not resolve URL: " + bind.url);
+		} else {
+			// Build failures (usually missing config/secret) land in `message`
+			// rather than aborting the query.
+			try {
+				auto *op = bind.fs->OperatorForPublic(sc, auth, bind.url, &context);
+				usable = Value::BOOLEAN(true);
+				if (auto *rt = od_operator_root(op)) {
+					root = Value(rt);
+				}
+				capabilities = CapabilitiesMap(op, bind.url);
+			} catch (const std::exception &e) {
+				message = Value(ErrorData(e).RawMessage());
+			}
+		}
+	}
+
+	output.SetValue(0, 0, Value(scheme));
+	output.SetValue(1, 0, Value::BOOLEAN(supported));
+	output.SetValue(2, 0, secret_name);
+	output.SetValue(3, 0, usable);
+	output.SetValue(4, 0, root);
+	output.SetValue(5, 0, capabilities);
+	output.SetValue(6, 0, message);
+	output.SetCardinality(1);
 }
 
 void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *fs) {
@@ -496,18 +652,13 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	stat.function_info = info;
 	loader.RegisterFunction(stat);
 
+	// opendal_ls also handles glob patterns (wildcards in the path).
 	TableFunction list("opendal_ls", {LogicalType::VARCHAR}, EntryFunc, ListBind, EntryInit);
 	AddListOptions(list);
 	list.function_info = info;
 	loader.RegisterFunction(list);
 
-	TableFunction glob("opendal_glob", {LogicalType::VARCHAR}, EntryFunc, GlobBind, EntryInit);
-	AddListOptions(glob);
-	glob.function_info = info;
-	loader.RegisterFunction(glob);
-
 	TableFunction du("opendal_du", {LogicalType::VARCHAR}, DuFunc, DuBind, DuInit);
-	du.named_parameters["limit"] = LogicalType::UBIGINT;
 	du.named_parameters["start_after"] = LogicalType::VARCHAR;
 	du.named_parameters["versions"] = LogicalType::BOOLEAN;
 	du.named_parameters["deleted"] = LogicalType::BOOLEAN;
@@ -523,6 +674,15 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	copy.named_parameters["chunk_size"] = LogicalType::UBIGINT;
 	copy.function_info = info;
 	loader.RegisterFunction(copy);
+
+	// opendal_schemes() lists compiled-in schemes; no filesystem/secret needed.
+	TableFunction schemes("opendal_schemes", {}, SchemesFunc, SchemesBind, SchemesInit);
+	loader.RegisterFunction(schemes);
+
+	// opendal_info(path) describes support/secret/operator/capabilities for a URL.
+	TableFunction info_function("opendal_info", {LogicalType::VARCHAR}, InfoFunc, InfoBind, InfoInit);
+	info_function.function_info = info;
+	loader.RegisterFunction(info_function);
 }
 
 } // namespace duckdb

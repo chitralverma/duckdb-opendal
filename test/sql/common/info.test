@@ -1,0 +1,43 @@
+# name: test/sql/common/info.test
+# description: opendal_info() descriptor
+# group: [common]
+
+#
+# Config-agnostic: uses the `file` scheme, which no test config configures a
+# secret for, so the "no secret" and "with secret" cases are deterministic.
+
+require opendal
+
+# An unsupported scheme is reported (not usable), never throwing.
+query II
+SELECT supported, usable
+FROM opendal_info('definitelynotascheme://x/y');
+----
+false	false
+
+# Supported scheme, no secret, missing required config (fs/file need 'root'):
+# not usable, with an enriched hint pointing at CREATE SECRET.
+query IIII
+SELECT scheme, supported, usable, message LIKE '%CREATE SECRET%'
+FROM opendal_info('file:///tmp/probe.parquet');
+----
+file	true	false	true
+
+# Configure a secret -> the descriptor reports it by name, the operator becomes
+# usable, and its capability set is exposed.
+statement ok
+CREATE SECRET info_probe (TYPE file, SCOPE 'file://', config MAP{'root': '.'});
+
+query IIII
+SELECT scheme, supported, secret_name, usable
+FROM opendal_info('file:///tmp/probe.parquet');
+----
+file	true	info_probe	true
+
+query I
+SELECT usable
+       AND list_contains(map_keys(capabilities), 'read')
+       AND list_contains(map_keys(capabilities), 'write')
+FROM opendal_info('file:///tmp/probe.parquet');
+----
+true

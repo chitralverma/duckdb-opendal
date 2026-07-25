@@ -32,8 +32,9 @@ fn main() {
     // cbindgen panics on create/write failures; false only means unchanged/no-op.
     bindings.write_to_file(&out_path);
 
-    println!("cargo:rerun-if-changed=src/lib.rs");
-    println!("cargo:rerun-if-changed=src/uri.rs");
+    // cbindgen scans the whole crate, so the header can change from any module;
+    // watch every source file (not just lib.rs) to avoid a stale rust.h.
+    rerun_if_sources_changed(&PathBuf::from(&crate_dir).join("src"));
     println!("cargo:rerun-if-changed=cbindgen.toml");
 
     // Resolve the opendal version so the FFI can report it programmatically
@@ -52,6 +53,21 @@ fn main() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     if target_os == "windows" {
         println!("cargo:rustc-link-lib=bcrypt");
+    }
+}
+
+/// Emit `rerun-if-changed` for every `.rs` file under `dir` (recursively).
+fn rerun_if_sources_changed(dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            rerun_if_sources_changed(&path);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
 }
 

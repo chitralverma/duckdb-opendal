@@ -118,6 +118,9 @@ public:
 	                              optional_ptr<ClientContext> context) {
 		return OperatorForCtx(scheme, authority, url, context);
 	}
+	// Name of the SCOPE-matched secret for `url`, or "" if none (for opendal_info).
+	std::string MatchedSecretName(optional_ptr<ClientContext> context, const std::string &scheme,
+	                              const std::string &url);
 
 private:
 	// Split a URL into scheme, authority (may be empty), and OpenDAL-relative

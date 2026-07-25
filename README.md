@@ -26,10 +26,11 @@ LOAD opendal;
 - **Table Functions**:
   - `opendal_version()` — Returns extension and core OpenDAL library versions.
   - `opendal_stat()` — Returns metadata for a single path (such as mode, size, and user_metadata).
-  - `opendal_ls()` — Lists files and subdirectories with optional recursion.
-  - `opendal_glob()` — Performs pattern-based file listing.
-  - `opendal_du()` — Returns aggregated size rollups grouped by parent directory.
-  - `opendal_copy()` — Efficiently copies objects within or across storage services (drains OpenDAL's native server-side `Copier` where supported, or falls back to chunked streaming).
+  - `opendal_ls()` — Lists files and subdirectories with optional recursion, or matches a glob pattern when the path contains wildcards.
+  - `opendal_du()` — Returns aggregated size rollups grouped by parent directory; accepts a file, directory, or glob.
+  - `opendal_copy()` — Copies a file, directory, or glob within or across storage services (drains OpenDAL's native server-side `Copier` where supported, or falls back to chunked streaming).
+  - `opendal_schemes()` — Lists the storage schemes compiled into this build.
+  - `opendal_info()` — Describes whether a URL is supported/usable, its matched secret, operator root, and capabilities.
 - **Scoped Secrets**: Configure credentials, custom endpoints, and regions with bucket/path specificity using DuckDB's native secret manager.
 - **Configurable Layers**: Tuning of retry behavior, timeout ceilings, concurrent request limits, and data caching per secret or globally.
 - **Built-in Data Caching**: Support for in-memory and persistent on-disk data caching (leveraging Foyer) without any manual query adjustments.
