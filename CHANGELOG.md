@@ -17,6 +17,12 @@ Apache OpenDAL revision; see the compatibility matrix in the
 
 ### Added
 
+- Azure services: `azblob://` (Azure Blob Storage), `azdls://` (Data Lake
+  Storage Gen2) and `azfile://` (Azure Files), all in the default build
+  (`services-azblob`, `services-azdls`, `services-azfile`).
+- `azblob` test tier backed by the Azurite emulator (`make azblob-up` /
+  `azblob-down`); `azdls`/`azfile` are credential-gated tiers that skip unless
+  their `OPENDAL_AZ{DLS,FILE}_*` env vars are set.
 - `opendal_schemes()` table function listing the storage schemes compiled into
   the build.
 - `opendal_info(url)` table function describing a URL's scheme, support, matched

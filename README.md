@@ -22,7 +22,7 @@ LOAD opendal;
 
 ## Key Features
 
-- **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `s3://`, and `memory://` — with more services coming soon) directly within DuckDB queries.
+- **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `memory://`, `s3://`, `azblob://`, `azdls://`, and `azfile://` — with more services coming soon) directly within DuckDB queries.
 - **Table Functions**:
   - `opendal_version()` — Returns extension and core OpenDAL library versions.
   - `opendal_stat()` — Returns metadata for a single path (such as mode, size, and user_metadata).
@@ -141,9 +141,9 @@ installed version with `SELECT opendal_version();`.
 
 Each release pins a DuckDB version and an Apache OpenDAL release or revision:
 
-| Extension | DuckDB | OpenDAL   | Services              |
-| --------- | ------ | --------- | --------------------- |
-| 0.1.0     | v1.5.x | `3180510` | `fs`, `memory`, `s3`  |
+| Extension | DuckDB | OpenDAL   | Services                                                     |
+| --------- | ------ | --------- | ------------------------------------------------------------ |
+| 0.1.0     | v1.5.x | `3180510` | `fs`, `memory`, `s3`, `azblob`, `azdls`, `azfile`              |
 
 `v1.5.x` = any patch on the DuckDB v1.5 line.
 

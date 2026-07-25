@@ -1,0 +1,41 @@
+# Azurite (Azure Storage emulator) for the azblob:// test tier. Use
+# `make azblob-up` / `azblob-down` (they sequence the one-shot azurite-init
+# after azurite is healthy).
+#
+# Azurite emulates Blob/Queue/Table only — there is no dfs (azdls) or Files
+# (azfile) endpoint, so those two services are real-cloud-only and carry a
+# `requires-secrets` marker instead of a compose file.
+
+name: opendal-azblob-test
+
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    ports:
+      - "19110:10000"
+    command: ["azurite-blob", "--blobHost", "0.0.0.0", "--blobPort", "10000", "--location", "/data"]
+    healthcheck:
+      # The image has node but no curl/wget; any HTTP answer (403 included)
+      # means the blob endpoint is accepting connections.
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "require('http').get('http://127.0.0.1:10000/devstoreaccount1?comp=list',()=>process.exit(0)).on('error',()=>process.exit(1))"
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  azurite-init:
+    image: python:3.12-alpine
+    depends_on:
+      azurite:
+        condition: service_healthy
+    volumes:
+      - ../fixtures:/fixtures:ro
+      - ./azurite_init.py:/app/azurite_init.py:ro
+    environment:
+      AZURITE_ENDPOINT: http://azurite:10000/devstoreaccount1
+      AZURITE_CONTAINERS: "warehouse vault"
+      AZURITE_FIXTURES_DIR: /fixtures
+    command: ["python3", "/app/azurite_init.py"]

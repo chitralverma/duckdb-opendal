@@ -90,6 +90,45 @@ Memory paths likewise use triple slash: `memory:///objects/a.parquet`. Legacy
 contract. Physical locality cannot be inferred from `OperatorRegistry`, so
 `OnDiskFile` reports the conservative non-local posture for every service.
 
+The Azure services differ in what the authority means, because that is what
+OpenDAL's per-service URI parsing expects:
+
+```sql
+-- azblob: authority = container; endpoint/credentials come from the secret.
+CREATE SECRET az_blob (
+    TYPE azblob,
+    SCOPE 'azblob://warehouse',
+    config MAP{
+        'endpoint': 'https://myaccount.blob.core.windows.net',
+        'account_name': 'myaccount',
+        'account_key': '...'
+    }
+);
+SELECT * FROM read_parquet('azblob://warehouse/events/2026.parquet');
+
+-- azdls / azfile: authority = the account host. The endpoint
+-- (https://<authority>) and account_name (up to the first dot) are derived from
+-- it, so the secret only carries the filesystem / share name and the credential.
+CREATE SECRET az_dls (
+    TYPE azdls,
+    SCOPE 'azdls://myaccount.dfs.core.windows.net',
+    config MAP{'filesystem': 'warehouse', 'account_key': '...'}
+);
+SELECT * FROM read_parquet('azdls://myaccount.dfs.core.windows.net/events/2026.parquet');
+
+CREATE SECRET az_file (
+    TYPE azfile,
+    SCOPE 'azfile://myaccount.file.core.windows.net',
+    config MAP{'share_name': 'warehouse', 'account_key': '...'}
+);
+```
+
+Azurite (the Azure storage emulator) works for `azblob` with a path-style
+endpoint that includes the account segment, e.g.
+`'endpoint': 'http://127.0.0.1:10000/devstoreaccount1'`. It emulates
+Blob/Queue/Table only — there is no `dfs` or Files endpoint for `azdls` /
+`azfile`.
+
 Query strings, fragments, userinfo, invalid UTF-8, NUL bytes, and percent-
 encoded path separators are rejected. Other percent-encoded path content is
 decoded once, then OpenDAL owns structural normalization and backend

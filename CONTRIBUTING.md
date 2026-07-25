@@ -39,7 +39,7 @@ duckdb/, extension-ci-tools/   submodules on the v1.5 line (v1.5-variegata)
 - **CMake** 3.22+
 - **Compiler**: GCC/Clang (Linux/macOS) or MSVC (Windows)
 - **Ninja** or Make
-- **Docker** (only for the S3 test tier)
+- **Docker** (only for the emulator test tiers: S3/MinIO, azblob/Azurite)
 - **[uv](https://github.com/astral-sh/uv)** (only for formatting tools)
 
 ## Building
@@ -56,7 +56,7 @@ Produces:
 - `./build/release/extension/opendal/opendal.duckdb_extension` — the loadable binary
 
 The default build compiles all services in the crate's `default` feature set
-(`memory`, `fs`, `s3`). Build a subset with
+(`memory`, `fs`, `s3`, `azblob`, `azdls`, `azfile`). Build a subset with
 `cargo build --no-default-features --features services-s3` (see
 `opendal/Cargo.toml [features]`).
 
@@ -102,6 +102,44 @@ Provisioning lives entirely in `test/services/s3/docker-compose.yml` (MinIO + a
 one-shot bucket-init + a fault proxy). `make s3-up` also runs `make fixtures`,
 which generates the shared external-object fixtures uploaded to `s3://warehouse/external/`.
 
+### azblob tier (Azurite via Docker)
+
+```sh
+make azblob-up                # start Azurite, create containers, seed fixtures
+make test-common-azblob       # common suite against azblob://
+make azblob-down
+```
+
+`test/services/azblob/docker-compose.yml` runs Azurite plus a one-shot
+`python:3-alpine` sidecar (`azurite_init.py`) that creates the containers and
+uploads the shared fixtures over the plain Blob REST API (Shared Key signed,
+stdlib only — the Azure CLI image would cost a >1 GB pull per CI run).
+
+### Real-cloud tiers (azdls, azfile)
+
+Azurite emulates Blob/Queue/Table only — there is no `dfs` (ADLS Gen2) or Files
+endpoint — so `azdls` and `azfile` are credential-gated
+(`test/services/<svc>/requires-secrets`) and **skip** unless their env vars are
+set:
+
+```sh
+export OPENDAL_AZDLS_HOST=myaccount.dfs.core.windows.net
+export OPENDAL_AZDLS_FILESYSTEM=odfs-test
+export OPENDAL_AZDLS_ACCOUNT_KEY=...        # or the azfile equivalents
+make test-common-azdls
+```
+
+The SQLLogicTest runner only substitutes `${...}` in an `init_script` from the
+config's own `test_env` (materialized *before* `on_init` runs) — never from the
+process environment. So a credential-gated service ships two files and
+`test-common-<svc>` resolves between them via `test/services/render_config.py`:
+
+- `test/configs/<svc>.json` — tracked stub: no `OPENDAL_BASE`, no `init_script`,
+  so every common test skips cleanly;
+- `test/services/<svc>/config.template.json` — the real config with `${VAR}`
+  placeholders, rendered to `build/test-configs/<svc>.json` (gitignored) when
+  every referenced var is set.
+
 ### How env substitution works
 
 The SQLLogicTest runner substitutes `${VAR}`/`{VAR}` anywhere in a test body from
@@ -133,8 +171,12 @@ its own PR — see [issue #6](https://github.com/chitralverma/duckdb-opendal/iss
    a container with a shell can use a compose `healthcheck` + `up --wait` (like
    `s3-up`); an image without one (e.g. `fsouza/fake-gcs-server`) needs a
    host-side poll (`curl` the endpoint in a loop) in `<svc>-up`. For a
-   real-cloud-only service, skip the compose and add an empty
-   `test/services/<svc>/requires-secrets` marker so the planner gates it.
+   real-cloud-only service, skip the compose, add an empty
+   `test/services/<svc>/requires-secrets` marker so the planner gates it, make
+   `test/configs/<svc>.json` a stub (no `OPENDAL_BASE`/`init_script`) and put the
+   real config in `test/services/<svc>/config.template.json` with `${ENV_VAR}`
+   placeholders — see "Real-cloud tiers" above. Wire the vars into the
+   `sql-tests` job env in `.github/workflows/MainDistributionPipeline.yml`.
 5. **External-object reads (optional)** — expose the shared `test/services/fixtures/`
    as objects under `<service>/external/` and set `OPENDAL_EXTERNAL_BASE` in the
    config; `common/external_read.test` then runs automatically. The mechanism is

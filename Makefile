@@ -13,21 +13,23 @@ DUCKDB_SRCDIR := ./duckdb/
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
 # ── SQLLogicTest targets: common suite run per service (see CONTRIBUTING.md) ──
-.PHONY: test-local fixtures s3-up s3-down s3-assert-no-incomplete
+.PHONY: test-local fixtures s3-up s3-down s3-assert-no-incomplete azblob-up azblob-down
 UNITTEST_BIN := ./build/release/test/unittest
 FIXTURES_DIR := test/services/fixtures
 S3_COMPOSE := test/services/s3/docker-compose.yml
 S3_MC := docker compose -f $(S3_COMPOSE) run --rm --entrypoint sh minio-init -c
+AZBLOB_COMPOSE := test/services/azblob/docker-compose.yml
 
 fixtures: ## Generate the shared external-object test fixtures
 	mkdir -p $(FIXTURES_DIR)
 	./build/release/duckdb -c "COPY (SELECT range AS id, range * 2 AS d FROM range(100)) TO '$(FIXTURES_DIR)/ext_seed.parquet' (FORMAT parquet); COPY (SELECT range AS id, 'v' || range AS v FROM range(50)) TO '$(FIXTURES_DIR)/ext_seed.csv' (FORMAT csv, HEADER);"
 
 test-common-%: ## Run the common suite for a service (e.g. test-common-fs)
-	DUCKDB_TEST_CONFIG=test/configs/$*.json $(UNITTEST_BIN) "test/sql/common/*"
-	@if [ -f test/sql/services/$*.test ]; then \
-	  DUCKDB_TEST_CONFIG=test/configs/$*.json $(UNITTEST_BIN) "test/sql/services/$*.test"; \
-	fi
+	@cfg=$$(python3 test/services/render_config.py $*) && echo "config: $$cfg" && \
+	  DUCKDB_TEST_CONFIG=$$cfg $(UNITTEST_BIN) "test/sql/common/*" && \
+	  if [ -f test/sql/services/$*.test ]; then \
+	    DUCKDB_TEST_CONFIG=$$cfg $(UNITTEST_BIN) "test/sql/services/$*.test"; \
+	  fi
 
 test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + memory)
 
@@ -37,6 +39,13 @@ s3-up: fixtures ## Start + provision the MinIO test service (buckets + fixtures 
 
 s3-down: ## Stop and remove the MinIO test service
 	docker compose -f $(S3_COMPOSE) down -v
+
+azblob-up: fixtures ## Start + provision the Azurite test service (containers + fixtures)
+	docker compose -f $(AZBLOB_COMPOSE) up -d --wait azurite
+	docker compose -f $(AZBLOB_COMPOSE) run --rm azurite-init
+
+azblob-down: ## Stop and remove the Azurite test service
+	docker compose -f $(AZBLOB_COMPOSE) down -v
 
 s3-assert-no-incomplete: ## Assert no orphaned multipart uploads remain (run after test-common-s3)
 	@$(S3_MC) "mc alias set local http://minio:9000 minioadmin minioadmin >/dev/null 2>&1; \

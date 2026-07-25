@@ -1,0 +1,4 @@
+{
+  "description": "opendal common suite over azfile:// (real Azure Files; skipped without credentials)",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"]
+}

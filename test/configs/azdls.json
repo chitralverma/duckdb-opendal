@@ -1,0 +1,4 @@
+{
+  "description": "opendal common suite over azdls:// (real Azure Data Lake Gen2; skipped without credentials)",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"]
+}

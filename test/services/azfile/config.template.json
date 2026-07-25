@@ -1,0 +1,11 @@
+{
+  "description": "opendal common suite over azfile:// (real Azure Files)",
+  "init_script": "test/configs/auth_azfile.sql",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
+  "test_env": [
+    { "env_name": "OPENDAL_BASE", "env_value": "azfile://${OPENDAL_AZFILE_HOST}/odfs" },
+    { "env_name": "OPENDAL_AZFILE_HOST", "env_value": "${OPENDAL_AZFILE_HOST}" },
+    { "env_name": "OPENDAL_AZFILE_SHARE_NAME", "env_value": "${OPENDAL_AZFILE_SHARE_NAME}" },
+    { "env_name": "OPENDAL_AZFILE_ACCOUNT_KEY", "env_value": "${OPENDAL_AZFILE_ACCOUNT_KEY}" }
+  ]
+}

@@ -97,6 +97,15 @@ jobs:
       GEN: ninja
       CCACHE_DIR: ${{ github.workspace }}/ccache_dir
       HAVE_SECRETS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'true' || 'false' }}
+      # Real-cloud services (test/services/<svc>/requires-secrets). Unset here =
+      # test/services/render_config.py falls back to the tracked stub config and
+      # that service's tier skips instead of failing.
+      OPENDAL_AZDLS_HOST: ${{ secrets.OPENDAL_AZDLS_HOST }}
+      OPENDAL_AZDLS_FILESYSTEM: ${{ secrets.OPENDAL_AZDLS_FILESYSTEM }}
+      OPENDAL_AZDLS_ACCOUNT_KEY: ${{ secrets.OPENDAL_AZDLS_ACCOUNT_KEY }}
+      OPENDAL_AZFILE_HOST: ${{ secrets.OPENDAL_AZFILE_HOST }}
+      OPENDAL_AZFILE_SHARE_NAME: ${{ secrets.OPENDAL_AZFILE_SHARE_NAME }}
+      OPENDAL_AZFILE_ACCOUNT_KEY: ${{ secrets.OPENDAL_AZFILE_ACCOUNT_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:

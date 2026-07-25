@@ -1,0 +1,16 @@
+{
+  "description": "opendal common suite over azblob:// (Azurite emulator)",
+  "init_script": "test/configs/auth_azblob.sql",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
+  "test_env": [
+    { "env_name": "OPENDAL_BASE", "env_value": "azblob://warehouse/odfs" },
+    { "env_name": "OPENDAL_EXTERNAL_BASE", "env_value": "azblob://warehouse/external" },
+    { "env_name": "OPENDAL_AZBLOB_CONTAINER", "env_value": "warehouse" },
+    { "env_name": "OPENDAL_AZBLOB_ENDPOINT", "env_value": "http://127.0.0.1:19110/devstoreaccount1" },
+    { "env_name": "OPENDAL_AZBLOB_ACCOUNT_NAME", "env_value": "devstoreaccount1" },
+    {
+      "env_name": "OPENDAL_AZBLOB_ACCOUNT_KEY",
+      "env_value": "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+    }
+  ]
+}
