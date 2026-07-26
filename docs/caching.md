@@ -89,7 +89,7 @@ SELECT * FROM read_parquet('fs:///data/big.parquet');
   `opendal` for `s3://` URLs. Use `cache_httpfs` wrapping with `opendal`
   for schemes `httpfs` does not own (e.g. `fs://`, or other OpenDAL services),
   or use the `opendal_override_native_filesystems` setting to make `opendal`
-  win `s3://` (see [schemes.md](schemes.md)) and then rely on option 1/2.
+  win `s3://` (see [coexistence.md](coexistence.md)) and then rely on option 1/2.
 
 ## Which one?
 

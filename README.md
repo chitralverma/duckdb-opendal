@@ -160,7 +160,7 @@ See the [CHANGELOG](CHANGELOG.md) for per-version details, and
 - [Caching](docs/caching.md) — in-memory and on-disk data caching.
 - [Table functions](docs/table_functions.md) — `opendal_ls`, `opendal_du`,
   `opendal_copy`, and friends.
-- [Coexistence](docs/schemes.md) — sharing schemes such as `s3://` with
+- [Coexistence](docs/coexistence.md) — sharing schemes such as `s3://` with
   `httpfs`.
 
 ---

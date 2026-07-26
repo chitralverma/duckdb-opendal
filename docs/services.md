@@ -72,7 +72,7 @@ SELECT * FROM read_parquet('s3://warehouse/events/2026.parquet');
 ```
 
 `s3://` is also claimed by DuckDB's native `httpfs`; see
-[schemes.md](schemes.md) for which one wins.
+[coexistence.md](coexistence.md) for which one wins.
 
 ## `azblob` — Azure Blob Storage
 

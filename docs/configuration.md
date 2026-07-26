@@ -101,7 +101,7 @@ OpenDAL is pinned to upstream commit
 service, layer, and HTTP-transport crates to that same workspace commit.
 
 Some secret types are shared with DuckDB's native extensions; see
-[schemes.md](schemes.md) for load order and precedence.
+[coexistence.md](coexistence.md) for load order and precedence.
 
 ## Global defaults
 
