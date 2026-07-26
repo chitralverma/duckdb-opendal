@@ -1,15 +1,15 @@
-# Schemes & coexistence with native DuckDB filesystems
+# Coexistence with native DuckDB filesystems
 
-`opendal` registers a DuckDB filesystem that serves several URL schemes
-(currently `fs://`, `memory://`, `s3://`, `azblob://`, `azdls://`, `azfile://`;
-more OpenDAL services are added over time). Some of these — notably `s3://` (and
-`gcs://`, `azure://`, `r2://`, …) — are **also** claimed by DuckDB's built-in
-extensions (`httpfs`, `azure`). Note that DuckDB's `azure` extension claims
-`azure://` / `abfss://`, which opendal does not serve; the OpenDAL Azure
-services use their own `azblob://`, `azdls://` and `azfile://` schemes, so the
-two do not collide.
+`opendal` registers a DuckDB filesystem for every scheme compiled into your
+build (`FROM opendal_schemes();` — see [services.md](services.md)). A few of
+those are **also** claimed by DuckDB's built-in extensions: `s3://` by `httpfs`,
+for example. This page explains how the two coexist and how to control which one
+wins.
 
-This page explains how the two coexist and how to control which one wins.
+Only overlapping schemes are affected. DuckDB's `azure` extension claims
+`azure://` / `abfss://`, which `opendal` does not serve — the OpenDAL Azure
+services use their own `azblob://`, `azdls://` and `azfile://` — so those never
+collide.
 
 ## How DuckDB picks a filesystem
 
@@ -70,7 +70,22 @@ Both `opendal` and `httpfs` register a `TYPE s3` secret. `opendal`
 tolerates the secret type already existing (it will not fail to load if `httpfs`
 registered it first). When the override routes `s3://` to `opendal`, your
 `CREATE SECRET (TYPE s3, ...)` is consumed by `opendal`'s SCOPE-matched
-resolution (see the main README / secrets docs).
+resolution (see [configuration.md](configuration.md)).
+
+If both extensions are needed, **load `httpfs` before `opendal`**. Loading
+httpfs afterwards can fail on the shared `TYPE s3`; DuckDB extension loading is
+not transactional, so retrying that failed load can then report that
+`HTTPFileSystem` is already registered.
+
+A secret type this build does *not* compile may still resolve to another
+extension: `TYPE gcs` maps to `httpfs`, and with `autoload_known_extensions=true`
+DuckDB tries to load httpfs instead of just reporting an unknown type. To see
+this extension's own secret types without autoloading anything:
+
+```sql
+SET autoload_known_extensions = false;
+CREATE SECRET gcs_not_compiled (TYPE gcs, config MAP{});
+```
 
 ## Notes & limitations
 

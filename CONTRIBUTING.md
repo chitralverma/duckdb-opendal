@@ -185,6 +185,8 @@ its own PR — see [issue #6](https://github.com/chitralverma/duckdb-opendal/iss
    `test/services/fixtures/` (don't regenerate per service).
 6. **Quirks test (optional)** — `test/sql/services/<svc>.test`, gated on an env var
    only that config sets. `make test-common-<svc>` runs it automatically.
+7. **Docs** — add a section to [docs/services.md](docs/services.md): what the URL
+   authority means for the service and a minimal working `CREATE SECRET`.
 
 `test/services/plan.py` discovers the new service and the CI `sql-tests` job runs
 it (emulators on every PR incl. forks; secret-gated services only when secrets

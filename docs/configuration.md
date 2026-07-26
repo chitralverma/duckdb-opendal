@@ -69,65 +69,13 @@ scheme:///operation/path          # empty authority
 
 The URI path is always an OpenDAL operation path; it is never inferred as
 service configuration or operator root. The authority is passed to OpenDAL's
-service configurator. Any remaining required service configuration belongs in
-the scoped secret's `config` map.
+service configurator, which decides what it means — a bucket, a container, an
+account host, or nothing at all. Any remaining required service configuration
+belongs in the scoped secret's `config` map. Per-service authority meanings and
+worked examples live in [services.md](services.md).
 
-For example, local filesystem access uses explicit root config and an empty
-authority:
-
-```sql
-CREATE SECRET local_root (
-    TYPE fs,
-    SCOPE 'fs://',
-    config MAP{'root': '/var/data'}
-);
-
-SELECT * FROM read_parquet('fs:///events/2026.parquet');
-```
-
-Memory paths likewise use triple slash: `memory:///objects/a.parquet`. Legacy
-`memory://objects/a.parquet` treats `objects` as authority under the universal
-contract. Physical locality cannot be inferred from `OperatorRegistry`, so
-`OnDiskFile` reports the conservative non-local posture for every service.
-
-The Azure services differ in what the authority means, because that is what
-OpenDAL's per-service URI parsing expects:
-
-```sql
--- azblob: authority = container; endpoint/credentials come from the secret.
-CREATE SECRET az_blob (
-    TYPE azblob,
-    SCOPE 'azblob://warehouse',
-    config MAP{
-        'endpoint': 'https://myaccount.blob.core.windows.net',
-        'account_name': 'myaccount',
-        'account_key': '...'
-    }
-);
-SELECT * FROM read_parquet('azblob://warehouse/events/2026.parquet');
-
--- azdls / azfile: authority = the account host. The endpoint
--- (https://<authority>) and account_name (up to the first dot) are derived from
--- it, so the secret only carries the filesystem / share name and the credential.
-CREATE SECRET az_dls (
-    TYPE azdls,
-    SCOPE 'azdls://myaccount.dfs.core.windows.net',
-    config MAP{'filesystem': 'warehouse', 'account_key': '...'}
-);
-SELECT * FROM read_parquet('azdls://myaccount.dfs.core.windows.net/events/2026.parquet');
-
-CREATE SECRET az_file (
-    TYPE azfile,
-    SCOPE 'azfile://myaccount.file.core.windows.net',
-    config MAP{'share_name': 'warehouse', 'account_key': '...'}
-);
-```
-
-Azurite (the Azure storage emulator) works for `azblob` with a path-style
-endpoint that includes the account segment, e.g.
-`'endpoint': 'http://127.0.0.1:10000/devstoreaccount1'`. It emulates
-Blob/Queue/Table only — there is no `dfs` or Files endpoint for `azdls` /
-`azfile`.
+Physical locality cannot be inferred from `OperatorRegistry`, so `OnDiskFile`
+reports the conservative non-local posture for every service.
 
 Query strings, fragments, userinfo, invalid UTF-8, NUL bytes, and percent-
 encoded path separators are rejected. Other percent-encoded path content is
@@ -140,6 +88,8 @@ the pinned commit still trims leading/trailing path whitespace.
 [OpenDAL configuration reference](https://opendal.apache.org/services/) for
 valid keys. There are no convenience aliases or generic `layers` bag.
 
+## Secret types
+
 Secret types are registered from OpenDAL's runtime `OperatorRegistry`. Every
 scheme compiled into this extension receives the same generic sections; adding
 or removing a Cargo `services-*` feature updates dispatch and secret registration
@@ -150,21 +100,8 @@ OpenDAL is pinned to upstream commit
 `OperatorRegistry::schemes()` from PR #7908. Cargo.lock pins the facade, core,
 service, layer, and HTTP-transport crates to that same workspace commit.
 
-DuckDB may map an unregistered secret type to another known extension. For
-example, `TYPE gcs` maps to `httpfs`; with `autoload_known_extensions=true`,
-DuckDB tries to load httpfs instead of returning only a missing-type error. To
-inspect this extension's compiled secret types without autoloading another
-extension, run:
-
-```sql
-SET autoload_known_extensions = false;
-CREATE SECRET gcs_not_compiled (TYPE gcs, config MAP{});
-```
-
-If both extensions are needed, load `httpfs` before `opendal`. Loading httpfs
-after opendal can fail on their shared `TYPE s3`; DuckDB extension loading is not
-transactional, so retrying that failed httpfs load can then report that
-`HTTPFileSystem` is already registered.
+Some secret types are shared with DuckDB's native extensions; see
+[schemes.md](schemes.md) for load order and precedence.
 
 ## Global defaults
 

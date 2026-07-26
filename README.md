@@ -152,6 +152,19 @@ See the [CHANGELOG](CHANGELOG.md) for per-version details, and
 
 ---
 
+## Documentation
+
+- [Services](docs/services.md) — URL shape and a working secret per service.
+- [Configuration](docs/configuration.md) — secrets, global defaults, and the
+  `io_config` / `retry_config` / `timeout_config` / `cache_config` reference.
+- [Caching](docs/caching.md) — in-memory and on-disk data caching.
+- [Table functions](docs/table_functions.md) — `opendal_ls`, `opendal_du`,
+  `opendal_copy`, and friends.
+- [Coexistence](docs/schemes.md) — sharing schemes such as `s3://` with
+  `httpfs`.
+
+---
+
 ## Contributing
 
 Bug reports, feature requests, and pull requests are welcome. See
