@@ -37,22 +37,17 @@ PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 def render(service):
     stub = os.path.join(REPO_ROOT, "test", "configs", service + ".json")
-    template = os.path.join(
-        REPO_ROOT, "test", "services", service, "config.template.json"
-    )
+    template = os.path.join(REPO_ROOT, "test", "services", service, "config.template.json")
     if not os.path.exists(template):
         return stub
 
     with open(template, encoding="utf-8") as handle:
         body = handle.read()
 
-    missing = sorted(
-        {name for name in PLACEHOLDER.findall(body) if not os.environ.get(name)}
-    )
+    missing = sorted({name for name in PLACEHOLDER.findall(body) if not os.environ.get(name)})
     if missing:
         print(
-            f"{service}: credentials not configured ({', '.join(missing)}) — "
-            "tests will skip",
+            f"{service}: credentials not configured ({', '.join(missing)}) — " "tests will skip",
             file=sys.stderr,
         )
         return stub

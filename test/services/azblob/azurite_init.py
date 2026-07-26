@@ -52,9 +52,7 @@ def _authorization(verb, path, query, headers, content_length):
     """Azure Storage Shared Key (full, not Lite) authorization header."""
     canonicalized_headers = "".join(
         f"{name}:{value}\n"
-        for name, value in sorted(
-            (k.lower(), v) for k, v in headers.items() if k.lower().startswith("x-ms-")
-        )
+        for name, value in sorted((k.lower(), v) for k, v in headers.items() if k.lower().startswith("x-ms-"))
     )
     string_to_sign = "\n".join(
         [
@@ -72,20 +70,14 @@ def _authorization(verb, path, query, headers, content_length):
             "",  # Range
         ]
     )
-    string_to_sign += (
-        "\n" + canonicalized_headers + _canonicalized_resource(path, query)
-    )
+    string_to_sign += "\n" + canonicalized_headers + _canonicalized_resource(path, query)
     signature = base64.b64encode(
-        hmac.new(
-            base64.b64decode(KEY), string_to_sign.encode("utf-8"), hashlib.sha256
-        ).digest()
+        hmac.new(base64.b64decode(KEY), string_to_sign.encode("utf-8"), hashlib.sha256).digest()
     ).decode()
     return f"SharedKey {ACCOUNT}:{signature}"
 
 
-def request(
-    verb, path, query=None, body=None, extra_headers=None, ok_status=(200, 201, 202)
-):
+def request(verb, path, query=None, body=None, extra_headers=None, ok_status=(200, 201, 202)):
     """Issue one signed Blob REST call. Returns the HTTP status code."""
     query = query or {}
     body = body or b""
@@ -112,9 +104,7 @@ def request(
     except urllib.error.HTTPError as err:
         status = err.code
         if status not in ok_status:
-            sys.exit(
-                f"{verb} {url} failed: {status} {err.read().decode(errors='replace')}"
-            )
+            sys.exit(f"{verb} {url} failed: {status} {err.read().decode(errors='replace')}")
     if status not in ok_status:
         sys.exit(f"{verb} {url} failed: {status}")
     return status
