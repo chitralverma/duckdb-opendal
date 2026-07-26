@@ -1,100 +1,83 @@
-# Coexistence with native DuckDB filesystems
+# Coexistence with DuckDB's own filesystems
 
-`opendal` registers a DuckDB filesystem for every scheme compiled into your
-build (`FROM opendal_schemes();` — see [services.md](services.md)). A few of
-those are **also** claimed by DuckDB's built-in extensions: `s3://` by `httpfs`,
-for example. This page explains how the two coexist and how to control which one
-wins.
+Some URL schemes are claimed by more than one extension: `s3://` by both
+`opendal` and DuckDB's built-in `httpfs`, for example. This page shows how to
+decide which one serves a query.
 
-Only overlapping schemes are affected. DuckDB's `azure` extension claims
-`azure://` / `abfss://`, which `opendal` does not serve — the OpenDAL Azure
-services use their own `azblob://`, `azdls://` and `azfile://` — so those never
-collide.
+Only overlapping schemes are affected. `fs://`, `memory://`, `azblob://`,
+`azdls://` and `azfile://` are not claimed by any built-in extension, so they
+always go through `opendal`. DuckDB's `azure` extension uses `azure://` /
+`abfss://`, which `opendal` does not serve.
 
-## How DuckDB picks a filesystem
+## The symptom
 
-For a given URL, DuckDB's virtual filesystem asks each registered subsystem
-`CanHandleFile(path)`. Among those that can:
+If both extensions are loaded, `s3://` may be handled by either — DuckDB
+generally gives it to whichever registered last, and it auto-loads `httpfs` the
+moment you touch a reserved scheme. So the same query can behave differently
+depending on load order: your `CREATE SECRET (TYPE s3, …)` options, retry
+settings and caching are only applied if `opendal` is the one serving the URL.
 
-- a subsystem that reports **`IsManuallySet() == true` wins immediately**;
-- otherwise the **last-registered** matching subsystem wins.
-
-DuckDB also **auto-loads** `httpfs` (or `azure`) the first time you touch a
-reserved scheme like `s3://`. So if both `opendal` and `httpfs` are loaded,
-`s3://` may be served by either, depending on load order — which is not something
-you want to rely on.
-
-## Making `opendal` win selected schemes
-
-Use the setting `opendal_override_native_filesystems` — a **comma-separated list
-of schemes** for which `opendal` should take precedence over native
-extensions:
+Check who would serve it:
 
 ```sql
--- opendal now wins s3:// and gcs:// over httpfs, for this session:
-SET opendal_override_native_filesystems = 's3,gcs';
+SELECT scheme, supported, secret_name, usable FROM opendal_info('s3://warehouse/a.parquet');
+```
 
--- Reads under those schemes go through opendal (and its secrets / layers):
-SELECT * FROM read_parquet('s3://bucket/data.parquet');
+## Choosing `opendal` for a scheme
 
--- Turn it back off (native handlers regain precedence):
+`opendal_override_native_filesystems` is a comma-separated list of schemes where
+`opendal` takes precedence:
+
+```sql
+SET opendal_override_native_filesystems = 's3';
+
+-- Now served by opendal, using its secrets, retries and caching:
+SELECT * FROM read_parquet('s3://warehouse/data.parquet');
+
+-- Hand it back to httpfs:
 SET opendal_override_native_filesystems = '';
 ```
 
-- Default is empty → **no override**; native handlers keep their normal
-  precedence.
-- The override is **per scheme**: only the schemes you list are taken over.
-  `opendal` still declines schemes it doesn't support, so those always fall
-  through to the native handler.
+- Empty by default — nothing is overridden.
+- Per scheme: list several with `'s3,gcs'`. Schemes `opendal` does not support
+  are never taken over, whatever you list.
+- It is a session/global setting; set it before the queries it should affect.
 
-### Coexistence example
-
-Because the override is per scheme, you can mix `opendal` and native handlers
-in the **same session**:
+You can mix handlers in one session:
 
 ```sql
 LOAD opendal;
 LOAD httpfs;
 SET opendal_override_native_filesystems = 's3';
 
--- s3://  -> served by opendal (uses your CREATE SECRET ... TYPE s3)
-SELECT * FROM read_parquet('s3://bucket/a.parquet');
-
--- s3n:// -> not overridden (and not claimed by opendal) -> served by httpfs
-SELECT * FROM read_parquet('s3n://bucket/b.parquet');
+SELECT * FROM read_parquet('s3://warehouse/a.parquet');    -- opendal
+SELECT * FROM read_parquet('s3n://warehouse/b.parquet');   -- httpfs
 ```
 
-## Secrets when both extensions are loaded
+The blunter alternative is DuckDB's `SET disabled_filesystems = '<name>';`, which
+switches a filesystem off entirely by name (`SELECT * FROM duckdb_settings()` and
+DuckDB's docs list the names).
 
-Both `opendal` and `httpfs` register a `TYPE s3` secret. `opendal`
-tolerates the secret type already existing (it will not fail to load if `httpfs`
-registered it first). When the override routes `s3://` to `opendal`, your
-`CREATE SECRET (TYPE s3, ...)` is consumed by `opendal`'s SCOPE-matched
-resolution (see [configuration.md](configuration.md)).
+## Load order
 
-If both extensions are needed, **load `httpfs` before `opendal`**. Loading
-httpfs afterwards can fail on the shared `TYPE s3`; DuckDB extension loading is
-not transactional, so retrying that failed load can then report that
-`HTTPFileSystem` is already registered.
+**Load `httpfs` before `opendal`.** Both register a `TYPE s3` secret; `opendal`
+tolerates the type already existing, but `httpfs` loaded *after* `opendal` can
+fail on it — and because extension loading is not transactional, retrying that
+load may then complain that `HTTPFileSystem` is already registered.
 
-A secret type this build does *not* compile may still resolve to another
-extension: `TYPE gcs` maps to `httpfs`, and with `autoload_known_extensions=true`
-DuckDB tries to load httpfs instead of just reporting an unknown type. To see
-this extension's own secret types without autoloading anything:
+## Secrets
+
+There is one `TYPE s3` secret type, shared. Whichever extension serves the URL
+reads it, so keep the options valid for the one you intend to win. When
+`opendal` serves it, scope matching works as described in
+[configuration](configuration.md).
+
+A secret type your build does *not* include can quietly belong to another
+extension: `TYPE gcs` maps to `httpfs`, and with
+`autoload_known_extensions = true` DuckDB will try to load `httpfs` rather than
+report an unknown type. To see only this extension's types:
 
 ```sql
 SET autoload_known_extensions = false;
-CREATE SECRET gcs_not_compiled (TYPE gcs, config MAP{});
+CREATE SECRET gcs_not_compiled (TYPE gcs, config MAP{});   -- fails if not compiled in
 ```
-
-## Notes & limitations
-
-- The override is a session/global setting; set it before running queries that
-  should be affected.
-- Full, automatic multi-service coexistence (e.g. exposing every OpenDAL service
-  under a dedicated, non-conflicting umbrella scheme like `opendal://<service>/…`
-  so no toggle is needed) is a future direction. For now the override list is the
-  supported mechanism.
-- Alternatively, DuckDB's `SET disabled_filesystems = '<Name>'` can disable a
-  native filesystem entirely by name — a blunter instrument than the per-scheme
-  override.

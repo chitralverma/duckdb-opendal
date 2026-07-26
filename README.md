@@ -102,7 +102,7 @@ SELECT name, metadata.content_length
 FROM opendal_ls('s3://warehouse-bucket/data/', recursive := true);
 
 -- Calculate disk usage rollup
-SELECT parent, file_count, total_size
+SELECT directory, file_count, total_size
 FROM opendal_du('s3://warehouse-bucket/data/');
 
 -- Copy files across services
@@ -152,13 +152,14 @@ See the [CHANGELOG](CHANGELOG.md) for per-version details, and
 
 ---
 
-## Documentation
+User guides live in [docs/](docs/README.md):
 
-- [Services](docs/services.md) — URL shape and a working secret per service.
-- [Configuration](docs/configuration.md) — secrets, global defaults, and the
-  `io_config` / `retry_config` / `timeout_config` / `cache_config` reference.
-- [Caching](docs/caching.md) — in-memory and on-disk data caching.
-- [Table functions](docs/table_functions.md) — `opendal_ls`, `opendal_du`,
+- [Services](docs/services/README.md) — one page per scheme (`fs`, `memory`,
+  `s3`, `azblob`, `azdls`, `azfile`), each with a working `CREATE SECRET`.
+- [Configuration](docs/configuration.md) — secrets and scopes, global defaults,
+  concurrency, retries, timeouts.
+- [Caching](docs/caching.md) — in-memory and on-disk read caching.
+- [Table functions](docs/table-functions.md) — `opendal_ls`, `opendal_du`,
   `opendal_copy`, and friends.
 - [Coexistence](docs/coexistence.md) — sharing schemes such as `s3://` with
   `httpfs`.

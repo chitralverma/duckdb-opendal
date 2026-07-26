@@ -31,10 +31,12 @@ Apache OpenDAL revision; see the compatibility matrix in the
 
 ### Changed
 
-- Docs: per-service URL shapes and secret examples moved out of
-  `docs/configuration.md` into a new `docs/services.md`; `docs/schemes.md` is
-  renamed `docs/coexistence.md` and is now purely about coexisting with native
-  DuckDB filesystems; the README links the doc set.
+- Docs reorganized as user guides with an index at `docs/README.md`: one page
+  per service under `docs/services/`, `docs/schemes.md` renamed
+  `docs/coexistence.md` and narrowed to sharing schemes with native extensions,
+  `docs/table_functions.md` renamed `docs/table-functions.md`, and
+  `docs/configuration.md` rewritten around secrets/globals/tuning. The OpenDAL
+  buffer-read RFC handoff moved to `docs/internals/`.
 - CI/build tracks the DuckDB `v1.5-variegata` release line (any `v1.5.x` patch)
   instead of a pinned tag; a daily scheduled run rebuilds against the latest
   patch. DuckDB patch bumps now need no repo change.
