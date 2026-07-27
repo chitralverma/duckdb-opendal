@@ -44,7 +44,7 @@ test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + 
 %-up: fixtures ## Start + provision a service tier (e.g. s3-up)
 	@$(NEED_COMPOSE)
 	$(COMPOSE) up -d --wait
-	@if [ -x $(SERVICE_DIR)/ready.sh ]; then $(SERVICE_DIR)/ready.sh; fi
+	@if [ -f $(SERVICE_DIR)/ready.sh ]; then sh $(SERVICE_DIR)/ready.sh; fi
 	@if $(COMPOSE) config --profiles | grep -qx init; then $(COMPOSE) run --rm init; fi
 
 %-down: ## Stop and remove a service tier (e.g. s3-down)
@@ -52,7 +52,7 @@ test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + 
 	$(COMPOSE) down -v
 
 %-verify: ## Run a service's post-test checks, if it has any (e.g. s3-verify)
-	@if [ -x $(SERVICE_DIR)/verify.sh ]; then $(SERVICE_DIR)/verify.sh; \
+	@if [ -f $(SERVICE_DIR)/verify.sh ]; then sh $(SERVICE_DIR)/verify.sh; \
 	 else echo "$*: no post-test checks"; fi
 
 # ── Rust convenience targets (crate lives in opendal/core) ───────────────────

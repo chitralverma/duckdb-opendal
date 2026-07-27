@@ -165,7 +165,7 @@ SELECT * FROM opendal_stat('s3://invalid-config-bucket/file');
 failed to deserialize config
 
 # Force CompleteMultipartUpload to fail while allowing AbortMultipartUpload, via
-# the fault proxy. `make s3-assert-no-incomplete` verifies no orphaned multipart
+# the fault proxy. `make s3-verify` checks that no orphaned multipart
 # uploads remain after this test finishes.
 statement ok
 CREATE SECRET s3_abort_test (

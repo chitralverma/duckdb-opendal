@@ -98,8 +98,10 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/ccache_dir
       # Forks have no secrets: credential-gated tiers are dropped from the matrix.
       HAVE_SECRETS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'true' || 'false' }}
-      # Where a skipped credential-gated tier must fail instead (see CONTRIBUTING.md).
-      OPENDAL_REQUIRE_CLOUD_TIERS: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '1' || '0' }}
+      # Where a skipped credential-gated tier must fail instead. Opt-in: set the
+      # repo variable OPENDAL_REQUIRE_CLOUD_TIERS=1 once OPENDAL_TEST_ENV holds
+      # every such service's credentials (see CONTRIBUTING.md).
+      OPENDAL_REQUIRE_CLOUD_TIERS: ${{ (vars.OPENDAL_REQUIRE_CLOUD_TIERS == '1' && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))) && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
         with:

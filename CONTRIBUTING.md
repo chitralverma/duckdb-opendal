@@ -111,6 +111,9 @@ make s3-down          # stop and remove
 | `ready.sh`           | Optional readiness gate for images compose cannot healthcheck (no shell). Runs after `up`, before `init`. |
 | `verify.sh`          | Optional post-test assertion; `<svc>-verify` runs it, CI runs it after the suite. |
 
+Both hooks are run as `sh <script>` (POSIX sh, no exec bit required), so a
+forgotten `chmod +x` cannot silently drop a readiness gate or an assertion.
+
 **Credential-gated services** — no compose; an empty `requires-secrets` marker
 makes the planner drop them when secrets are unavailable (fork PRs). They skip
 unless their env vars are set:
@@ -139,8 +142,11 @@ picks between them via `test/services/render_config.py`:
 
 A skipped tier looks exactly like a passing one, so an expired secret would
 quietly drop coverage to zero. `OPENDAL_REQUIRE_CLOUD_TIERS=1` turns a missing
-credential into a hard failure; CI sets it on `main` pushes and the scheduled
-run, and leaves it off for pull requests.
+credential into a hard failure. CI applies it on `main` pushes and the scheduled
+run — but only when the repo variable `OPENDAL_REQUIRE_CLOUD_TIERS` is set to
+`1`, so it is opt-in: turn it on once `OPENDAL_TEST_ENV` actually carries every
+credential-gated service, otherwise the first push to `main` fails on the
+missing secret.
 
 ### External-object fixtures
 
