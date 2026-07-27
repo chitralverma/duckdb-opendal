@@ -54,6 +54,28 @@ FROM opendal_info('hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/');
 ----
 true	true
 
+# A nameservice (HA) is configured by leaving the authority out of the URL and
+# listing the namenodes in the secret: opendal turns that into
+# dfs.ha.namenodes.nameservice + dfs.namenode.rpc-address.nameservice.nnN. Both
+# entries point at the same namenode here, which still exercises the HA config
+# path — a comma in the URL authority is rejected by URL parsing, so this is the
+# only way to reach it.
+statement ok
+CREATE SECRET hdfs_native_ha (
+    TYPE "hdfs-native", SCOPE 'hdfs-native://',
+    config MAP{
+        'name_node': 'hdfs://${OPENDAL_HDFS_NATIVE_AUTHORITY},${OPENDAL_HDFS_NATIVE_AUTHORITY}'
+    }
+);
+
+query I
+SELECT count(*) FROM read_parquet('hdfs-native:///external/ext_seed.parquet');
+----
+100
+
+statement ok
+DROP SECRET hdfs_native_ha;
+
 # Deleting a directory recursively removes its contents, which object stores
 # only emulate.
 statement ok
