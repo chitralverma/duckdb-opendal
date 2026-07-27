@@ -39,7 +39,7 @@ duckdb/, extension-ci-tools/   submodules on the v1.5 line (v1.5-variegata)
 - **CMake** 3.22+
 - **Compiler**: GCC/Clang (Linux/macOS) or MSVC (Windows)
 - **Ninja** or Make
-- **Docker** (only for the S3 test tier)
+- **Docker** (only for the S3 and GCS test tiers)
 - **[uv](https://github.com/astral-sh/uv)** (only for formatting tools)
 
 ## Building
@@ -56,7 +56,7 @@ Produces:
 - `./build/release/extension/opendal/opendal.duckdb_extension` — the loadable binary
 
 The default build compiles all services in the crate's `default` feature set
-(`memory`, `fs`, `s3`). Build a subset with
+(`memory`, `fs`, `s3`, `gcs`). Build a subset with
 `cargo build --no-default-features --features services-s3` (see
 `opendal/Cargo.toml [features]`).
 
@@ -101,6 +101,19 @@ make s3-down
 Provisioning lives entirely in `test/services/s3/docker-compose.yml` (MinIO + a
 one-shot bucket-init + a fault proxy). `make s3-up` also runs `make fixtures`,
 which generates the shared external-object fixtures uploaded to `s3://warehouse/external/`.
+
+### GCS tier (fake-gcs-server via Docker)
+
+```sh
+make gcs-up             # start fake-gcs-server, create the bucket, seed fixtures
+make test-common-gcs    # common suite against gcs://
+make gcs-down
+```
+
+`test/services/gcs/docker-compose.yml` mounts the shared fixtures as
+`gcs://warehouse/external/`, which also creates the bucket. The image has no
+shell, so `gcs-up` polls the endpoint from the host instead of using a compose
+healthcheck.
 
 ### How env substitution works
 

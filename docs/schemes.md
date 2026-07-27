@@ -1,7 +1,7 @@
 # Schemes & coexistence with native DuckDB filesystems
 
 `opendal` registers a DuckDB filesystem that serves several URL schemes
-(currently `fs://`, `memory://`, `s3://`; more OpenDAL services are added over
+(currently `fs://`, `memory://`, `s3://`, `gcs://`; more OpenDAL services are added over
 time). Some of these — notably `s3://` (and `gcs://`, `azure://`, `r2://`, …) —
 are **also** claimed by DuckDB's built-in extensions (`httpfs`, `azure`).
 
