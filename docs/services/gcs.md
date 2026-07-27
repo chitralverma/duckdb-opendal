@@ -1,5 +1,7 @@
 # `gcs://` — Google Cloud Storage
 
+Object storage in a GCS bucket.
+
 ## URL
 
 ```text
@@ -40,7 +42,7 @@ With no credential keys the service falls back to application default
 credentials, so on GCE or with `gcloud auth application-default login` an empty
 `config MAP{}` is enough.
 
-## Emulators
+## Emulator
 
 `fake-gcs-server` and similar need an explicit endpoint, and the credential
 discovery has to be turned off or it will look for real ones:
@@ -64,10 +66,8 @@ CREATE SECRET gcs_emulator (
   loaded, say which one you want:
   `SET opendal_override_native_filesystems = 'gcs';` — see
   [coexistence](../coexistence.md).
-- Multiple buckets? Create one secret per bucket, each with its own `SCOPE`. The
-  most specific matching scope wins.
 - There is no server-side rename. Overwriting an existing object copies and
   deletes, and `opendal_copy(..., if_not_exists := true)` is rejected because
   the service does not support that precondition.
-- Large writes are resumable uploads; tune them with `io_config` (see
-  [configuration](../configuration.md)).
+- Large writes are resumable uploads; tune concurrency and chunk size with
+  `io_config` (see [configuration](../configuration.md)).

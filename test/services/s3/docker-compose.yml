@@ -1,5 +1,5 @@
-# MinIO service for the s3:// test tier. Use `make s3-up` / `s3-down` (they
-# sequence the one-shot minio-init after minio is healthy).
+# MinIO for the s3:// test tier. `make s3-up` starts the healthchecked services
+# and then runs the one-shot `init` (see CONTRIBUTING.md, "Service tiers").
 
 name: opendal-s3-test
 
@@ -18,8 +18,9 @@ services:
       timeout: 5s
       retries: 30
 
-  minio-init:
+  init:
     image: quay.io/minio/mc:RELEASE.2025-04-08T15-39-49Z
+    profiles: ["init"]
     depends_on:
       minio:
         condition: service_healthy

@@ -50,14 +50,13 @@ git ls-remote --heads https://github.com/duckdb/extension-ci-tools "vX.Y*"
 4. **Update docs**:
    - The submodule-pin note in `CONTRIBUTING.md`.
    - The DuckDB column of the compatibility matrix in `README.md`.
-   - A `### Changed` entry under `[Unreleased]` in `CHANGELOG.md`.
 5. **Format**: `uv run make format-all`.
 6. **Build**: `GEN=ninja make` (static + loadable targets must link).
 7. **Test**:
    ```sh
    make rust-test
    make test-local
-   make s3-up && make test-common-s3 && make s3-assert-no-incomplete && make s3-down
+   make s3-up && make test-common-s3 && make s3-verify && make s3-down
    ```
 8. **Review** `git diff --submodule=log`; record any DuckDB C-API compatibility
    changes in the commit / PR body.
@@ -71,7 +70,7 @@ Complete only when:
   line branch.
 - The static and loadable `opendal` targets link.
 - `make rust-test`, `make test-local`, and the S3 tier pass.
-- `README.md` matrix, `CONTRIBUTING.md`, and `CHANGELOG.md` reflect the new line.
+- `README.md` matrix and `CONTRIBUTING.md` reflect the new line.
 
 ## Then
 

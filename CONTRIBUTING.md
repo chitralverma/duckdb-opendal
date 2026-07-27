@@ -39,7 +39,7 @@ duckdb/, extension-ci-tools/   submodules on the v1.5 line (v1.5-variegata)
 - **CMake** 3.22+
 - **Compiler**: GCC/Clang (Linux/macOS) or MSVC (Windows)
 - **Ninja** or Make
-- **Docker** (only for the emulator test tiers: S3/MinIO, GCS/fake-gcs-server, azblob/Azurite)
+- **Docker** (only for the emulator test tiers)
 - **[uv](https://github.com/astral-sh/uv)** (only for formatting tools)
 
 ## Building
@@ -55,10 +55,10 @@ Produces:
 - `./build/release/duckdb` — DuckDB shell with the extension preloaded
 - `./build/release/extension/opendal/opendal.duckdb_extension` — the loadable binary
 
-The default build compiles all services in the crate's `default` feature set
-(`memory`, `fs`, `s3`, `gcs`, `azblob`, `azdls`, `azfile`). Build a subset with
-`cargo build --no-default-features --features services-s3` (see
-`opendal/Cargo.toml [features]`).
+The default build compiles the crate's `default` feature set; build a subset
+with `cargo build --no-default-features --features services-s3`. The service
+list lives in `opendal/Cargo.toml [features]`, and `FROM opendal_schemes();`
+reports what a binary ended up with.
 
 ## Testing
 
@@ -89,77 +89,67 @@ make test-common-memory
 > so the common tests **skip** (they require `${OPENDAL_BASE}`). Use
 > `make test-local` / `make test-common-<name>` for the real suite.
 
-### S3 tier (MinIO via Docker)
+### Service tiers
+
+A tier is either **provisioned** (an emulator in Docker) or **credential-gated**
+(a real cloud account). Everything a tier needs lives in `test/services/<svc>/`;
+no Makefile or CI target names a service.
 
 ```sh
-make s3-up                    # start MinIO + fault proxy, create buckets, seed fixtures
-make test-common-s3           # common suite + services/s3.test against s3://
-make s3-assert-no-incomplete  # verify the abort test left no orphaned uploads
-make s3-down
+make s3-up            # start + provision (any provisioned service)
+make test-common-s3   # the common suite (+ services/s3.test, if present)
+make s3-verify        # the service's post-test checks, if it has any
+make s3-down          # stop and remove
 ```
 
-Provisioning lives entirely in `test/services/s3/docker-compose.yml` (MinIO + a
-one-shot bucket-init + a fault proxy). `make s3-up` also runs `make fixtures`,
-which generates the shared external-object fixtures uploaded to `s3://warehouse/external/`.
+**Provisioned services** — `test/services/<svc>/`:
 
-### GCS tier (fake-gcs-server via Docker)
+| File                 | Role                                                          |
+| -------------------- | ------------------------------------------------------------- |
+| `docker-compose.yml` | Required. `<svc>-up` runs `up -d --wait`, so long-running services need healthchecks. |
+| service named `init` | Optional one-shot provisioning (buckets, fixtures). Put it behind `profiles: ["init"]`; `<svc>-up` runs it after the rest is healthy. |
+| `ready.sh`           | Optional readiness gate for images compose cannot healthcheck (no shell). Runs after `up`, before `init`. |
+| `verify.sh`          | Optional post-test assertion; `<svc>-verify` runs it, CI runs it after the suite. |
 
-```sh
-make gcs-up             # start fake-gcs-server, create the bucket, seed fixtures
-make test-common-gcs    # common suite against gcs://
-make gcs-down
-```
-
-`test/services/gcs/docker-compose.yml` mounts the shared fixtures as
-`gcs://warehouse/external/`, which also creates the bucket. The image has no
-shell, so `gcs-up` polls the endpoint from the host instead of using a compose
-healthcheck.
-
-### azblob tier (Azurite via Docker)
-
-```sh
-make azblob-up                # start Azurite, create containers, seed fixtures
-make test-common-azblob       # common suite against azblob://
-make azblob-down
-```
-
-`test/services/azblob/docker-compose.yml` runs Azurite plus a one-shot
-`python:3-alpine` sidecar (`azurite_init.py`) that creates the containers and
-uploads the shared fixtures over the plain Blob REST API (Shared Key signed,
-stdlib only — the Azure CLI image would cost a >1 GB pull per CI run).
-
-### Real-cloud tiers (azdls, azfile)
-
-Azurite emulates Blob/Queue/Table only — there is no `dfs` (ADLS Gen2) or Files
-endpoint — so `azdls` and `azfile` are credential-gated
-(`test/services/<svc>/requires-secrets`) and **skip** unless their env vars are
-set:
+**Credential-gated services** — no compose; an empty `requires-secrets` marker
+makes the planner drop them when secrets are unavailable (fork PRs). They skip
+unless their env vars are set:
 
 ```sh
 export OPENDAL_AZDLS_HOST=myaccount.dfs.core.windows.net
 export OPENDAL_AZDLS_FILESYSTEM=odfs-test
-export OPENDAL_AZDLS_ACCOUNT_KEY=...        # or the azfile equivalents
+export OPENDAL_AZDLS_ACCOUNT_KEY=...
 make test-common-azdls
 ```
 
-The SQLLogicTest runner only substitutes `${...}` in an `init_script` from the
-config's own `test_env` (materialized *before* `on_init` runs) — never from the
-process environment. So a credential-gated service ships two files and
-`test-common-<svc>` resolves between them via `test/services/render_config.py`:
+In CI those come from a single repository secret, `OPENDAL_TEST_ENV`, holding
+`KEY=value` lines for every such service; the workflow masks each value and
+exports it. Adding a service means editing that secret, not the workflow.
+
+The runner only substitutes `${...}` in an `init_script` from the config's own
+`test_env` (materialized *before* `on_init` runs) — never from the process
+environment. So a credential-gated service ships two files and `test-common-<svc>`
+picks between them via `test/services/render_config.py`:
 
 - `test/configs/<svc>.json` — tracked stub: no `OPENDAL_BASE`, no `init_script`,
   so every common test skips cleanly;
 - `test/services/<svc>/config.template.json` — the real config with `${VAR}`
-  placeholders, rendered to `build/test-configs/<svc>.json` (gitignored) when
-  every referenced var is set.
+  placeholders, rendered `0600` to `build/test-configs/<svc>.json` (gitignored)
+  when every referenced var is set.
 
-The rendered file holds the credential in plaintext, so it is written `0600`.
+A skipped tier looks exactly like a passing one, so an expired secret would
+quietly drop coverage to zero. `OPENDAL_REQUIRE_CLOUD_TIERS=1` turns a missing
+credential into a hard failure; CI sets it on `main` pushes and the scheduled
+run, and leaves it off for pull requests.
 
-A skipped tier looks exactly like a passing one, so a removed or expired secret
-would quietly drop that service's coverage to zero. Set
-`OPENDAL_REQUIRE_CLOUD_TIERS=1` to turn a missing credential into a hard failure
-instead; CI sets it on `main` pushes and the scheduled run, and leaves it off for
-pull requests (where forks legitimately have no secrets).
+### External-object fixtures
+
+`make fixtures` generates `test/services/fixtures/` once, shared by every
+service; `<svc>-up` depends on it. A tier exposes them under its own
+`external/` prefix however its backend allows (MinIO copies them in from the
+`init` service, fake-gcs-server mounts them, Azurite uploads them over REST) and
+sets `OPENDAL_EXTERNAL_BASE` in its config, which makes
+`common/external_read.test` run. Never regenerate fixtures per service.
 
 ### How env substitution works
 
@@ -178,48 +168,33 @@ silently skipped — important for remote/object-store services.
 Enable OpenDAL service `<svc>` **without touching `test/sql/common/*`** (each is
 its own PR — see [issue #6](https://github.com/chitralverma/duckdb-opendal/issues/6)):
 
-1. **Cargo feature** — add `services-<svc> = ["opendal/services-<svc>"]` to
-   `opendal/Cargo.toml [features]` (and to `default` if it should build by default).
-2. **Config** — `test/configs/<svc>.json`: set `OPENDAL_BASE` (+ service params) in
-   `test_env`; `init_script: test/configs/auth_<svc>.sql`;
+1. **Cargo feature** — `services-<svc> = ["opendal/services-<svc>"]` in
+   `opendal/Cargo.toml [features]`, and in `default` if it should build by default.
+2. **Config** — `test/configs/<svc>.json`: `OPENDAL_BASE` (+ service params) in
+   `test_env`, `init_script: test/configs/auth_<svc>.sql`,
    `statically_loaded_extensions: ["core_functions", "parquet", "opendal"]`.
 3. **Secret** — `test/configs/auth_<svc>.sql`: one `CREATE SECRET (TYPE <svc>, …)`
    referencing `${…}` from `test_env` (pure SQL).
-4. **Provisioning** — for an emulator, add `test/services/<svc>/docker-compose.yml`
-   (service + a way to create the bucket/container) and Makefile targets
-   `<svc>-up` / `<svc>-down` (+ `<svc>-assert-no-incomplete` if relevant). `<svc>-up`
-   must **not return until the service is ready** — readiness is service-specific:
-   a container with a shell can use a compose `healthcheck` + `up --wait` (like
-   `s3-up`); an image without one (e.g. `fsouza/fake-gcs-server`) needs a
-   host-side poll (`curl` the endpoint in a loop) in `<svc>-up`. For a
-   real-cloud-only service, skip the compose, add an empty
-   `test/services/<svc>/requires-secrets` marker so the planner gates it, make
-   `test/configs/<svc>.json` a stub (no `OPENDAL_BASE`/`init_script`) and put the
-   real config in `test/services/<svc>/config.template.json` with `${ENV_VAR}`
-   placeholders — see "Real-cloud tiers" above. Wire the vars into the
-   `sql-tests` job env in `.github/workflows/MainDistributionPipeline.yml`.
-5. **External-object reads (optional)** — expose the shared `test/services/fixtures/`
-   as objects under `<service>/external/` and set `OPENDAL_EXTERNAL_BASE` in the
-   config; `common/external_read.test` then runs automatically. The mechanism is
-   emulator-specific: MinIO uses an `mc cp` init step; `fake-gcs-server` auto-loads
-   a mounted `/data/<bucket>/external/` folder — either way, mount the shared
-   `test/services/fixtures/` (don't regenerate per service).
-6. **Quirks test (optional)** — `test/sql/services/<svc>.test`, gated on an env var
-   only that config sets. `make test-common-<svc>` runs it automatically.
-7. **Docs** — add a user guide at `docs/services/<svc>.md` (URL shape, a minimal
-   working `CREATE SECRET`, the config keys people actually need, and any
-   gotchas) and link it from [docs/services/README.md](docs/services/README.md).
+4. **Tier** — a `test/services/<svc>/` directory following the conventions in
+   [Service tiers](#service-tiers): a compose file for an emulator, or a
+   `requires-secrets` marker plus `config.template.json` for a real-cloud service.
+5. **External reads (optional)** — expose the shared fixtures under `external/`
+   and set `OPENDAL_EXTERNAL_BASE`; see [External-object fixtures](#external-object-fixtures).
+6. **Quirks test (optional)** — `test/sql/services/<svc>.test`, gated on an env
+   var only that config sets. `make test-common-<svc>` runs it automatically.
+7. **Docs** — `docs/services/<svc>.md`, following the template in
+   [docs/services/README.md](docs/services/README.md), and linked from its table.
 
-`test/services/plan.py` discovers the new service and the CI `sql-tests` job runs
-it (emulators on every PR incl. forks; secret-gated services only when secrets
-are present).
+`test/services/plan.py` discovers the service from `test/configs/<svc>.json`;
+the CI `sql-tests` job then runs it with no workflow change (emulators on every
+PR including forks, credential-gated services only where secrets exist).
 
 ## Formatting & linting
 
 ```sh
 uv run make format-all   # C++ (clang-format 11.0.1) + Rust (rustfmt)
 make rust-lint           # clippy -D warnings
-ruff format test/services/**/*.py && ruff check test/services/**/*.py
+uv run ruff format test/services && uv run ruff check test/services   # settings in pyproject.toml
 ```
 
 CI runs the C++ format/tidy checks, the Rust format/clippy checks, and the SQL

@@ -96,19 +96,10 @@ jobs:
     env:
       GEN: ninja
       CCACHE_DIR: ${{ github.workspace }}/ccache_dir
+      # Forks have no secrets: credential-gated tiers are dropped from the matrix.
       HAVE_SECRETS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'true' || 'false' }}
-      # Real-cloud services (test/services/<svc>/requires-secrets). Unset here =
-      # test/services/render_config.py falls back to the tracked stub config and
-      # that service's tier skips instead of failing. On main and on the
-      # scheduled run a skip would hide the loss of a whole tier, so require the
-      # credentials to be present there.
+      # Where a skipped credential-gated tier must fail instead (see CONTRIBUTING.md).
       OPENDAL_REQUIRE_CLOUD_TIERS: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '1' || '0' }}
-      OPENDAL_AZDLS_HOST: ${{ secrets.OPENDAL_AZDLS_HOST }}
-      OPENDAL_AZDLS_FILESYSTEM: ${{ secrets.OPENDAL_AZDLS_FILESYSTEM }}
-      OPENDAL_AZDLS_ACCOUNT_KEY: ${{ secrets.OPENDAL_AZDLS_ACCOUNT_KEY }}
-      OPENDAL_AZFILE_HOST: ${{ secrets.OPENDAL_AZFILE_HOST }}
-      OPENDAL_AZFILE_SHARE_NAME: ${{ secrets.OPENDAL_AZFILE_SHARE_NAME }}
-      OPENDAL_AZFILE_ACCOUNT_KEY: ${{ secrets.OPENDAL_AZFILE_ACCOUNT_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -152,6 +143,19 @@ jobs:
       - name: Build extension
         run: make
 
+      # One secret, `KEY=value` per line, for every credential-gated tier
+      # (format documented in CONTRIBUTING.md). Keeps CI service-agnostic.
+      - name: Load service credentials
+        if: env.HAVE_SECRETS == 'true'
+        env:
+          OPENDAL_TEST_ENV: ${{ secrets.OPENDAL_TEST_ENV }}
+        run: |
+          printf '%s\n' "$OPENDAL_TEST_ENV" | while IFS= read -r line; do
+            case "$line" in ''|'#'*) continue ;; esac
+            printf '::add-mask::%s\n' "${line#*=}"
+            printf '%s\n' "$line" >> "$GITHUB_ENV"
+          done
+
       - name: Save Ccache
         uses: actions/cache/save@v4
         with:
@@ -172,9 +176,7 @@ jobs:
               rc=0
               make "$name-up" || rc=$?
               if [ "$rc" -eq 0 ]; then make "test-common-$name" || rc=$?; fi
-              if [ "$rc" -eq 0 ] && make -n "$name-assert-no-incomplete" >/dev/null 2>&1; then
-                make "$name-assert-no-incomplete" || rc=$?
-              fi
+              if [ "$rc" -eq 0 ]; then make "$name-verify" || rc=$?; fi
               make "$name-down" || true
               [ "$rc" -eq 0 ] || exit "$rc"
             else

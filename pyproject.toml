@@ -22,3 +22,8 @@ dev = [
 
 [tool.uv]
 package = false
+
+[tool.ruff]
+# Match the width the Python test helpers are written at; without this, ruff's
+# 88-column default rewraps them on every `ruff format` run.
+line-length = 110

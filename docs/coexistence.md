@@ -4,10 +4,10 @@ Some URL schemes are claimed by more than one extension: `s3://` by both
 `opendal` and DuckDB's built-in `httpfs`, for example. This page shows how to
 decide which one serves a query.
 
-Only overlapping schemes are affected. `s3://` and `gcs://` are contested;
-`fs://`, `memory://`, `azblob://`, `azdls://` and `azfile://` are not claimed by
-any built-in extension, so they always go through `opendal`. DuckDB's `azure` extension uses `azure://` /
-`abfss://`, which `opendal` does not serve.
+Only contested schemes are affected — today `s3://` and `gcs://`, both claimed by
+`httpfs`. Every other scheme this extension serves is its own (DuckDB's `azure`
+extension uses `azure://` / `abfss://`, which `opendal` does not serve), so those
+URLs always go through `opendal`.
 
 ## The symptom
 

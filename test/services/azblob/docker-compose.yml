@@ -1,6 +1,6 @@
-# Azurite (Azure Storage emulator) for the azblob:// test tier. Use
-# `make azblob-up` / `azblob-down` (they sequence the one-shot azurite-init
-# after azurite is healthy).
+# Azurite (Azure Storage emulator) for the azblob:// test tier. `make azblob-up`
+# starts the healthchecked services and then runs the one-shot `init` (see
+# CONTRIBUTING.md, "Service tiers").
 #
 # Azurite emulates Blob/Queue/Table only — there is no dfs (azdls) or Files
 # (azfile) endpoint, so those two services are real-cloud-only and carry a
@@ -26,8 +26,9 @@ services:
       timeout: 5s
       retries: 30
 
-  azurite-init:
+  init:
     image: python:3.12-alpine
+    profiles: ["init"]
     depends_on:
       azurite:
         condition: service_healthy

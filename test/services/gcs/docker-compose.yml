@@ -1,6 +1,7 @@
-# fake-gcs-server for the gcs:// test tier. Use `make gcs-up` / `gcs-down`.
-# The shared fixtures dir is mounted as warehouse/external/ (which also creates
-# the bucket); runtime writes go to the in-memory store.
+# fake-gcs-server for the gcs:// test tier. The shared fixtures dir is mounted as
+# warehouse/external/ (which also creates the bucket); runtime writes go to the
+# in-memory store. The image has no shell, so readiness is ready.sh, not a
+# compose healthcheck (see CONTRIBUTING.md, "Service tiers").
 
 name: opendal-gcs-test
 

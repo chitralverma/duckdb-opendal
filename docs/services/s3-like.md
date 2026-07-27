@@ -1,7 +1,8 @@
 # `s3://` — S3 and S3-compatible storage
 
-Amazon S3, plus anything that speaks the S3 API (MinIO, Cloudflare R2, Ceph,
-Wasabi, …).
+Amazon S3, and anything else that speaks the S3 API — MinIO, Cloudflare R2,
+Ceph, Wasabi, and so on. They all use the `s3` secret type; only the endpoint
+and addressing style differ.
 
 ## URL
 
@@ -39,11 +40,13 @@ SELECT * FROM read_parquet('s3://warehouse/events/2026.parquet');
 | `server_side_encryption`    | e.g. `AES256`, or `aws:kms` with the KMS key id keys.       |
 | `enable_versioning`         | Enable version-aware stat, list and reads.                  |
 
-## S3-compatible endpoints
+## S3-compatible services
 
-Most self-hosted services need an explicit endpoint and path-style addressing:
+Point `endpoint` at the service. Self-hosted ones usually also need path-style
+addressing:
 
 ```sql
+-- MinIO (and most self-hosted gateways)
 CREATE SECRET minio (
     TYPE s3,
     SCOPE 's3://warehouse',
@@ -55,7 +58,22 @@ CREATE SECRET minio (
         'enable_virtual_host_style': 'false'
     }
 );
+
+-- Cloudflare R2: one endpoint per account, region is always `auto`
+CREATE SECRET r2 (
+    TYPE s3,
+    SCOPE 's3://warehouse',
+    config MAP{
+        'access_key_id': '...',
+        'secret_access_key': '...',
+        'region': 'auto',
+        'endpoint': 'https://<account-id>.r2.cloudflarestorage.com'
+    }
+);
 ```
+
+If a service rejects requests with a signature error, the usual culprits are the
+region and `enable_virtual_host_style`.
 
 ## Notes
 
@@ -63,7 +81,5 @@ CREATE SECRET minio (
   loaded, say which one you want:
   `SET opendal_override_native_filesystems = 's3';` — see
   [coexistence](../coexistence.md).
-- Multiple buckets? Create one secret per bucket, each with its own `SCOPE`. The
-  most specific matching scope wins.
-- Large writes use multipart uploads; tune them with `io_config` (see
-  [configuration](../configuration.md)).
+- Large writes use multipart uploads; tune concurrency and part size with
+  `io_config` (see [configuration](../configuration.md)).

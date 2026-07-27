@@ -106,10 +106,18 @@ The path is only ever an object path — it is never re-read as configuration.
 What the authority means is per service; see the
 [service guides](services/README.md).
 
-Rejected outright: query strings, fragments, `user@host`, invalid UTF-8, NUL
-bytes, and percent-encoded path separators (`%2F`). Other percent-encoded
-characters are decoded once. Leading and trailing whitespace in a path is
-trimmed.
+So that one URL always means one object, the extension rejects URLs it cannot
+read unambiguously: query strings, fragments, `user@host`, invalid UTF-8, NUL
+bytes, and `%2F` (an escaped separator would be indistinguishable from a real
+one). Any other percent-encoding is decoded once, so `%20` and friends work:
+
+```sql
+FROM opendal_stat('memory:///reports/q1 2026.parquet');     -- fine
+FROM opendal_stat('memory:///reports/q1%202026.parquet');   -- same object
+FROM opendal_stat('memory:///reports/q1%2F2026.parquet');   -- rejected
+```
+
+Leading and trailing whitespace in a path is trimmed.
 
 ## Units
 
@@ -185,12 +193,8 @@ query against a matching URL, not at `CREATE SECRET` time.
 
 Service `config` is a passthrough. OpenDAL validates the keys it knows and may
 accept unknown ones, so a typo there usually surfaces as a connection or
-permission error rather than a config error. `opendal_info` is the quickest way
-to check:
-
-```sql
-SELECT usable, message FROM opendal_info('s3://warehouse/');
-```
+permission error rather than a config error — `opendal_info` (above) reports
+what the URL actually resolved to.
 
 ## Sharing schemes with other extensions
 
