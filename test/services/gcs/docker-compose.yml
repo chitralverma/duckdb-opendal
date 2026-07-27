@@ -1,0 +1,24 @@
+# fake-gcs-server for the gcs:// test tier. Use `make gcs-up` / `gcs-down`.
+# The shared fixtures dir is mounted as warehouse/external/ (which also creates
+# the bucket); runtime writes go to the in-memory store.
+
+name: opendal-gcs-test
+
+services:
+  fake-gcs:
+    image: fsouza/fake-gcs-server:1.52.2
+    ports:
+      - "19200:4443"
+    volumes:
+      - ../fixtures:/data/warehouse/external:ro
+    command:
+      - "-scheme"
+      - "http"
+      - "-port"
+      - "4443"
+      - "-backend"
+      - "memory"
+      - "-public-host"
+      - "127.0.0.1:19200"
+      - "-external-url"
+      - "http://127.0.0.1:19200"

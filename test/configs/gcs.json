@@ -1,0 +1,11 @@
+{
+  "description": "opendal common suite over gcs:// (fake-gcs-server emulator)",
+  "init_script": "test/configs/auth_gcs.sql",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
+  "test_env": [
+    { "env_name": "OPENDAL_BASE", "env_value": "gcs://warehouse/odfs" },
+    { "env_name": "OPENDAL_EXTERNAL_BASE", "env_value": "gcs://warehouse/external" },
+    { "env_name": "OPENDAL_GCS_BUCKET", "env_value": "warehouse" },
+    { "env_name": "OPENDAL_GCS_ENDPOINT", "env_value": "http://127.0.0.1:19200" }
+  ]
+}
