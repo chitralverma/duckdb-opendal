@@ -14,6 +14,7 @@ FROM opendal_schemes();
 | Local filesystem             | `fs://`, `file://` | [fs](fs.md)         |
 | In-process memory            | `memory://`        | [memory](memory.md) |
 | S3 and S3-compatible         | `s3://`            | [s3](s3.md)         |
+| Google Cloud Storage         | `gcs://`           | [gcs](gcs.md)       |
 | Azure Blob Storage           | `azblob://`        | [azblob](azblob.md) |
 | Azure Data Lake Storage Gen2 | `azdls://`         | [azdls](azdls.md)   |
 | Azure Files                  | `azfile://`        | [azfile](azfile.md) |
@@ -48,6 +49,7 @@ CREATE SECRET <name> (
 | `fs://`     | *(empty)*    | `root`                       |
 | `memory://` | *(empty)*    | —                            |
 | `s3://`     | bucket       | credentials, `region`        |
+| `gcs://`    | bucket       | credential (or ADC)          |
 | `azblob://` | container    | `endpoint`, credentials      |
 | `azdls://`  | account host | `filesystem`, credential     |
 | `azfile://` | account host | `share_name`, credential     |

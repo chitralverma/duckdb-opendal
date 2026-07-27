@@ -13,11 +13,13 @@ DUCKDB_SRCDIR := ./duckdb/
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
 # ── SQLLogicTest targets: common suite run per service (see CONTRIBUTING.md) ──
-.PHONY: test-local fixtures s3-up s3-down s3-assert-no-incomplete azblob-up azblob-down
+.PHONY: test-local fixtures s3-up s3-down s3-assert-no-incomplete gcs-up gcs-down \
+        azblob-up azblob-down
 UNITTEST_BIN := ./build/release/test/unittest
 FIXTURES_DIR := test/services/fixtures
 S3_COMPOSE := test/services/s3/docker-compose.yml
 S3_MC := docker compose -f $(S3_COMPOSE) run --rm --entrypoint sh minio-init -c
+GCS_COMPOSE := test/services/gcs/docker-compose.yml
 AZBLOB_COMPOSE := test/services/azblob/docker-compose.yml
 
 fixtures: ## Generate the shared external-object test fixtures
@@ -52,6 +54,20 @@ s3-assert-no-incomplete: ## Assert no orphaned multipart uploads remain (run aft
 	  out=\$$(mc ls --recursive --incomplete local/warehouse/abort-test); \
 	  if [ -n \"\$$out\" ]; then echo 'incomplete multipart uploads remain:'; echo \"\$$out\"; exit 1; fi; \
 	  echo 'No incomplete multipart uploads remain.'"
+
+# fake-gcs-server has no shell, so readiness is a host-side poll rather than a
+# compose healthcheck + `up --wait`.
+gcs-up: fixtures ## Start + provision the fake-gcs-server test service
+	docker compose -f $(GCS_COMPOSE) up -d
+	@echo "waiting for fake-gcs-server..."; \
+	for _ in $$(seq 1 30); do \
+	  curl -sf "http://127.0.0.1:19200/storage/v1/b/warehouse" >/dev/null 2>&1 && exit 0; \
+	  sleep 1; \
+	done; \
+	echo "fake-gcs-server did not become ready" >&2; exit 1
+
+gcs-down: ## Stop and remove the fake-gcs-server test service
+	docker compose -f $(GCS_COMPOSE) down -v
 
 # ── Rust convenience targets (crate lives in opendal/core) ───────────────────
 .PHONY: rust-build rust-test rust-fmt rust-fmt-check cpp-fmt format-all rust-lint rust-clean cargo-clean clean-all help

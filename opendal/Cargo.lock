@@ -76,6 +76,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "async-trait"
+version = "0.1.91"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae36dc4177970ef04fde5178d3e2429882def40e57a451f919c098f72baa6cec"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1505,8 +1516,8 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "opendal"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "opendal-core",
  "opendal-http-transport-reqwest",
@@ -1518,13 +1529,14 @@ dependencies = [
  "opendal-service-azdls",
  "opendal-service-azfile",
  "opendal-service-fs",
+ "opendal-service-gcs",
  "opendal-service-s3",
 ]
 
 [[package]]
 name = "opendal-core"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "anyhow",
  "base64",
@@ -1548,8 +1560,8 @@ dependencies = [
 
 [[package]]
 name = "opendal-http-transport-reqwest"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "bytes",
  "futures",
@@ -1561,8 +1573,8 @@ dependencies = [
 
 [[package]]
 name = "opendal-layer-concurrent-limit"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "futures",
  "http",
@@ -1572,8 +1584,8 @@ dependencies = [
 
 [[package]]
 name = "opendal-layer-foyer"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "foyer",
  "opendal-core",
@@ -1581,8 +1593,8 @@ dependencies = [
 
 [[package]]
 name = "opendal-layer-retry"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "backon",
  "log",
@@ -1591,8 +1603,8 @@ dependencies = [
 
 [[package]]
 name = "opendal-layer-timeout"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "opendal-core",
  "tokio",
@@ -1600,8 +1612,8 @@ dependencies = [
 
 [[package]]
 name = "opendal-service-azblob"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "base64",
  "bytes",
@@ -1620,8 +1632,8 @@ dependencies = [
 
 [[package]]
 name = "opendal-service-azdls"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "base64",
  "bytes",
@@ -1640,8 +1652,8 @@ dependencies = [
 
 [[package]]
 name = "opendal-service-azfile"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "bytes",
  "http",
@@ -1657,8 +1669,8 @@ dependencies = [
 
 [[package]]
 name = "opendal-service-azure-common"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "http",
  "opendal-core",
@@ -1666,8 +1678,8 @@ dependencies = [
 
 [[package]]
 name = "opendal-service-fs"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "bytes",
  "log",
@@ -1678,9 +1690,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "opendal-service-gcs"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "http",
+ "log",
+ "opendal-core",
+ "percent-encoding",
+ "quick-xml",
+ "reqsign-core",
+ "reqsign-file-read-tokio",
+ "reqsign-google",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "opendal-service-s3"
-version = "0.58.0"
-source = "git+https://github.com/apache/opendal.git?rev=318051086ba99a2c02ac2492105faf4aceb73815#318051086ba99a2c02ac2492105faf4aceb73815"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
 dependencies = [
  "base64",
  "bytes",
@@ -2012,9 +2044,9 @@ dependencies = [
 
 [[package]]
 name = "reqsign-aws-v4"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e9e1168fab3883ec6afed1c2e20c25b2a09f366cdb662ac3e0878ae0332d63e"
+checksum = "cc883bc56889f3e4a419265c87facea222a921debc5c6f15c7fd8b68ec4b36b2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2034,9 +2066,9 @@ dependencies = [
 
 [[package]]
 name = "reqsign-azure-storage"
-version = "3.1.0"
+version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dee8b9e5d0fc927551a6ac25ba5dc6518860c54ddb592fecf685523e528e77bd"
+checksum = "a6ebd8524185ce9c64063e3095f83968acfa90922f00c601a4a0f3aca15b077e"
 dependencies = [
  "anyhow",
  "base64",
@@ -2055,14 +2087,13 @@ dependencies = [
 
 [[package]]
 name = "reqsign-core"
-version = "3.1.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "514a1e0b4aa288652a3fdbda4f0a610f379cdf5374e55a37c9edd03d57ed856b"
+checksum = "7e38b44697c60a823705ccef85cb04d8e0527c9d16ed7c58bf1c6395bdd24ceb"
 dependencies = [
  "anyhow",
  "base64",
  "bytes",
- "form_urlencoded",
  "futures",
  "hex",
  "hmac 0.13.0",
@@ -2080,12 +2111,30 @@ dependencies = [
 
 [[package]]
 name = "reqsign-file-read-tokio"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b472a8d1f2e5a4be8ce13bb7bdf4b59e9bee613ce124aca23959ddb42176b39"
+checksum = "688ff0ae421b8d4b92b53fdafaf53df2de28f428a9962edcf21702990b26f74b"
 dependencies = [
  "anyhow",
  "reqsign-core",
+ "tokio",
+]
+
+[[package]]
+name = "reqsign-google"
+version = "3.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a96da0b579b846d358090cb06b9e3c2ad1375529efbe3e0c45f96bd7bcf043ea"
+dependencies = [
+ "form_urlencoded",
+ "http",
+ "log",
+ "percent-encoding",
+ "reqsign-aws-v4",
+ "reqsign-core",
+ "rsa",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
