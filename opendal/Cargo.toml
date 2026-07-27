@@ -28,12 +28,14 @@ default = [
   "services-azblob",
   "services-azdls",
   "services-azfile",
+  "services-http",
 ]
 services-azblob = ["opendal/services-azblob"]
 services-azdls = ["opendal/services-azdls"]
 services-azfile = ["opendal/services-azfile"]
 services-fs = ["opendal/services-fs"]
 services-gcs = ["opendal/services-gcs"]
+services-http = ["opendal/services-http"]
 services-memory = ["opendal/services-memory"]
 services-s3 = ["opendal/services-s3"]
 

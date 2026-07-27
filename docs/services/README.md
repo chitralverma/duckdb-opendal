@@ -7,13 +7,14 @@ your build ships depends on how it was compiled:
 FROM opendal_schemes();
 ```
 
-| Service                          | Scheme                              | Guide                    |
-| -------------------------------- | ----------------------------------- | ------------------------ |
-| Local filesystem                 | `fs://`, `file://`                  | [fs](fs.md)              |
-| In-process memory                | `memory://`                         | [memory](memory.md)      |
-| S3 and S3-compatible             | `s3://`                             | [s3-like](s3-like.md)    |
-| Google Cloud Storage             | `gcs://`                            | [gcs](gcs.md)            |
-| Azure Blob, Data Lake Gen2, Files | `azblob://`, `azdls://`, `azfile://` | [azure](azure.md)       |
+| Service                           | Scheme                               | Guide                 |
+| --------------------------------- | ------------------------------------ | --------------------- |
+| Local filesystem                  | `fs://`, `file://`                   | [fs](fs.md)           |
+| In-process memory                 | `memory://`                          | [memory](memory.md)   |
+| S3 and S3-compatible              | `s3://`                              | [s3-like](s3-like.md) |
+| Google Cloud Storage              | `gcs://`                             | [gcs](gcs.md)         |
+| Azure Blob, Data Lake Gen2, Files | `azblob://`, `azdls://`, `azfile://` | [azure](azure.md)     |
+| HTTP servers (read-only)          | `http://`, `https://`                | [http](http.md)       |
 
 ## How every service works
 
@@ -38,15 +39,16 @@ CREATE SECRET <name> (
 );
 ```
 
-| Scheme      | Authority    | Usually required in `config` |
-| ----------- | ------------ | ---------------------------- |
-| `fs://`     | *(empty)*    | `root`                       |
-| `memory://` | *(empty)*    | —                            |
-| `s3://`     | bucket       | credentials, `region`        |
-| `gcs://`    | bucket       | credentials                  |
-| `azblob://` | container    | `endpoint`, credentials      |
-| `azdls://`  | account host | `filesystem`, credential     |
-| `azfile://` | account host | `share_name`, credential     |
+| Scheme                | Authority    | Usually required in `config`     |
+| --------------------- | ------------ | -------------------------------- |
+| `fs://`               | *(empty)*    | `root`                           |
+| `memory://`           | *(empty)*    | —                                |
+| `s3://`               | bucket       | credentials, `region`            |
+| `gcs://`              | bucket       | credentials                      |
+| `azblob://`           | container    | `endpoint`, credentials          |
+| `azdls://`            | account host | `filesystem`, credential         |
+| `azfile://`           | account host | `share_name`, credential         |
+| `http://`, `https://` | host         | — (credentials only if required) |
 
 Things that hold for all of them:
 
@@ -58,8 +60,12 @@ Things that hold for all of them:
 - **Tuning is service-independent.** `io_config`, `retry_config`,
   `timeout_config` and `cache_config` work the same everywhere — see
   [configuration](../configuration.md).
-- **Stuck?** `FROM opendal_info('<url>');` reports whether the URL is usable,
-  which secret matched, and what is missing.
+- **Not every service does everything.** `http`/`https` are read-only, for
+  example. `FROM opendal_info('<url>');` reports a service's capabilities, and
+  an unsupported operation fails with `service '<x>' does not support <op>`
+  rather than a confusing protocol error.
+- **Stuck?** That same function reports whether the URL is usable, which secret
+  matched, and what is missing.
 
 ## Guide template
 

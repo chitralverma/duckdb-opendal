@@ -1530,6 +1530,7 @@ dependencies = [
  "opendal-service-azfile",
  "opendal-service-fs",
  "opendal-service-gcs",
+ "opendal-service-http",
  "opendal-service-s3",
 ]
 
@@ -1707,6 +1708,17 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "opendal-service-http"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
+dependencies = [
+ "http",
+ "log",
+ "opendal-core",
+ "serde",
 ]
 
 [[package]]

@@ -1,0 +1,137 @@
+# name: test/sql/services/http.test
+# description: http://-specific behavior (read-only capabilities, Basic auth, https alias)
+# group: [services]
+
+#
+# Runs only under the http config (test/configs/http.json), which points at the
+# nginx static server and claims the http/https schemes. Gated on
+# OPENDAL_HTTP_BASE, which only that config provides.
+#
+# The http service is read-only, so it carries no OPENDAL_BASE and the write-
+# driven common suite skips for this tier. Read/stat coverage lives here.
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_HTTP_BASE
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+# ── Anonymous reads: no secret exists for this prefix; the endpoint comes from
+# the URL authority alone.
+
+query II
+SELECT count(*), sum(d) FROM read_parquet('${OPENDAL_HTTP_BASE}/ext_seed.parquet');
+----
+100	9900
+
+query II
+SELECT count(*), max(id) FROM read_csv('${OPENDAL_HTTP_BASE}/ext_seed.csv');
+----
+50	49
+
+# Projection + filter pushdown issues ranged GETs rather than one full download.
+query I
+SELECT count(*) FROM read_parquet('${OPENDAL_HTTP_BASE}/ext_seed.parquet') WHERE id >= 90;
+----
+10
+
+query II
+SELECT path, metadata.content_length > 0 FROM opendal_stat('${OPENDAL_HTTP_BASE}/ext_seed.csv');
+----
+public/ext_seed.csv	true
+
+# ── Capabilities: read-only. Each unsupported operation must fail fast with the
+# capability error, not a confusing protocol-level one.
+
+query IIIII
+SELECT supported, usable, capabilities['read'], capabilities['write'], capabilities['list']
+FROM opendal_info('${OPENDAL_HTTP_BASE}/ext_seed.csv');
+----
+true	true	true	false	false
+
+statement error
+COPY (SELECT 1 AS a) TO '${OPENDAL_HTTP_BASE}/written.parquet' (FORMAT parquet);
+----
+service 'http' does not support write
+
+statement error
+SELECT * FROM opendal_ls('${OPENDAL_HTTP_BASE}/');
+----
+service 'http' does not support list
+
+statement error
+SELECT * FROM opendal_copy('${OPENDAL_HTTP_BASE}/ext_seed.csv', '${OPENDAL_HTTP_BASE}/copy.csv');
+----
+does not support
+
+# A missing object is a NotFound, not a hang or an empty result.
+statement error
+SELECT * FROM opendal_stat('${OPENDAL_HTTP_BASE}/does-not-exist.csv');
+----
+NotFound
+
+# ── Basic auth: the protected prefix has a scope-matched secret carrying the
+# credentials (test/configs/auth_http.sql).
+
+query I
+SELECT secret_name FROM opendal_info('${OPENDAL_HTTP_PROTECTED_BASE}/ext_seed.csv');
+----
+http_protected
+
+query I
+SELECT count(*) FROM read_csv('${OPENDAL_HTTP_PROTECTED_BASE}/ext_seed.csv');
+----
+50
+
+# The credentials are scoped, not process-wide: the anonymous prefix on the same
+# server matches no secret.
+query I
+SELECT secret_name IS NULL FROM opendal_info('${OPENDAL_HTTP_BASE}/ext_seed.csv');
+----
+true
+
+# ── Partitioned datasets: globbing a dataset root needs list, so the files are
+# named explicitly. Hive partition columns still come from the paths.
+#
+# Both partitions are the same fixture mounted twice, so this covers partition-
+# column extraction only: identical data means a wrong-partition read or a lost
+# pruning optimization would still produce these counts.
+
+query II
+SELECT year, count(*) FROM read_parquet([
+    '${OPENDAL_HTTP_HIVE_BASE}/year=2025/data.parquet',
+    '${OPENDAL_HTTP_HIVE_BASE}/year=2026/data.parquet'
+], hive_partitioning = true)
+GROUP BY year ORDER BY year;
+----
+2025	100
+2026	100
+
+query I
+SELECT count(*) FROM read_parquet([
+    '${OPENDAL_HTTP_HIVE_BASE}/year=2025/data.parquet',
+    '${OPENDAL_HTTP_HIVE_BASE}/year=2026/data.parquet'
+], hive_partitioning = true)
+WHERE year = 2026;
+----
+100
+
+# ── https:// is the same service against a TLS endpoint. No network here: the
+# operator is built and its capabilities reported without a request.
+
+query III
+SELECT scheme, supported, capabilities['read']
+FROM opendal_info('https://example.com/data.parquet');
+----
+https	true	true
+
+# Query strings are rejected for every scheme (they would make one object
+# addressable by many URLs); this bites hardest on http, where signed URLs
+# usually carry one.
+statement error
+SELECT * FROM opendal_stat('${OPENDAL_HTTP_BASE}/ext_seed.csv?token=abc');
+----
+unsupported or invalid URL

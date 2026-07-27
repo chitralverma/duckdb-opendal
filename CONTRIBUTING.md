@@ -114,6 +114,12 @@ make s3-down          # stop and remove
 Both hooks are run as `sh <script>` (POSIX sh, no exec bit required), so a
 forgotten `chmod +x` cannot silently drop a readiness gate or an assertion.
 
+**Read-only services** (`http`, for example) cannot run the common suite: it
+seeds itself by writing, and `external_read.test` finishes with a glob. Such a
+config sets neither `OPENDAL_BASE` nor `OPENDAL_EXTERNAL_BASE` — the
+service-agnostic common tests still run, and the read/stat/capability coverage
+goes in `test/sql/services/<svc>.test`.
+
 **Credential-gated services** — no compose; an empty `requires-secrets` marker
 makes the planner drop them when secrets are unavailable (fork PRs). They skip
 unless their env vars are set:
