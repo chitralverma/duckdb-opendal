@@ -1,6 +1,7 @@
 # name: test/sql/services/gcs.test
 # description: gcs://-specific behavior (key encoding, capability guards, resumable writes)
 # group: [services]
+
 #
 # Runs only under the gcs config (test/configs/gcs.json), which creates the
 # warehouse-scoped secret and requires a running fake-gcs-server. Gated on
