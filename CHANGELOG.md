@@ -17,6 +17,8 @@ Apache OpenDAL revision; see the compatibility matrix in the
 
 ### Added
 
+- `gcs://` (Google Cloud Storage) service, compiled in by default. Tested against
+  a fake-gcs-server emulator (`make gcs-up` / `gcs-down`).
 - `opendal_schemes()` table function listing the storage schemes compiled into
   the build.
 - `opendal_info(url)` table function describing a URL's scheme, support, matched
@@ -34,6 +36,9 @@ Apache OpenDAL revision; see the compatibility matrix in the
   copied object.
 - `cargo update`: serde_json 1.0.151, tokio 1.53.1, rustls 0.23.42,
   futures 0.3.33.
+- Pinned OpenDAL revision bumped `3180510` → `7ce945d` (0.58.1), which fixes the
+  gcs writer double-encoding object keys (keys containing `/` were stored under a
+  literal `%2F` name and could not be read back).
 
 ### Removed
 

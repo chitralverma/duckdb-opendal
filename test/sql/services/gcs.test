@@ -1,0 +1,109 @@
+# name: test/sql/services/gcs.test
+# description: gcs://-specific behavior (key encoding, capability guards, resumable writes)
+# group: [services]
+
+#
+# Runs only under the gcs config (test/configs/gcs.json), which creates the
+# warehouse-scoped secret and requires a running fake-gcs-server. Gated on
+# OPENDAL_GCS_ENDPOINT, which only the gcs config provides.
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_GCS_ENDPOINT
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+# Regression guard for the upstream writer double-encoding fix (opendal 0.58.1,
+# rev 7ce945d): the writer used to percent-encode the object path and the request
+# builder encoded it again, so a key containing '/' was stored under a literal
+# %2F name and could not be read back. A deep key must round-trip, and listing
+# the parent prefix must return the real slashed path.
+statement ok
+COPY (SELECT range AS id FROM range(25))
+TO 'gcs://warehouse/svc/deep/nested/key.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('gcs://warehouse/svc/deep/nested/key.parquet');
+----
+25
+
+query I
+SELECT count(*) FROM opendal_ls('gcs://warehouse/svc/deep/', recursive := true)
+WHERE path = 'svc/deep/nested/key.parquet';
+----
+1
+
+# gcs reports copy_with_if_not_exists = false, so the typed option fails fast with
+# a clear capability error rather than silently overwriting (contrast: the local
+# fs service supports it, and MinIO advertises it).
+statement ok
+COPY (SELECT range AS id FROM range(10)) TO 'gcs://warehouse/svc/cp_src.parquet' (FORMAT parquet);
+
+statement ok
+SELECT * FROM opendal_copy('gcs://warehouse/svc/cp_src.parquet', 'gcs://warehouse/svc/cp_dst.parquet');
+
+statement error
+SELECT * FROM opendal_copy(
+    'gcs://warehouse/svc/cp_src.parquet',
+    'gcs://warehouse/svc/cp_dst.parquet',
+    if_not_exists := true
+);
+----
+does not support copy_with_if_not_exists
+
+# Overwrite replaces the object's contents. DuckDB writes a temp object then
+# moves it over the target; gcs has no server-side rename, so this exercises the
+# capability-driven copy+delete fallback.
+statement ok
+COPY (SELECT 1 AS x) TO 'gcs://warehouse/svc/ow.parquet' (FORMAT parquet);
+
+statement ok
+COPY (SELECT range AS x FROM range(5)) TO 'gcs://warehouse/svc/ow.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('gcs://warehouse/svc/ow.parquet');
+----
+5
+
+# Partitioned COPY ... OVERWRITE clears existing partitions first (RemoveFiles),
+# which is gated on DirectoryExists — on gcs a "directory" is only a key prefix,
+# so this covers the prefix probe. The first write uses OVERWRITE so the
+# assertion is idempotent against a bucket left dirty by a previous run.
+statement ok
+COPY (SELECT 1 AS part, 'a' AS v) TO 'gcs://warehouse/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE);
+
+statement ok
+COPY (SELECT 2 AS part, 'b' AS v) TO 'gcs://warehouse/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+
+query I
+SELECT count(*) FROM glob('gcs://warehouse/svc/ow_part/**/*.parquet');
+----
+2
+
+statement ok
+COPY (SELECT 99 AS part, 'z' AS v) TO 'gcs://warehouse/svc/ow_part' (FORMAT parquet, PARTITION_BY part, OVERWRITE);
+
+query I
+SELECT count(*) FROM glob('gcs://warehouse/svc/ow_part/**/*.parquet');
+----
+1
+
+# I/O tuning on the resumable (multi-part) write path: the write must still
+# round-trip correctly with tuning enabled.
+statement ok
+SET GLOBAL opendal_io_config = MAP{'write.concurrent':'4','write.chunk_size':'8 MiB','read.concurrent':'2'};
+
+statement ok
+COPY (SELECT range AS id, range * 2 AS v FROM range(500))
+TO 'gcs://warehouse/svc/tuned.parquet' (FORMAT parquet);
+
+query II
+SELECT count(*), sum(v) FROM read_parquet('gcs://warehouse/svc/tuned.parquet');
+----
+500	249500
+
+statement ok
+RESET opendal_io_config;
