@@ -1,0 +1,25 @@
+# nginx for the http:// test tier: a plain static file server, which is all the
+# OpenDAL http service talks to. The shared fixtures are mounted (no `init`
+# service needed) under both an anonymous and a Basic-auth prefix.
+#
+# https:// is the same service against a TLS endpoint. It is not exercised here:
+# a self-signed certificate fails verification, and trusting a test CA would
+# have to happen in the OS store on every developer machine as well as CI.
+
+name: opendal-http-test
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "19300:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./htpasswd:/etc/nginx/htpasswd:ro
+      - ../fixtures:/usr/share/nginx/html/public:ro
+      - ../fixtures:/usr/share/nginx/html/protected:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
