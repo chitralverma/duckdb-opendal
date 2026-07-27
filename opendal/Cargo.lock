@@ -1525,6 +1525,9 @@ dependencies = [
  "opendal-layer-foyer",
  "opendal-layer-retry",
  "opendal-layer-timeout",
+ "opendal-service-azblob",
+ "opendal-service-azdls",
+ "opendal-service-azfile",
  "opendal-service-fs",
  "opendal-service-gcs",
  "opendal-service-s3",
@@ -1605,6 +1608,72 @@ source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f8774
 dependencies = [
  "opendal-core",
  "tokio",
+]
+
+[[package]]
+name = "opendal-service-azblob"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
+dependencies = [
+ "base64",
+ "bytes",
+ "http",
+ "log",
+ "opendal-core",
+ "opendal-service-azure-common",
+ "quick-xml",
+ "reqsign-azure-storage",
+ "reqsign-core",
+ "reqsign-file-read-tokio",
+ "serde",
+ "sha2 0.11.0",
+ "uuid",
+]
+
+[[package]]
+name = "opendal-service-azdls"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
+dependencies = [
+ "base64",
+ "bytes",
+ "http",
+ "log",
+ "mea",
+ "opendal-core",
+ "opendal-service-azure-common",
+ "quick-xml",
+ "reqsign-azure-storage",
+ "reqsign-core",
+ "reqsign-file-read-tokio",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "opendal-service-azfile"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
+dependencies = [
+ "bytes",
+ "http",
+ "log",
+ "opendal-core",
+ "opendal-service-azure-common",
+ "quick-xml",
+ "reqsign-azure-storage",
+ "reqsign-core",
+ "reqsign-file-read-tokio",
+ "serde",
+]
+
+[[package]]
+name = "opendal-service-azure-common"
+version = "0.58.1"
+source = "git+https://github.com/apache/opendal.git?rev=7ce945d925ac765f3d5f877451a27f48bd7b862e#7ce945d925ac765f3d5f877451a27f48bd7b862e"
+dependencies = [
+ "http",
+ "opendal-core",
 ]
 
 [[package]]
@@ -1719,6 +1788,16 @@ checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
 dependencies = [
  "digest 0.10.7",
  "hmac 0.12.1",
+]
+
+[[package]]
+name = "pem"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
+dependencies = [
+ "base64",
+ "serde_core",
 ]
 
 [[package]]
@@ -1982,6 +2061,27 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
+ "sha1",
+]
+
+[[package]]
+name = "reqsign-azure-storage"
+version = "3.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6ebd8524185ce9c64063e3095f83968acfa90922f00c601a4a0f3aca15b077e"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "form_urlencoded",
+ "http",
+ "log",
+ "pem",
+ "percent-encoding",
+ "reqsign-core",
+ "rsa",
+ "serde",
+ "serde_json",
  "sha1",
 ]
 

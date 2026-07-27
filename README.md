@@ -22,7 +22,7 @@ LOAD opendal;
 
 ## Key Features
 
-- **Unified Virtual Filesystem**: Serve files from multiple services (currently `fs://` / `file://`, `s3://`, `gcs://`, and `memory://` — with more services coming soon) directly within DuckDB queries.
+- **Unified Virtual Filesystem**: Serve files from multiple storage services directly within DuckDB queries — see [the service guides](docs/services/README.md) for the ones supported today, with more services coming soon.
 - **Table Functions**:
   - `opendal_version()` — Returns extension and core OpenDAL library versions.
   - `opendal_stat()` — Returns metadata for a single path (such as mode, size, and user_metadata).
@@ -102,7 +102,7 @@ SELECT name, metadata.content_length
 FROM opendal_ls('s3://warehouse-bucket/data/', recursive := true);
 
 -- Calculate disk usage rollup
-SELECT parent, file_count, total_size
+SELECT directory, file_count, total_size
 FROM opendal_du('s3://warehouse-bucket/data/');
 
 -- Copy files across services
@@ -141,14 +141,30 @@ installed version with `SELECT opendal_version();`.
 
 Each release pins a DuckDB version and an Apache OpenDAL release or revision:
 
-| Extension | DuckDB | OpenDAL   | Services              |
-| --------- | ------ | --------- | --------------------- |
-| 0.1.0     | v1.5.x | `3180510` | `fs`, `memory`, `s3`  |
+| Extension | DuckDB | OpenDAL   | Services             |
+| --------- | ------ | --------- | -------------------- |
+| 0.1.0     | v1.5.x | `3180510` | `fs`, `memory`, `s3` |
 
-`v1.5.x` = any patch on the DuckDB v1.5 line.
+`v1.5.x` = any patch on the DuckDB v1.5 line. The row lists what that release
+shipped; for the services in *your* build run `FROM opendal_schemes();`.
 
-See the [CHANGELOG](CHANGELOG.md) for per-version details, and
-[MAINTAINING.md](MAINTAINING.md) for how these versions are upgraded.
+See the [releases](https://github.com/chitralverma/duckdb-opendal/releases) for
+per-version notes, and [MAINTAINING.md](MAINTAINING.md) for how these versions
+are upgraded.
+
+---
+
+User guides live in [docs/](docs/README.md):
+
+- [Services](docs/services/README.md) — one guide per service, each with a
+  working `CREATE SECRET`.
+- [Configuration](docs/configuration.md) — secrets and scopes, global defaults,
+  concurrency, retries, timeouts.
+- [Caching](docs/caching.md) — in-memory and on-disk read caching.
+- [Table functions](docs/table-functions.md) — `opendal_ls`, `opendal_du`,
+  `opendal_copy`, and friends.
+- [Coexistence](docs/coexistence.md) — sharing schemes such as `s3://` with
+  `httpfs`.
 
 ---
 

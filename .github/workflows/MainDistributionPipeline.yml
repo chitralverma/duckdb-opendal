@@ -96,7 +96,12 @@ jobs:
     env:
       GEN: ninja
       CCACHE_DIR: ${{ github.workspace }}/ccache_dir
+      # Forks have no secrets: credential-gated tiers are dropped from the matrix.
       HAVE_SECRETS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'true' || 'false' }}
+      # Where a skipped credential-gated tier must fail instead. Opt-in: set the
+      # repo variable OPENDAL_REQUIRE_CLOUD_TIERS=1 once OPENDAL_TEST_ENV holds
+      # every such service's credentials (see CONTRIBUTING.md).
+      OPENDAL_REQUIRE_CLOUD_TIERS: ${{ (vars.OPENDAL_REQUIRE_CLOUD_TIERS == '1' && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))) && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -140,6 +145,19 @@ jobs:
       - name: Build extension
         run: make
 
+      # One secret, `KEY=value` per line, for every credential-gated tier
+      # (format documented in CONTRIBUTING.md). Keeps CI service-agnostic.
+      - name: Load service credentials
+        if: env.HAVE_SECRETS == 'true'
+        env:
+          OPENDAL_TEST_ENV: ${{ secrets.OPENDAL_TEST_ENV }}
+        run: |
+          printf '%s\n' "$OPENDAL_TEST_ENV" | while IFS= read -r line; do
+            case "$line" in ''|'#'*) continue ;; esac
+            printf '::add-mask::%s\n' "${line#*=}"
+            printf '%s\n' "$line" >> "$GITHUB_ENV"
+          done
+
       - name: Save Ccache
         uses: actions/cache/save@v4
         with:
@@ -160,9 +178,7 @@ jobs:
               rc=0
               make "$name-up" || rc=$?
               if [ "$rc" -eq 0 ]; then make "test-common-$name" || rc=$?; fi
-              if [ "$rc" -eq 0 ] && make -n "$name-assert-no-incomplete" >/dev/null 2>&1; then
-                make "$name-assert-no-incomplete" || rc=$?
-              fi
+              if [ "$rc" -eq 0 ]; then make "$name-verify" || rc=$?; fi
               make "$name-down" || true
               [ "$rc" -eq 0 ] || exit "$rc"
             else

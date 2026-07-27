@@ -13,51 +13,47 @@ DUCKDB_SRCDIR := ./duckdb/
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
 # ── SQLLogicTest targets: common suite run per service (see CONTRIBUTING.md) ──
-.PHONY: test-local fixtures s3-up s3-down s3-assert-no-incomplete gcs-up gcs-down
+# No target below names a service: everything a tier needs lives in
+# test/services/<svc>/ (docker-compose.yml, optional ready.sh / verify.sh, an
+# optional one-shot compose service named `init`).
+.PHONY: test-local fixtures
 UNITTEST_BIN := ./build/release/test/unittest
-FIXTURES_DIR := test/services/fixtures
-S3_COMPOSE := test/services/s3/docker-compose.yml
-S3_MC := docker compose -f $(S3_COMPOSE) run --rm --entrypoint sh minio-init -c
-GCS_COMPOSE := test/services/gcs/docker-compose.yml
+SERVICES_DIR := test/services
+FIXTURES_DIR := $(SERVICES_DIR)/fixtures
+SERVICE_DIR = $(SERVICES_DIR)/$*
+COMPOSE = docker compose -f $(SERVICE_DIR)/docker-compose.yml
+NEED_COMPOSE = test -f $(SERVICE_DIR)/docker-compose.yml || \
+	{ echo "no $(SERVICE_DIR)/docker-compose.yml — '$*' is not a provisioned service" >&2; exit 2; }
 
 fixtures: ## Generate the shared external-object test fixtures
 	mkdir -p $(FIXTURES_DIR)
 	./build/release/duckdb -c "COPY (SELECT range AS id, range * 2 AS d FROM range(100)) TO '$(FIXTURES_DIR)/ext_seed.parquet' (FORMAT parquet); COPY (SELECT range AS id, 'v' || range AS v FROM range(50)) TO '$(FIXTURES_DIR)/ext_seed.csv' (FORMAT csv, HEADER);"
 
+# The recipe is @-silent because it has to resolve the config first (see
+# test/services/render_config.py), so it echoes each unittest invocation itself —
+# copy-pasteable to rerun a failing tier directly.
 test-common-%: ## Run the common suite for a service (e.g. test-common-fs)
-	DUCKDB_TEST_CONFIG=test/configs/$*.json $(UNITTEST_BIN) "test/sql/common/*"
-	@if [ -f test/sql/services/$*.test ]; then \
-	  DUCKDB_TEST_CONFIG=test/configs/$*.json $(UNITTEST_BIN) "test/sql/services/$*.test"; \
-	fi
+	@cfg=$$(python3 $(SERVICES_DIR)/render_config.py $*) || exit $$?; \
+	  run() { echo "DUCKDB_TEST_CONFIG=$$cfg $(UNITTEST_BIN) '$$1'"; \
+	          DUCKDB_TEST_CONFIG=$$cfg $(UNITTEST_BIN) "$$1"; }; \
+	  run "test/sql/common/*" || exit $$?; \
+	  if [ -f test/sql/services/$*.test ]; then run "test/sql/services/$*.test" || exit $$?; fi
 
 test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + memory)
 
-s3-up: fixtures ## Start + provision the MinIO test service (buckets + fixtures + fault proxy)
-	docker compose -f $(S3_COMPOSE) up -d --wait minio fault-proxy
-	docker compose -f $(S3_COMPOSE) run --rm minio-init
+%-up: fixtures ## Start + provision a service tier (e.g. s3-up)
+	@$(NEED_COMPOSE)
+	$(COMPOSE) up -d --wait
+	@if [ -f $(SERVICE_DIR)/ready.sh ]; then sh $(SERVICE_DIR)/ready.sh; fi
+	@if $(COMPOSE) config --profiles | grep -qx init; then $(COMPOSE) run --rm init; fi
 
-s3-down: ## Stop and remove the MinIO test service
-	docker compose -f $(S3_COMPOSE) down -v
+%-down: ## Stop and remove a service tier (e.g. s3-down)
+	@$(NEED_COMPOSE)
+	$(COMPOSE) down -v
 
-s3-assert-no-incomplete: ## Assert no orphaned multipart uploads remain (run after test-common-s3)
-	@$(S3_MC) "mc alias set local http://minio:9000 minioadmin minioadmin >/dev/null 2>&1; \
-	  out=\$$(mc ls --recursive --incomplete local/warehouse/abort-test); \
-	  if [ -n \"\$$out\" ]; then echo 'incomplete multipart uploads remain:'; echo \"\$$out\"; exit 1; fi; \
-	  echo 'No incomplete multipart uploads remain.'"
-
-# fake-gcs-server has no shell, so readiness is a host-side poll rather than a
-# compose healthcheck + `up --wait`.
-gcs-up: fixtures ## Start + provision the fake-gcs-server test service
-	docker compose -f $(GCS_COMPOSE) up -d
-	@echo "waiting for fake-gcs-server..."; \
-	for _ in $$(seq 1 30); do \
-	  curl -sf "http://127.0.0.1:19200/storage/v1/b/warehouse" >/dev/null 2>&1 && exit 0; \
-	  sleep 1; \
-	done; \
-	echo "fake-gcs-server did not become ready" >&2; exit 1
-
-gcs-down: ## Stop and remove the fake-gcs-server test service
-	docker compose -f $(GCS_COMPOSE) down -v
+%-verify: ## Run a service's post-test checks, if it has any (e.g. s3-verify)
+	@if [ -f $(SERVICE_DIR)/verify.sh ]; then sh $(SERVICE_DIR)/verify.sh; \
+	 else echo "$*: no post-test checks"; fi
 
 # ── Rust convenience targets (crate lives in opendal/core) ───────────────────
 .PHONY: rust-build rust-test rust-fmt rust-fmt-check cpp-fmt format-all rust-lint rust-clean cargo-clean clean-all help

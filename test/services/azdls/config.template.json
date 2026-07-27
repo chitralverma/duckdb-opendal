@@ -1,0 +1,11 @@
+{
+  "description": "opendal common suite over azdls:// (real Azure Data Lake Gen2)",
+  "init_script": "test/configs/auth_azdls.sql",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
+  "test_env": [
+    { "env_name": "OPENDAL_BASE", "env_value": "azdls://${OPENDAL_AZDLS_HOST}/odfs" },
+    { "env_name": "OPENDAL_AZDLS_HOST", "env_value": "${OPENDAL_AZDLS_HOST}" },
+    { "env_name": "OPENDAL_AZDLS_FILESYSTEM", "env_value": "${OPENDAL_AZDLS_FILESYSTEM}" },
+    { "env_name": "OPENDAL_AZDLS_ACCOUNT_KEY", "env_value": "${OPENDAL_AZDLS_ACCOUNT_KEY}" }
+  ]
+}

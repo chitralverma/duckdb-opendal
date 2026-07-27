@@ -1,6 +1,6 @@
 ---
 name: extension-release
-description: Cut a duckdb-opendal release — bump the extension version, update the CHANGELOG and compatibility matrix, tag it (triggers the create-release-draft binaries), then bump description.yml:ref and sync the DuckDB community-extensions registry entry. Use when the user asks to release, cut a version, tag a release, publish the extension, or update the community registry ref.
+description: Cut a duckdb-opendal release — bump the extension version, update the compatibility matrix, tag it (triggers the create-release-draft binaries), then bump description.yml:ref and sync the DuckDB community-extensions registry entry. Use when the user asks to release, cut a version, tag a release, publish the extension, or update the community registry ref.
 ---
 
 # Release duckdb-opendal
@@ -28,31 +28,28 @@ DuckDB / OpenDAL upgrades for this release are already merged.
 2. **Bump the version** in `opendal/Cargo.toml` (`version`) — the source of truth.
    Run a build so `opendal/Cargo.lock` picks up the new version. Do **not** bump
    `pyproject.toml` (that is the `duckdb-opendal-tooling` venv, not the extension).
-3. **Update `CHANGELOG.md`**:
-   - Rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`.
-   - Add a fresh empty `## [Unreleased]`.
-   - Update the compare/tag links at the bottom.
-4. **Update the compatibility matrix** in `README.md` with the new row
+3. **Update the compatibility matrix** in `README.md` with the new row
    (extension, DuckDB, OpenDAL `rev`, services).
-5. **Commit** (e.g. `release: vX.Y.Z`) and **push `main`**. Record the commit SHA
+4. **Commit** (e.g. `release: vX.Y.Z`) and **push `main`**. Record the commit SHA
    — this is the release commit that everything must point to.
-6. **Tag and push**:
+5. **Tag and push**:
    ```sh
    git tag -a vX.Y.Z <release-sha> -m "vX.Y.Z"
    git push origin vX.Y.Z
    ```
    This triggers `create-release-draft`, which builds the per-platform binaries
-   and drafts a GitHub release with generated notes. Fold those notes into the
-   CHANGELOG section if they add detail, then **publish the draft release**.
-7. **Update the community-extensions `description.yml`**
+   and drafts a GitHub release whose notes are generated from the merged pull
+   requests. Curate the draft, then **publish it** — that is the changelog; no
+   file in this repo is edited by hand.
+6. **Update the community-extensions `description.yml`**
    (`extensions/opendal/description.yml` in the `community-extensions` checkout):
    set `version` to `X.Y.Z` and `ref` to `<release-sha>`, so the registry builds
    exactly the tagged commit.
-8. **Open/refresh the community-extensions PR**:
+7. **Open/refresh the community-extensions PR**:
    - If the extension is not yet listed, open the add-extension PR; otherwise open
      a follow-up PR bumping `version` + `ref`.
    - Push to update the PR. Community CI needs maintainer approval for fork PRs.
-9. **Verify deployment** once merged (CDN is per DuckDB version):
+8. **Verify deployment** once merged (CDN is per DuckDB version):
    ```sh
    curl -s -o /dev/null -w "%{http_code}\n" \
      http://community-extensions.duckdb.org/<duckdb_version>/linux_amd64/opendal.duckdb_extension.gz
@@ -66,8 +63,7 @@ The release is complete only when:
   commit**.
 - `opendal/Cargo.toml` version and the community-extensions `description.yml`
   version match `X.Y.Z`.
-- `CHANGELOG.md` has the dated `X.Y.Z` section and a fresh `[Unreleased]`.
-- The GitHub release is published with per-platform assets.
+- The GitHub release is published with per-platform assets and curated notes.
 - The community-extensions PR is updated (and, once merged + built, the CDN
   serves the new binary for the target DuckDB version).
 

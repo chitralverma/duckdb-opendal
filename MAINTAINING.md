@@ -49,11 +49,11 @@ DuckDB patch broke us → fix, then cut a release.
    `git -C <sub> checkout --detach FETCH_HEAD` → `git add <sub>`).
 4. **`MainDistributionPipeline.yml`**: `duckdb_version`, `ci_tools_version`, and the
    `@vX.Y-*` ref on the reusable `_extension_*` workflows → new line branch.
-5. **Docs**: submodule-pin note in `CONTRIBUTING.md`, the
-   [compatibility matrix](README.md#compatibility), and `CHANGELOG.md`.
+5. **Docs**: submodule-pin note in `CONTRIBUTING.md` and the
+   [compatibility matrix](README.md#compatibility).
 6. **Verify**: `make format-all`, build (`GEN=ninja make`), then `make rust-test`,
-   `make test-local`, and the S3 tier
-   (`make s3-up && make test-common-s3 && make s3-assert-no-incomplete && make s3-down`).
+   `make test-local`, and one provisioned tier
+   (`make s3-up && make test-common-s3 && make s3-verify && make s3-down`).
 7. **Review** `git diff --submodule=log`; note any C-API compatibility changes.
 8. Proceed to **[Releasing](#releasing)**.
 
@@ -83,8 +83,7 @@ release/rev.
 4. **Verify**: rebuild, then `make rust-test`, `make test-local`, and the S3 tier.
 5. **Adjust** the FFI/core (`opendal/src/*.rs`) for any OpenDAL API changes.
 6. **Update docs**: the OpenDAL column in the
-   [compatibility matrix](README.md#compatibility) (version **or** short rev) and
-   the `CHANGELOG.md`.
+   [compatibility matrix](README.md#compatibility) (version **or** short rev).
 
 ---
 
@@ -111,19 +110,18 @@ for the full checklist. Summary:
 1. **Pick the version** (semver; `0.x` may break).
 2. **Bump `version`** in `opendal/Cargo.toml` (the source of truth). Build so
    `opendal/Cargo.lock` picks it up.
-3. **Update `CHANGELOG.md`**: rename `[Unreleased]` to the new version with a
-   date, add a fresh empty `[Unreleased]`, and refresh the compare links at the
-   bottom. Seed the notes from the draft release's auto-generated notes.
-4. **Update the [compatibility matrix](README.md#compatibility)** with the new row
-   (extension version, DuckDB, OpenDAL release/rev, services).
-5. **Commit and push `main`.** Record the commit SHA — this is the release commit.
-6. **Tag `vX.Y.Z`** at that commit and push the tag. This triggers the
+3. **Update the [compatibility matrix](README.md#compatibility)** with the new row
+   (extension version, DuckDB, OpenDAL release/rev, services). Release notes are
+   generated from the merged pull requests — nothing to write by hand; curate the
+   draft the tag produces.
+4. **Commit and push `main`.** Record the commit SHA — this is the release commit.
+5. **Tag `vX.Y.Z`** at that commit and push the tag. This triggers the
    `create-release-draft` job, which builds the per-platform binaries and drafts a
    GitHub release with generated notes. Review and **publish the draft**.
-7. **Update the community-extensions `description.yml`**
+6. **Update the community-extensions `description.yml`**
    (`extensions/opendal/description.yml`): set `version` to `X.Y.Z` and `ref` to
    the release commit, so the registry builds exactly the tagged commit.
-8. **Open/refresh the community-extensions PR** (or, if already listed, a
+7. **Open/refresh the community-extensions PR** (or, if already listed, a
    follow-up PR bumping `version` + `ref`).
 
 > **Invariant:** the git tag, the community-extensions `description.yml:ref`, and
@@ -138,8 +136,11 @@ Defined in `.github/workflows/MainDistributionPipeline.yml`, triggered on tags.
 It downloads the per-platform build artifacts, flattens/renames them, and creates
 a **draft** GitHub release with auto-generated notes.
 
+Notes are generated from the merged pull requests, so PR titles are the
+changelog — see `CHANGELOG.md`.
+
 It is **not** required by the community registry (which builds from source at the
 community-extensions `description.yml:ref`). Kept as the project's only channel for
 downloadable per-platform binaries — manual/unsigned installs, air-gapped
 environments, or targeting a DuckDB the registry no longer serves (load with
-`allow_unsigned_extensions`). Also anchors tags and publishes changelog notes.
+`allow_unsigned_extensions`).
