@@ -15,6 +15,7 @@ FROM opendal_schemes();
 | Google Cloud Storage              | `gcs://`                             | [gcs](gcs.md)         |
 | Azure Blob, Data Lake Gen2, Files | `azblob://`, `azdls://`, `azfile://` | [azure](azure.md)     |
 | HTTP servers (read-only)          | `http://`, `https://`                | [http](http.md)       |
+| HDFS                              | `hdfs-native://`                     | [hdfs](hdfs.md)       |
 
 ## How every service works
 
@@ -39,16 +40,17 @@ CREATE SECRET <name> (
 );
 ```
 
-| Scheme                | Authority    | Usually required in `config`     |
-| --------------------- | ------------ | -------------------------------- |
-| `fs://`               | *(empty)*    | `root`                           |
-| `memory://`           | *(empty)*    | —                                |
-| `s3://`               | bucket       | credentials, `region`            |
-| `gcs://`              | bucket       | credentials                      |
-| `azblob://`           | container    | `endpoint`, credentials          |
-| `azdls://`            | account host | `filesystem`, credential         |
-| `azfile://`           | account host | `share_name`, credential         |
-| `http://`, `https://` | host         | — (credentials only if required) |
+| Scheme                | Authority            | Usually required in `config`     |
+| --------------------- | -------------------- | -------------------------------- |
+| `fs://`               | *(empty)*            | `root`                           |
+| `memory://`           | *(empty)*            | —                                |
+| `s3://`               | bucket               | credentials, `region`            |
+| `gcs://`              | bucket               | credentials                      |
+| `azblob://`           | container            | `endpoint`, credentials          |
+| `azdls://`            | account host         | `filesystem`, credential         |
+| `azfile://`           | account host         | `share_name`, credential         |
+| `http://`, `https://` | host                 | — (credentials only if required) |
+| `hdfs-native://`      | namenode RPC address | — (cluster options only)         |
 
 Things that hold for all of them:
 
