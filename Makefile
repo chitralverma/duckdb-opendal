@@ -13,12 +13,15 @@ DUCKDB_SRCDIR := ./duckdb/
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
 # ── SQLLogicTest targets: common suite run per service (see CONTRIBUTING.md) ──
-.PHONY: test-local fixtures s3-up s3-down s3-assert-no-incomplete gcs-up gcs-down
+.PHONY: test-local fixtures s3-up s3-down s3-assert-no-incomplete gcs-up gcs-down \
+        sftp-up sftp-down
 UNITTEST_BIN := ./build/release/test/unittest
 FIXTURES_DIR := test/services/fixtures
 S3_COMPOSE := test/services/s3/docker-compose.yml
 S3_MC := docker compose -f $(S3_COMPOSE) run --rm --entrypoint sh minio-init -c
 GCS_COMPOSE := test/services/gcs/docker-compose.yml
+SFTP_COMPOSE := test/services/sftp/docker-compose.yml
+SFTP_KEY := test/services/sftp/keys/id_ed25519
 
 fixtures: ## Generate the shared external-object test fixtures
 	mkdir -p $(FIXTURES_DIR)
@@ -31,6 +34,11 @@ test-common-%: ## Run the common suite for a service (e.g. test-common-fs)
 	fi
 
 test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + memory)
+
+# openssh (used by the sftp service) puts its ControlPath socket under
+# XDG_STATE_HOME; a long value blows the 104-char unix-socket limit and every
+# connection fails with "too long for Unix domain socket". Pin it somewhere short.
+test-common-sftp: export XDG_STATE_HOME := /tmp
 
 s3-up: fixtures ## Start + provision the MinIO test service (buckets + fixtures + fault proxy)
 	docker compose -f $(S3_COMPOSE) up -d --wait minio fault-proxy
@@ -58,6 +66,19 @@ gcs-up: fixtures ## Start + provision the fake-gcs-server test service
 
 gcs-down: ## Stop and remove the fake-gcs-server test service
 	docker compose -f $(GCS_COMPOSE) down -v
+
+# OpenDAL's sftp service is key-only, so generate a throwaway keypair the
+# container trusts. ssh rejects a group/world-readable private key.
+$(SFTP_KEY):
+	mkdir -p $(dir $(SFTP_KEY))
+	ssh-keygen -t ed25519 -N '' -C opendal-test -f $(SFTP_KEY) >/dev/null
+	chmod 600 $(SFTP_KEY)
+
+sftp-up: fixtures $(SFTP_KEY) ## Start + provision the atmoz/sftp test service
+	docker compose -f $(SFTP_COMPOSE) up -d --wait
+
+sftp-down: ## Stop and remove the atmoz/sftp test service
+	docker compose -f $(SFTP_COMPOSE) down -v
 
 # ── Rust convenience targets (crate lives in opendal/core) ───────────────────
 .PHONY: rust-build rust-test rust-fmt rust-fmt-check cpp-fmt format-all rust-lint rust-clean cargo-clean clean-all help

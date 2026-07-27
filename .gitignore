@@ -22,3 +22,6 @@ scripts/__pycache__/
 
 # generated external-object test fixtures (created by `make fixtures`)
 test/services/fixtures/
+
+# throwaway sftp keypair (created by `make sftp-up`)
+test/services/sftp/keys/
