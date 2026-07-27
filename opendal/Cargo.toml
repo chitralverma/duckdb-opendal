@@ -20,11 +20,18 @@ strip = true
 [features]
 # Compiled-in OpenDAL services; each maps to opendal/services-<name>. Build a
 # subset with `--no-default-features --features services-<name>`.
-default = ["services-memory", "services-fs", "services-s3", "services-gcs"]
+default = [
+  "services-memory",
+  "services-fs",
+  "services-s3",
+  "services-gcs",
+  "services-sftp",
+]
 services-fs = ["opendal/services-fs"]
 services-gcs = ["opendal/services-gcs"]
 services-memory = ["opendal/services-memory"]
 services-s3 = ["opendal/services-s3"]
+services-sftp = ["opendal/services-sftp"]
 
 [dependencies.opendal]
 default-features = false
@@ -36,16 +43,6 @@ features = [
   "layers-concurrent-limit",
   "layers-foyer",
 ]
-git = "https://github.com/apache/opendal.git"
-rev = "7ce945d925ac765f3d5f877451a27f48bd7b862e"
-
-# sftp only builds on unix: it drives the system `ssh` through the `openssh`
-# crate, which is std::os::unix-only. Cargo features cannot be target-gated, so
-# the service is enabled through a target-scoped dependency entry instead of the
-# [features] table above. Keep git/rev in sync with [dependencies.opendal].
-[target.'cfg(unix)'.dependencies.opendal]
-default-features = false
-features = ["services-sftp"]
 git = "https://github.com/apache/opendal.git"
 rev = "7ce945d925ac765f3d5f877451a27f48bd7b862e"
 

@@ -17,11 +17,9 @@ Apache OpenDAL revision; see the compatibility matrix in the
 
 ### Added
 
-- `sftp://` service, compiled in by default on unix. It is unavailable on
-  Windows because OpenDAL drives the system `ssh` through the `openssh` crate,
-  which is unix-only. Tested against an atmoz/sftp emulator (`make sftp-up` /
-  `sftp-down`); OpenDAL authenticates with a key only, so the target generates a
-  throwaway keypair.
+- `sftp://` service, compiled in by default. Tested against an atmoz/sftp
+  emulator (`make sftp-up` / `sftp-down`); OpenDAL authenticates with a key only,
+  so the target generates a throwaway keypair.
 - `gcs://` (Google Cloud Storage) service, compiled in by default. Tested against
   a fake-gcs-server emulator (`make gcs-up` / `gcs-down`).
 - `opendal_schemes()` table function listing the storage schemes compiled into

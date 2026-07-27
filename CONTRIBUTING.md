@@ -56,7 +56,7 @@ Produces:
 - `./build/release/extension/opendal/opendal.duckdb_extension` — the loadable binary
 
 The default build compiles all services in the crate's `default` feature set
-(`memory`, `fs`, `s3`, `gcs`, and `sftp` on unix). Build a subset with
+(`memory`, `fs`, `s3`, `gcs`, `sftp`). Build a subset with
 `cargo build --no-default-features --features services-s3` (see
 `opendal/Cargo.toml [features]`).
 
@@ -117,12 +117,6 @@ make sftp-up             # generate a throwaway keypair, start the server, seed 
 make test-common-sftp    # common suite against sftp://
 make sftp-down
 ```
-
-`sftp` is unix-only: OpenDAL drives the system `ssh` via the `openssh` crate,
-which does not build on Windows. Cargo features cannot be target-gated, so the
-service is enabled through a `[target.'cfg(unix)'.dependencies.opendal]` entry in
-`opendal/Cargo.toml` rather than the `[features]` table — meaning
-`--features services-sftp` is not a valid subset build.
 
 OpenDAL's sftp service authenticates with a key only and shells out to the system
 `ssh`, so `sftp-up` generates a gitignored keypair under
