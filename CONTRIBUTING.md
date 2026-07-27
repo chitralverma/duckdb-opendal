@@ -39,7 +39,7 @@ duckdb/, extension-ci-tools/   submodules on the v1.5 line (v1.5-variegata)
 - **CMake** 3.22+
 - **Compiler**: GCC/Clang (Linux/macOS) or MSVC (Windows)
 - **Ninja** or Make
-- **Docker** (only for the S3 and GCS test tiers)
+- **Docker** (only for the S3, GCS, and SFTP test tiers)
 - **[uv](https://github.com/astral-sh/uv)** (only for formatting tools)
 
 ## Building
@@ -56,7 +56,7 @@ Produces:
 - `./build/release/extension/opendal/opendal.duckdb_extension` — the loadable binary
 
 The default build compiles all services in the crate's `default` feature set
-(`memory`, `fs`, `s3`, `gcs`). Build a subset with
+(`memory`, `fs`, `s3`, `gcs`, `sftp`). Build a subset with
 `cargo build --no-default-features --features services-s3` (see
 `opendal/Cargo.toml [features]`).
 
@@ -109,6 +109,22 @@ make gcs-up             # start fake-gcs-server, create the bucket, seed fixture
 make test-common-gcs    # common suite against gcs://
 make gcs-down
 ```
+
+### SFTP tier (atmoz/sftp via Docker)
+
+```sh
+make sftp-up             # generate a throwaway keypair, start the server, seed fixtures
+make test-common-sftp    # common suite against sftp://
+make sftp-down
+```
+
+OpenDAL's sftp service authenticates with a key only and shells out to the system
+`ssh`, so `sftp-up` generates a gitignored keypair under
+`test/services/sftp/keys/`. The URL uses an empty authority (`sftp:///path`) and
+the secret carries the endpoint: OpenDAL's `from_uri` overwrites `endpoint` with
+the URL authority, which would drop the port. `test-common-sftp` also pins
+`XDG_STATE_HOME=/tmp` because openssh puts its ControlPath socket there and a long
+path exceeds the 104-char unix-socket limit.
 
 `test/services/gcs/docker-compose.yml` mounts the shared fixtures as
 `gcs://warehouse/external/`, which also creates the bucket. The image has no

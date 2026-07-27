@@ -20,11 +20,18 @@ strip = true
 [features]
 # Compiled-in OpenDAL services; each maps to opendal/services-<name>. Build a
 # subset with `--no-default-features --features services-<name>`.
-default = ["services-memory", "services-fs", "services-s3", "services-gcs"]
+default = [
+  "services-memory",
+  "services-fs",
+  "services-s3",
+  "services-gcs",
+  "services-sftp",
+]
 services-fs = ["opendal/services-fs"]
 services-gcs = ["opendal/services-gcs"]
 services-memory = ["opendal/services-memory"]
 services-s3 = ["opendal/services-s3"]
+services-sftp = ["opendal/services-sftp"]
 
 [dependencies.opendal]
 default-features = false

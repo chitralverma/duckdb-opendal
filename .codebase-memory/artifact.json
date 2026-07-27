@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "2d915ff95d46f4b7c9d20a848450b4a694ba9561",
+    "indexed_at": "2026-07-27T04:24:48Z",
+    "project": "Users-chitralverma-IdeaProjects-cloudfs-duckdb-opendal",
+    "nodes": 119783,
+    "edges": 593202,
+    "original_size": 495321088,
+    "compressed_size": 65054018,
+    "compression_level": 3
+}

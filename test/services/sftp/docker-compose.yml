@@ -1,0 +1,31 @@
+# atmoz/sftp for the sftp:// test tier. Use `make sftp-up` / `sftp-down`.
+#
+# OpenDAL's sftp service authenticates with a key only (no password), and it
+# shells out to the system `ssh`, so `make sftp-up` generates a throwaway keypair
+# into the gitignored ./keys and mounts the public half here. The shared fixtures
+# are mounted read-only as external/.
+
+name: opendal-sftp-test
+
+services:
+  sftp:
+    image: atmoz/sftp:debian
+    ports:
+      - "19400:22"
+    volumes:
+      - ./keys/id_ed25519.pub:/home/opendal/.ssh/keys/id_ed25519.pub:ro
+      - ../fixtures:/home/opendal/upload/external:ro
+      - ./fix-perms.sh:/etc/sftp.d/10-fix-perms.sh:ro
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # user:uid:gid:writable-dir — atmoz/sftp chroots to /home/opendal, so the
+    # writable subdirectory is the operator root.
+    command: opendal::::upload
+    healthcheck:
+      # Portable across the alpine/debian tags; 0016 is port 22 in /proc/net/tcp.
+      test: ["CMD-SHELL", "grep -q ':0016 ' /proc/net/tcp"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
