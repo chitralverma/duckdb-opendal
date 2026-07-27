@@ -26,12 +26,15 @@ fixtures: ## Generate the shared external-object test fixtures
 	mkdir -p $(FIXTURES_DIR)
 	./build/release/duckdb -c "COPY (SELECT range AS id, range * 2 AS d FROM range(100)) TO '$(FIXTURES_DIR)/ext_seed.parquet' (FORMAT parquet); COPY (SELECT range AS id, 'v' || range AS v FROM range(50)) TO '$(FIXTURES_DIR)/ext_seed.csv' (FORMAT csv, HEADER);"
 
+# The recipe is @-silent because it has to resolve the config first (see
+# test/services/render_config.py), so it echoes each unittest invocation itself —
+# copy-pasteable to rerun a failing tier directly.
 test-common-%: ## Run the common suite for a service (e.g. test-common-fs)
-	@cfg=$$(python3 test/services/render_config.py $*) && echo "config: $$cfg" && \
-	  DUCKDB_TEST_CONFIG=$$cfg $(UNITTEST_BIN) "test/sql/common/*" && \
-	  if [ -f test/sql/services/$*.test ]; then \
-	    DUCKDB_TEST_CONFIG=$$cfg $(UNITTEST_BIN) "test/sql/services/$*.test"; \
-	  fi
+	@cfg=$$(python3 test/services/render_config.py $*) || exit $$?; \
+	  run() { echo "DUCKDB_TEST_CONFIG=$$cfg $(UNITTEST_BIN) '$$1'"; \
+	          DUCKDB_TEST_CONFIG=$$cfg $(UNITTEST_BIN) "$$1"; }; \
+	  run "test/sql/common/*" || exit $$?; \
+	  if [ -f test/sql/services/$*.test ]; then run "test/sql/services/$*.test" || exit $$?; fi
 
 test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + memory)
 
