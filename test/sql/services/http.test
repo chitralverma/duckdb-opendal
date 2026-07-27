@@ -94,8 +94,11 @@ SELECT secret_name IS NULL FROM opendal_info('${OPENDAL_HTTP_BASE}/ext_seed.csv'
 true
 
 # ── Partitioned datasets: globbing a dataset root needs list, so the files are
-# named explicitly. Hive partition columns still come from the paths, and a
-# partition filter still prunes.
+# named explicitly. Hive partition columns still come from the paths.
+#
+# Both partitions are the same fixture mounted twice, so this covers partition-
+# column extraction only: identical data means a wrong-partition read or a lost
+# pruning optimization would still produce these counts.
 
 query II
 SELECT year, count(*) FROM read_parquet([

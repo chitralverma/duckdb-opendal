@@ -22,8 +22,23 @@ services:
       # reading a partitioned dataset by explicit file list (this service cannot
       # glob one — no list capability). Kept outside the read-only /public mount,
       # which cannot host nested mountpoints.
-      - ../fixtures/ext_seed.parquet:/usr/share/nginx/html/hive/year=2025/data.parquet:ro
-      - ../fixtures/ext_seed.parquet:/usr/share/nginx/html/hive/year=2026/data.parquet:ro
+      #
+      # Long syntax with create_host_path: false — a short-syntax bind whose
+      # source file is missing (fixtures not generated yet) makes Docker create a
+      # *directory* there, and test/services/fixtures/ is gitignored, so the
+      # breakage is invisible until `make fixtures` fails writing over it.
+      - type: bind
+        source: ../fixtures/ext_seed.parquet
+        target: /usr/share/nginx/html/hive/year=2025/data.parquet
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../fixtures/ext_seed.parquet
+        target: /usr/share/nginx/html/hive/year=2026/data.parquet
+        read_only: true
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
       interval: 2s

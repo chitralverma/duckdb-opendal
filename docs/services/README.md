@@ -39,16 +39,16 @@ CREATE SECRET <name> (
 );
 ```
 
-| Scheme      | Authority    | Usually required in `config`     |
-| ----------- | ------------ | -------------------------------- |
-| `fs://`     | *(empty)*    | `root`                           |
-| `memory://` | *(empty)*    | —                                |
-| `s3://`     | bucket       | credentials, `region`            |
-| `gcs://`    | bucket       | credentials                      |
-| `azblob://` | container    | `endpoint`, credentials          |
-| `azdls://`  | account host | `filesystem`, credential         |
-| `azfile://` | account host | `share_name`, credential         |
-| `http://`   | host         | — (credentials only if required) |
+| Scheme                | Authority    | Usually required in `config`     |
+| --------------------- | ------------ | -------------------------------- |
+| `fs://`               | *(empty)*    | `root`                           |
+| `memory://`           | *(empty)*    | —                                |
+| `s3://`               | bucket       | credentials, `region`            |
+| `gcs://`              | bucket       | credentials                      |
+| `azblob://`           | container    | `endpoint`, credentials          |
+| `azdls://`            | account host | `filesystem`, credential         |
+| `azfile://`           | account host | `share_name`, credential         |
+| `http://`, `https://` | host         | — (credentials only if required) |
 
 Things that hold for all of them:
 

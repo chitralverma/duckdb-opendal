@@ -68,8 +68,7 @@ GROUP BY year;
 ```
 
 With `WHERE year = 2026`, the 2025 file is never fetched — DuckDB opens only the
-first file (to bind the schema) and the partitions that match. Both forms are
-covered by the extension's own test suite.
+first file (to bind the schema) and the partitions that match.
 
 If the data lives in an object store, prefer that store's own scheme — globbing
 and discovery work normally there. `http`/`https` is for hosts that only speak
