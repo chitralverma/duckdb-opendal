@@ -18,6 +18,12 @@ services:
       - ./htpasswd:/etc/nginx/htpasswd:ro
       - ../fixtures:/usr/share/nginx/html/public:ro
       - ../fixtures:/usr/share/nginx/html/protected:ro
+      # The same fixture under two Hive partition paths, so the tier can cover
+      # reading a partitioned dataset by explicit file list (this service cannot
+      # glob one — no list capability). Kept outside the read-only /public mount,
+      # which cannot host nested mountpoints.
+      - ../fixtures/ext_seed.parquet:/usr/share/nginx/html/hive/year=2025/data.parquet:ro
+      - ../fixtures/ext_seed.parquet:/usr/share/nginx/html/hive/year=2026/data.parquet:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
       interval: 2s

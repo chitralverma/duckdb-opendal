@@ -93,6 +93,29 @@ SELECT secret_name IS NULL FROM opendal_info('${OPENDAL_HTTP_BASE}/ext_seed.csv'
 ----
 true
 
+# ── Partitioned datasets: globbing a dataset root needs list, so the files are
+# named explicitly. Hive partition columns still come from the paths, and a
+# partition filter still prunes.
+
+query II
+SELECT year, count(*) FROM read_parquet([
+    '${OPENDAL_HTTP_HIVE_BASE}/year=2025/data.parquet',
+    '${OPENDAL_HTTP_HIVE_BASE}/year=2026/data.parquet'
+], hive_partitioning = true)
+GROUP BY year ORDER BY year;
+----
+2025	100
+2026	100
+
+query I
+SELECT count(*) FROM read_parquet([
+    '${OPENDAL_HTTP_HIVE_BASE}/year=2025/data.parquet',
+    '${OPENDAL_HTTP_HIVE_BASE}/year=2026/data.parquet'
+], hive_partitioning = true)
+WHERE year = 2026;
+----
+100
+
 # ── https:// is the same service against a TLS endpoint. No network here: the
 # operator is built and its capabilities reported without a request.
 

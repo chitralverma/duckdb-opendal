@@ -5,6 +5,7 @@
   "test_env": [
     { "env_name": "OPENDAL_HTTP_BASE", "env_value": "http://127.0.0.1:19300/public" },
     { "env_name": "OPENDAL_HTTP_PROTECTED_BASE", "env_value": "http://127.0.0.1:19300/protected" },
+    { "env_name": "OPENDAL_HTTP_HIVE_BASE", "env_value": "http://127.0.0.1:19300/hive" },
     { "env_name": "OPENDAL_HTTP_USER", "env_value": "odfs" },
     { "env_name": "OPENDAL_HTTP_PASSWORD", "env_value": "odfs-test-secret" }
   ]

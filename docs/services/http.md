@@ -47,6 +47,34 @@ Scope the secret to the prefix that needs it — URLs outside it stay anonymous.
 `TYPE http` and `TYPE https` are separate secret types; use the one matching the
 scheme in your URLs.
 
+## Partitioned datasets
+
+Globbing a dataset root needs `list`, so it fails here:
+
+```sql
+SELECT * FROM read_parquet('https://example.com/data/**/*.parquet');
+-- IO Error: ... service 'http' does not support list
+```
+
+List the files explicitly instead. Hive partition columns still come from the
+paths, and partition filters still prune:
+
+```sql
+SELECT year, count(*) FROM read_parquet([
+    'https://example.com/data/year=2025/part-0.parquet',
+    'https://example.com/data/year=2026/part-0.parquet'
+], hive_partitioning = true)
+GROUP BY year;
+```
+
+With `WHERE year = 2026`, the 2025 file is never fetched — DuckDB opens only the
+first file (to bind the schema) and the partitions that match. Both forms are
+covered by the extension's own test suite.
+
+If the data lives in an object store, prefer that store's own scheme — globbing
+and discovery work normally there. `http`/`https` is for hosts that only speak
+plain HTTP.
+
 ## Notes
 
 - **Query strings are rejected** (`?token=…`), so pre-signed URLs do not work
