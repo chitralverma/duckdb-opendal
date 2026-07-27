@@ -20,7 +20,8 @@ two files:
 When every `${VAR}` the template references is present in the environment, the
 template is rendered to `build/test-configs/<name>.json` (gitignored) and that
 path is printed; otherwise the stub is printed and the suite skips cleanly.
-This keeps secrets out of the repo and out of the working tree.
+This keeps secrets out of git; the rendered file is written 0600 under
+build/, which is gitignored.
 
 Usage:
   render_config.py <service>
@@ -46,10 +47,14 @@ def render(service):
 
     missing = sorted({name for name in PLACEHOLDER.findall(body) if not os.environ.get(name)})
     if missing:
-        print(
-            f"{service}: credentials not configured ({', '.join(missing)}) — " "tests will skip",
-            file=sys.stderr,
-        )
+        message = f"{service}: credentials not configured ({', '.join(missing)})"
+        # A skipped tier is indistinguishable from a passing one, so coverage can
+        # silently drop to zero if a secret is removed or expires. Set
+        # OPENDAL_REQUIRE_CLOUD_TIERS=1 (trusted branches, scheduled runs) to make
+        # that a hard failure instead.
+        if os.environ.get("OPENDAL_REQUIRE_CLOUD_TIERS") == "1":
+            sys.exit(f"{message}; refusing to skip because OPENDAL_REQUIRE_CLOUD_TIERS=1")
+        print(f"{message} — tests will skip", file=sys.stderr)
         return stub
 
     # json.dumps(...)[1:-1] escapes the value for a JSON string literal.
@@ -57,7 +62,10 @@ def render(service):
     out_dir = os.path.join(REPO_ROOT, "build", "test-configs")
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, service + ".json")
-    with open(out_path, "w", encoding="utf-8") as handle:
+    # The rendered config holds the account key in plaintext, so do not leave it
+    # world-readable on a shared or reused machine.
+    fd = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(rendered)
     return out_path
 

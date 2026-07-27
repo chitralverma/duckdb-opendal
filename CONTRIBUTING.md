@@ -153,6 +153,14 @@ process environment. So a credential-gated service ships two files and
   placeholders, rendered to `build/test-configs/<svc>.json` (gitignored) when
   every referenced var is set.
 
+The rendered file holds the credential in plaintext, so it is written `0600`.
+
+A skipped tier looks exactly like a passing one, so a removed or expired secret
+would quietly drop that service's coverage to zero. Set
+`OPENDAL_REQUIRE_CLOUD_TIERS=1` to turn a missing credential into a hard failure
+instead; CI sets it on `main` pushes and the scheduled run, and leaves it off for
+pull requests (where forks legitimately have no secrets).
+
 ### How env substitution works
 
 The SQLLogicTest runner substitutes `${VAR}`/`{VAR}` anywhere in a test body from

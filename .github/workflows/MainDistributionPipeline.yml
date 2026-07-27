@@ -99,7 +99,10 @@ jobs:
       HAVE_SECRETS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'true' || 'false' }}
       # Real-cloud services (test/services/<svc>/requires-secrets). Unset here =
       # test/services/render_config.py falls back to the tracked stub config and
-      # that service's tier skips instead of failing.
+      # that service's tier skips instead of failing. On main and on the
+      # scheduled run a skip would hide the loss of a whole tier, so require the
+      # credentials to be present there.
+      OPENDAL_REQUIRE_CLOUD_TIERS: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '1' || '0' }}
       OPENDAL_AZDLS_HOST: ${{ secrets.OPENDAL_AZDLS_HOST }}
       OPENDAL_AZDLS_FILESYSTEM: ${{ secrets.OPENDAL_AZDLS_FILESYSTEM }}
       OPENDAL_AZDLS_ACCOUNT_KEY: ${{ secrets.OPENDAL_AZDLS_ACCOUNT_KEY }}
