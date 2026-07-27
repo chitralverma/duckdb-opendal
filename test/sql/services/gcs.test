@@ -37,8 +37,8 @@ WHERE path = 'svc/deep/nested/key.parquet';
 1
 
 # gcs reports copy_with_if_not_exists = false, so the typed option fails fast with
-# a clear capability error rather than silently overwriting (contrast: the local
-# fs service supports it, and MinIO advertises it).
+# a clear capability error rather than silently overwriting (s3 advertises it;
+# the local fs service reports false too — see the fs test).
 statement ok
 COPY (SELECT range AS id FROM range(10)) TO 'gcs://warehouse/svc/cp_src.parquet' (FORMAT parquet);
 

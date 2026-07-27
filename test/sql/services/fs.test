@@ -37,13 +37,22 @@ SELECT count(*) FROM read_parquet('fs:///__TEST_DIR__/svc/ow.parquet');
 ----
 5
 
-# opendal_copy with if_not_exists refuses to overwrite an existing destination.
-# The local service supports copy_with_if_not_exists (unlike the MinIO emulator).
+# A plain opendal_copy works on fs, but the local service reports
+# copy_with_if_not_exists = false, so that typed option fails fast with a
+# capability error rather than silently overwriting (contrast: s3 advertises
+# it). Match the capability text, not a bare "exist" substring: "exist" also
+# occurs inside "copy_with_if_not_exists", so it could not tell a working
+# guard ("destination exists") apart from the option being unsupported.
 statement ok
 COPY (SELECT range AS id FROM range(10)) TO 'fs:///__TEST_DIR__/svc/cp_src.parquet' (FORMAT parquet);
 
 statement ok
 SELECT * FROM opendal_copy('fs:///__TEST_DIR__/svc/cp_src.parquet', 'fs:///__TEST_DIR__/svc/cp_dst.parquet');
+
+query I
+SELECT capabilities['copy_with_if_not_exists'] FROM opendal_info('fs:///__TEST_DIR__/svc/cp_src.parquet');
+----
+false
 
 statement error
 SELECT * FROM opendal_copy(
@@ -52,7 +61,7 @@ SELECT * FROM opendal_copy(
     if_not_exists := true
 );
 ----
-exist
+service 'fs' does not support copy_with_if_not_exists
 
 # Partitioned COPY ... OVERWRITE clears existing partitions first (RemoveFiles):
 # seed two partitions, then OVERWRITE with a disjoint partition set and confirm
