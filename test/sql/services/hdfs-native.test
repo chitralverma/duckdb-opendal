@@ -1,0 +1,90 @@
+# name: test/sql/services/hdfs-native.test
+# description: hdfs-native://-specific behavior (real directories, rename, append)
+# group: [services]
+
+#
+# Runs only under the hdfs-native config (test/configs/hdfs-native.json), which
+# needs the single-node Hadoop tier. Gated on OPENDAL_HDFS_NATIVE_AUTHORITY,
+# which only that config provides.
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_HDFS_NATIVE_AUTHORITY
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+# Unlike the object stores, HDFS has real directories: a prefix is a first-class
+# entry with mode 'directory', not an inferred one.
+statement ok
+COPY (SELECT range AS id FROM range(20))
+TO 'hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/file.parquet' (FORMAT parquet);
+
+query I
+SELECT metadata.mode FROM opendal_stat('hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/');
+----
+directory
+
+query I
+SELECT metadata.mode FROM opendal_stat('hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/file.parquet');
+----
+file
+
+# Server-side rename is supported, so DuckDB's write-to-temp-then-move needs no
+# copy fallback: overwriting in place works and leaves one entry behind.
+statement ok
+COPY (SELECT range AS id FROM range(35))
+TO 'hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/file.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/file.parquet');
+----
+35
+
+query I
+SELECT count(*) FROM opendal_ls('hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/');
+----
+1
+
+query II
+SELECT capabilities['rename'], capabilities['create_dir']
+FROM opendal_info('hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/');
+----
+true	true
+
+# A nameservice (HA) is configured by leaving the authority out of the URL and
+# listing the namenodes in the secret: opendal turns that into
+# dfs.ha.namenodes.nameservice + dfs.namenode.rpc-address.nameservice.nnN. Both
+# entries point at the same namenode here, which still exercises the HA config
+# path — a comma in the URL authority is rejected by URL parsing, so this is the
+# only way to reach it.
+statement ok
+CREATE SECRET hdfs_native_ha (
+    TYPE "hdfs-native", SCOPE 'hdfs-native://',
+    config MAP{
+        'name_node': 'hdfs://${OPENDAL_HDFS_NATIVE_AUTHORITY},${OPENDAL_HDFS_NATIVE_AUTHORITY}'
+    }
+);
+
+query I
+SELECT count(*) FROM read_parquet('hdfs-native:///external/ext_seed.parquet');
+----
+100
+
+statement ok
+DROP SECRET hdfs_native_ha;
+
+# Deleting a directory recursively removes its contents, which object stores
+# only emulate.
+statement ok
+SELECT * FROM opendal_copy(
+    'hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/file.parquet',
+    'hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/copy.parquet'
+);
+
+query I
+SELECT count(*) FROM opendal_ls('hdfs-native://${OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/');
+----
+2

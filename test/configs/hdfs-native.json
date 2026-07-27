@@ -1,0 +1,10 @@
+{
+  "description": "opendal common suite over hdfs-native:// (single-node Hadoop, RPC)",
+  "init_script": "test/configs/auth_hdfs-native.sql",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
+  "test_env": [
+    { "env_name": "OPENDAL_BASE", "env_value": "hdfs-native://127.0.0.1:19411/odfs" },
+    { "env_name": "OPENDAL_EXTERNAL_BASE", "env_value": "hdfs-native://127.0.0.1:19411/external" },
+    { "env_name": "OPENDAL_HDFS_NATIVE_AUTHORITY", "env_value": "127.0.0.1:19411" }
+  ]
+}

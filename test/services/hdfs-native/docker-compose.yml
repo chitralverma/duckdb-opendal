@@ -1,0 +1,78 @@
+# Single-node Hadoop for the hdfs-native:// test tier: a namenode (RPC, port
+# 8020) and one datanode, which the client streams blocks from directly.
+#
+# The webhdfs tier runs the same image with its own ports and project name. The
+# two are kept separate rather than sharing one cluster so either can be brought
+# up, torn down or parallelised without touching the other.
+#
+# The image is amd64-only and runs under emulation on arm64 — fine in practice
+# (a live datanode inside ~15s), just slower than the other tiers.
+
+name: opendal-hdfs-native-test
+
+services:
+  namenode:
+    image: apache/hadoop:3.4.1
+    platform: linux/amd64
+    hostname: namenode
+    command: ["hdfs", "namenode"]
+    ports:
+      # 9870 is the namenode's web UI, used only for readiness probing here.
+      - "19410:9870"
+      - "19411:8020"
+    env_file: ./hadoop.env
+    environment:
+      ENSURE_NAMENODE_DIR: /tmp/hadoop-root/dfs/name
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9870/webhdfs/v1/?op=LISTSTATUS&user.name=root"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  datanode:
+    image: apache/hadoop:3.4.1
+    platform: linux/amd64
+    # Handed to clients as a block location, so it must resolve from the host —
+    # and its ports must be published unchanged.
+    hostname: localhost
+    command: ["hdfs", "datanode"]
+    ports:
+      - "19412:19412"
+      - "19413:19413"
+    env_file: ./hadoop.env
+    depends_on:
+      namenode:
+        condition: service_healthy
+
+  init:
+    image: apache/hadoop:3.4.1
+    platform: linux/amd64
+    profiles: ["init"]
+    env_file: ./hadoop.env
+    environment:
+      # The cluster advertises its datanode as `localhost` so clients on the
+      # host can reach it; inside the compose network that would point at this
+      # container, so seed over the datanode's address instead.
+      HDFS-SITE.XML_dfs.client.use.datanode.hostname: "false"
+    depends_on:
+      namenode:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ../fixtures
+        target: /fixtures
+        read_only: true
+        bind:
+          create_host_path: false
+    # The image entrypoint renders the env-file settings into the Hadoop XML
+    # config before exec'ing this, so it must stay in place — overriding it
+    # leaves the client with an empty core-site.xml, talking to the local FS.
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        hdfs dfs -mkdir -p /odfs /external
+        hdfs dfs -put -f /fixtures/* /external/
+        hdfs dfs -ls /external
+        echo 'FINISHED SETTING UP HDFS'
