@@ -56,7 +56,7 @@ rev = "7ce945d925ac765f3d5f877451a27f48bd7b862e"
 bytes = "1"
 foyer = "0.22" # match opendal-layer-foyer's transitive version
 futures = "0.3"
-human-units = { version = "=0.5.4", default-features = false, features = [
+human-units = { version = "=0.6.0", default-features = false, features = [
   "std",
   "iec-units",
 ] }
