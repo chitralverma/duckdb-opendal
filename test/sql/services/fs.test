@@ -54,6 +54,40 @@ SELECT * FROM opendal_copy(
 ----
 exist
 
+# The ETag/version conditions are accepted by opendal_copy and fail fast with a
+# capability error on services that do not advertise them (fs does not).
+statement error
+SELECT * FROM opendal_copy(
+    'fs:///__TEST_DIR__/svc/cp_src.parquet',
+    'fs:///__TEST_DIR__/svc/cp_dst2.parquet',
+    if_none_match := '"etag"'
+);
+----
+does not support copy_with_if_none_match
+
+statement error
+SELECT * FROM opendal_copy(
+    'fs:///__TEST_DIR__/svc/cp_src.parquet',
+    'fs:///__TEST_DIR__/svc/cp_dst2.parquet',
+    if_version_match := 'v1'
+);
+----
+does not support copy_with_if_version_match
+
+statement error
+SELECT * FROM opendal_copy(
+    'fs:///__TEST_DIR__/svc/cp_src.parquet',
+    'fs:///__TEST_DIR__/svc/cp_dst2.parquet',
+    if_version_not_match := 'v1'
+);
+----
+does not support copy_with_if_version_not_match
+
+query I
+SELECT count(*) FROM opendal_ls('fs:///__TEST_DIR__/svc/cp_dst2*');
+----
+0
+
 # Partitioned COPY ... OVERWRITE clears existing partitions first (RemoveFiles):
 # seed two partitions, then OVERWRITE with a disjoint partition set and confirm
 # the old partitions are gone. (The memory service does not honor this, so it is

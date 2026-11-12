@@ -81,8 +81,11 @@ Returns one row per copied object — `source`, `destination`, `bytes_copied`,
 `metadata` — as each copy commits. For a directory or glob source, each file
 keeps its path relative to the fixed part of the source.
 
-Options: `if_not_exists`, `concurrent`, `chunk_size`, and (single file only)
-`source_version` and `source_content_length_hint`.
+Options: `if_not_exists`, `if_match`, `if_none_match`, `if_version_match`,
+`if_version_not_match` (conditions on the destination), `concurrent`,
+`chunk_size`, and (single file only) `source_version` and
+`source_content_length_hint`. A condition the service does not support fails
+before anything is copied; `opendal_info` lists what each service advertises.
 
 Good to know:
 

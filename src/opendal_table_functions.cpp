@@ -343,6 +343,9 @@ struct CopyBindData : public TableFunctionData {
 	std::string source;
 	std::string destination;
 	std::string if_match;
+	std::string if_none_match;
+	std::string if_version_match;
+	std::string if_version_not_match;
 	std::string source_version;
 	idx_t source_content_length_hint = 0;
 	idx_t concurrent = 0;
@@ -367,6 +370,9 @@ static unique_ptr<FunctionData> CopyBind(ClientContext &, TableFunctionBindInput
 	result->destination = input.inputs[1].GetValue<string>();
 	result->if_not_exists = BoolParameter(input.named_parameters, "if_not_exists");
 	result->if_match = StringParameter(input.named_parameters, "if_match");
+	result->if_none_match = StringParameter(input.named_parameters, "if_none_match");
+	result->if_version_match = StringParameter(input.named_parameters, "if_version_match");
+	result->if_version_not_match = StringParameter(input.named_parameters, "if_version_not_match");
 	result->source_version = StringParameter(input.named_parameters, "source_version");
 	auto read_size = [&](const std::string &name, idx_t &value, bool &present, bool allow_zero) {
 		auto entry = input.named_parameters.find(name);
@@ -412,6 +418,9 @@ static void OpenCopyCursor(ClientContext &context, const CopyBindData &bind, Cop
 	OdCopyOptions options = {};
 	options.if_not_exists = bind.if_not_exists;
 	options.if_match = bind.if_match.empty() ? nullptr : bind.if_match.c_str();
+	options.if_none_match = bind.if_none_match.empty() ? nullptr : bind.if_none_match.c_str();
+	options.if_version_match = bind.if_version_match.empty() ? nullptr : bind.if_version_match.c_str();
+	options.if_version_not_match = bind.if_version_not_match.empty() ? nullptr : bind.if_version_not_match.c_str();
 	options.source_version = bind.source_version.empty() ? nullptr : bind.source_version.c_str();
 	options.source_content_length_hint = bind.source_content_length_hint;
 	options.has_source_content_length_hint = bind.has_source_content_length_hint;
@@ -668,6 +677,9 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	TableFunction copy("opendal_copy", {LogicalType::VARCHAR, LogicalType::VARCHAR}, CopyFunc, CopyBind, CopyInit);
 	copy.named_parameters["if_not_exists"] = LogicalType::BOOLEAN;
 	copy.named_parameters["if_match"] = LogicalType::VARCHAR;
+	copy.named_parameters["if_none_match"] = LogicalType::VARCHAR;
+	copy.named_parameters["if_version_match"] = LogicalType::VARCHAR;
+	copy.named_parameters["if_version_not_match"] = LogicalType::VARCHAR;
 	copy.named_parameters["source_version"] = LogicalType::VARCHAR;
 	copy.named_parameters["source_content_length_hint"] = LogicalType::UBIGINT;
 	copy.named_parameters["concurrent"] = LogicalType::UBIGINT;
