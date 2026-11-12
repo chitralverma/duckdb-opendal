@@ -74,6 +74,9 @@ pub struct OdDuRow {
 pub struct OdCopyOptions {
     pub if_not_exists: u8,
     pub if_match: *const c_char,
+    pub if_none_match: *const c_char,
+    pub if_version_match: *const c_char,
+    pub if_version_not_match: *const c_char,
     pub source_version: *const c_char,
     pub source_content_length_hint: u64,
     pub has_source_content_length_hint: u8,
@@ -236,14 +239,16 @@ impl OwnedRow {
 
     fn from_parts(path: String, metadata: Metadata) -> Result<Self, String> {
         let name = opendal::raw::get_basename(&path);
-        let user_metadata = metadata.user_metadata().cloned().unwrap_or_default();
-        let mut user_metadata: Vec<_> = user_metadata.into_iter().collect();
-        user_metadata.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut user_metadata: Vec<(&str, &str)> = metadata
+            .user_metadata()
+            .map(|view| view.into_iter().collect())
+            .unwrap_or_default();
+        user_metadata.sort_by(|a, b| a.0.cmp(b.0));
         let mut user_keys = Vec::with_capacity(user_metadata.len());
         let mut user_values = Vec::with_capacity(user_metadata.len());
         for (key, value) in user_metadata {
-            user_keys.push(cstring(&key, "user metadata key")?);
-            user_values.push(cstring(&value, "user metadata value")?);
+            user_keys.push(cstring(key, "user metadata key")?);
+            user_values.push(cstring(value, "user metadata value")?);
         }
         let user_key_ptrs = user_keys.iter().map(|value| value.as_ptr()).collect();
         let user_value_ptrs = user_values.iter().map(|value| value.as_ptr()).collect();
@@ -894,6 +899,9 @@ fn copy_options(raw: OdCopyOptions) -> Result<CopyOptions, String> {
     Ok(CopyOptions {
         if_not_exists: raw.if_not_exists != 0,
         if_match: optional_cstr(raw.if_match, "if_match")?,
+        if_none_match: optional_cstr(raw.if_none_match, "if_none_match")?,
+        if_version_match: optional_cstr(raw.if_version_match, "if_version_match")?,
+        if_version_not_match: optional_cstr(raw.if_version_not_match, "if_version_not_match")?,
         source_version: optional_cstr(raw.source_version, "source_version")?,
         source_content_length_hint: (raw.has_source_content_length_hint != 0)
             .then_some(raw.source_content_length_hint),
@@ -903,6 +911,7 @@ fn copy_options(raw: OdCopyOptions) -> Result<CopyOptions, String> {
             0
         },
         chunk: (raw.has_chunk_size != 0).then_some(raw.chunk_size),
+        ..CopyOptions::default()
     })
 }
 
@@ -983,6 +992,9 @@ unsafe fn copy_one(
         let writer_options = WriteOptions {
             if_not_exists: options.if_not_exists,
             if_match: options.if_match.clone(),
+            if_none_match: options.if_none_match.clone(),
+            if_version_match: options.if_version_match.clone(),
+            if_version_not_match: options.if_version_not_match.clone(),
             concurrent: options.concurrent,
             chunk: options.chunk,
             ..Default::default()
@@ -1092,6 +1104,24 @@ pub unsafe extern "C" fn od_table_copy_open(
                 ),
                 require_option(
                     &source_op.scheme,
+                    options.if_none_match.is_some(),
+                    source_op.cap.copy_with_if_none_match,
+                    "copy_with_if_none_match",
+                ),
+                require_option(
+                    &source_op.scheme,
+                    options.if_version_match.is_some(),
+                    source_op.cap.copy_with_if_version_match,
+                    "copy_with_if_version_match",
+                ),
+                require_option(
+                    &source_op.scheme,
+                    options.if_version_not_match.is_some(),
+                    source_op.cap.copy_with_if_version_not_match,
+                    "copy_with_if_version_not_match",
+                ),
+                require_option(
+                    &source_op.scheme,
                     options.source_version.is_some(),
                     source_op.cap.copy_with_source_version,
                     "copy_with_source_version",
@@ -1118,6 +1148,24 @@ pub unsafe extern "C" fn od_table_copy_open(
                     options.if_match.is_some(),
                     destination_op.cap.write_with_if_match,
                     "write_with_if_match",
+                ),
+                require_option(
+                    &destination_op.scheme,
+                    options.if_none_match.is_some(),
+                    destination_op.cap.write_with_if_none_match,
+                    "write_with_if_none_match",
+                ),
+                require_option(
+                    &destination_op.scheme,
+                    options.if_version_match.is_some(),
+                    destination_op.cap.write_with_if_version_match,
+                    "write_with_if_version_match",
+                ),
+                require_option(
+                    &destination_op.scheme,
+                    options.if_version_not_match.is_some(),
+                    destination_op.cap.write_with_if_version_not_match,
+                    "write_with_if_version_not_match",
                 ),
             ]
         };
@@ -1351,6 +1399,9 @@ mod tests {
         let options = copy_options(OdCopyOptions {
             if_not_exists: 0,
             if_match: std::ptr::null(),
+            if_none_match: std::ptr::null(),
+            if_version_match: std::ptr::null(),
+            if_version_not_match: std::ptr::null(),
             source_version: std::ptr::null(),
             source_content_length_hint: 0,
             has_source_content_length_hint: 1,
