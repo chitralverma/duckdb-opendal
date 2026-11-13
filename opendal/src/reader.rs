@@ -18,11 +18,9 @@ use crate::runtime::block_on;
 
 /// Opaque handle wrapping an `opendal::Reader`. Free with `od_reader_free`.
 ///
-/// Not synchronized: DuckDB never issues concurrent reads against one
-/// `FileHandle` (readers open a handle per thread, or share one under their own
-/// lock), so `od_reader_read` takes `&mut` on the inner `Reader` safely
-/// (`read_into` is `&mut self`). Do not drive concurrent reads on one
-/// `OdReader` without adding a lock here.
+/// Positioned reads take `&self` on the inner `Reader` (an `Arc` over an
+/// immutable read context), so concurrent `od_reader_read` calls on one handle
+/// are safe.
 pub struct OdReader {
     reader: Reader,
 }
@@ -83,12 +81,13 @@ pub unsafe extern "C" fn od_reader_open(
 /// error. Reads straight into the caller's buffer.
 ///
 /// # Safety
-/// - `reader` must be a live handle from `od_reader_open`.
+/// - `reader` must be a live handle from `od_reader_open`. Concurrent calls
+///   on the same handle are permitted.
 /// - `buf` must point to at least `len` writable bytes.
 /// - `err` must be a valid, writable pointer.
 #[no_mangle]
 pub unsafe extern "C" fn od_reader_read(
-    reader: *mut OdReader,
+    reader: *const OdReader,
     offset: u64,
     len: u64,
     buf: *mut u8,
@@ -121,7 +120,7 @@ pub unsafe extern "C" fn od_reader_read(
                 return -1;
             }
         };
-        let reader = &mut (*reader).reader;
+        let reader = &(*reader).reader;
         // Read directly into the caller's buffer. `read_into` streams each chunk
         // straight into the destination (one copy), avoiding the flatten
         // allocation + second copy that `read()` + `Buffer::to_bytes()` incurs

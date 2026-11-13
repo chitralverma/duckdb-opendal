@@ -59,6 +59,10 @@ impl ByteSize {
             .map_err(|_| format!("{section}.{key} exceeds the platform size limit"))
     }
 
+    pub(crate) const fn from_bytes(bytes: usize) -> Self {
+        Self(bytes)
+    }
+
     pub(crate) fn get(self) -> usize {
         self.0
     }

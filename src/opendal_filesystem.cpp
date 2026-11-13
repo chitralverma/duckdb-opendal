@@ -255,19 +255,24 @@ static std::string CanonicalSchemeUrl(const std::string &url, const std::string 
 	return separator == std::string::npos ? url : scheme + url.substr(separator);
 }
 
+// Cache key for an operator: scheme://authority plus a 128-bit FNV-1a digest
+// of the resolved config and options. The digest replaces the former
+// concatenation of every key and value, so credentials never sit in a map key
+// and the per-call cost is one pass over the strings. `hash` is the first half,
+// used as the cache namespace.
 static std::string ConfigIdentity(const std::string &scheme, const std::string &authority,
                                   const std::map<std::string, std::string> &config,
                                   const std::map<std::string, std::string> &options, uint64_t &hash) {
-	hash = 1469598103934665603ULL;
-	std::string identity = scheme + "://" + authority;
+	uint64_t h1 = 1469598103934665603ULL;
+	uint64_t h2 = 0x9E3779B97F4A7C15ULL;
 	auto add = [&](const std::string &value) {
-		identity += "|" + std::to_string(value.size()) + ":" + value;
 		for (auto c : value) {
-			hash ^= static_cast<uint8_t>(c);
-			hash *= 1099511628211ULL;
+			auto byte = static_cast<uint8_t>(c);
+			h1 = (h1 ^ byte) * 1099511628211ULL;
+			h2 = (h2 ^ byte) * 0x100000001B3ULL ^ (h2 >> 29);
 		}
-		hash ^= 0xff;
-		hash *= 1099511628211ULL;
+		h1 = (h1 ^ 0xff) * 1099511628211ULL;
+		h2 = (h2 ^ static_cast<uint64_t>(value.size())) * 0x100000001B3ULL;
 	};
 	auto append = [&](const std::map<std::string, std::string> &values) {
 		for (auto &entry : values) {
@@ -279,6 +284,16 @@ static std::string ConfigIdentity(const std::string &scheme, const std::string &
 	add(authority);
 	append(config);
 	append(options);
+	hash = h1;
+	std::string identity;
+	identity.reserve(scheme.size() + authority.size() + 40);
+	identity += scheme;
+	identity += "://";
+	identity += authority;
+	identity += '#';
+	identity += std::to_string(h1);
+	identity += '-';
+	identity += std::to_string(h2);
 	return identity;
 }
 
@@ -433,13 +448,76 @@ static void ValidateOpenFlags(FileOpenFlags flags, const std::string &path) {
 	if (flags.CreatePrivateFile() || flags.ReturnNullIfExists()) {
 		throw IOException("opendal: open: private creation / null-if-exists is not supported: " + path);
 	}
-	if (flags.ReturnNullIfNotExists()) {
-		throw IOException("opendal: open: null-if-missing mode is not supported: " + path);
+	if (flags.ReturnNullIfNotExists() && flags.OpenForWriting()) {
+		throw IOException("opendal: open: null-if-missing mode applies to reads only: " + path);
+	}
+}
+
+// Build DuckDB file metadata from an OpenDAL stat/list result.
+static FileMetadata ToFileMetadata(uint64_t content_length, int64_t last_modified_ms, bool is_dir, const char *etag) {
+	FileMetadata result;
+	result.file_size = static_cast<int64_t>(content_length);
+	result.file_type = is_dir ? FileType::FILE_TYPE_DIR : FileType::FILE_TYPE_REGULAR;
+	if (last_modified_ms >= 0) {
+		result.last_modification_time = Timestamp::FromEpochMs(last_modified_ms);
+	}
+	if (etag) {
+		result.version_tag = etag;
+	}
+	return result;
+}
+
+// Attach the metadata DuckDB reads off OpenFileInfo (file_size, last_modified,
+// etag, type), so globbed files are opened without a second stat and the
+// Parquet metadata cache can validate without reopening.
+static void FillExtendedInfo(OpenFileInfo &info, const FileMetadata &metadata) {
+	info.extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
+	auto &options = info.extended_info->options;
+	if (metadata.file_type == FileType::FILE_TYPE_DIR) {
+		options.emplace("type", Value("directory"));
+		return;
+	}
+	options.emplace("file_size", Value::BIGINT(metadata.file_size));
+	if (metadata.last_modification_time != timestamp_t::ninfinity()) {
+		options.emplace("last_modified", Value::TIMESTAMP(metadata.last_modification_time));
+	}
+	if (!metadata.version_tag.empty()) {
+		options.emplace("etag", Value(metadata.version_tag));
 	}
 }
 
 unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenFlags flags,
                                                    optional_ptr<FileOpener> opener) {
+	return OpenFileExtended(OpenFileInfo(path), flags, opener);
+}
+
+bool OpenDalFileSystem::SupportsOpenFileExtended() const {
+	return true;
+}
+
+// Metadata DuckDB already knows for this file (from a previous glob/list),
+// enough to open it without another stat.
+static bool TryKnownMetadata(const OpenFileInfo &file, OdMetadata &meta, std::string &etag) {
+	if (!file.extended_info) {
+		return false;
+	}
+	idx_t file_size;
+	if (!file.extended_info->TryGetOption("file_size", file_size)) {
+		return false;
+	}
+	meta.content_length = file_size;
+	meta.last_modified_ms = -1;
+	timestamp_t last_modified;
+	if (file.extended_info->TryGetOption("last_modified", last_modified)) {
+		meta.last_modified_ms = Timestamp::GetEpochMs(last_modified);
+	}
+	file.extended_info->TryGetOption("etag", etag);
+	return true;
+}
+
+unique_ptr<FileHandle> OpenDalFileSystem::OpenFileExtended(const OpenFileInfo &file, FileOpenFlags flags,
+                                                           optional_ptr<FileOpener> opener) {
+	const std::string &path = file.path;
 	ValidateOpenFlags(flags, path);
 	std::string scheme, auth, rel;
 	if (!ParseUrl(path, scheme, auth, rel)) {
@@ -471,14 +549,26 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 		return std::move(handle);
 	}
 
-	// Read mode: stat first to get size + type.
+	// Read mode: size, mtime and etag come from the glob/list that produced
+	// this file when available; otherwise stat.
 	OdMetadata meta = {};
-	OdError serr = {};
-	od_stat(op, rel.c_str(), &meta, &serr);
-	ThrowIfError(serr, "opendal: stat: " + path);
-	std::unique_ptr<char, void (*)(char *)> etag_guard(meta.etag, od_string_free);
-	if (meta.is_dir) {
-		throw IOException("opendal: open: cannot open directory as file: " + path);
+	std::string known_etag;
+	std::unique_ptr<char, void (*)(char *)> etag_guard(nullptr, od_string_free);
+	if (!TryKnownMetadata(file, meta, known_etag)) {
+		OdError serr = {};
+		od_stat(op, rel.c_str(), &meta, &serr);
+		if (serr.code == OdErrorCode::NotFound && flags.ReturnNullIfNotExists()) {
+			ClearError(serr);
+			return nullptr;
+		}
+		ThrowIfError(serr, "opendal: stat: " + path);
+		etag_guard.reset(meta.etag);
+		if (meta.is_dir) {
+			throw IOException("opendal: open: cannot open directory as file: " + path);
+		}
+		if (meta.etag) {
+			known_etag = meta.etag;
+		}
 	}
 
 	OdError rerr = {};
@@ -494,9 +584,7 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	}
 	auto handle = make_uniq<OpenDalFileHandle>(*this, path, flags, reader, static_cast<int64_t>(meta.content_length),
 	                                           meta.last_modified_ms);
-	if (meta.etag) {
-		handle->etag = meta.etag;
-	}
+	handle->etag = std::move(known_etag);
 	reader_guard.release();
 	handle->on_disk = false;
 	if (opener) {
@@ -660,6 +748,30 @@ bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpen
 	return !meta.is_dir;
 }
 
+FileMetadata OpenDalFileSystem::Stats(FileHandle &handle) {
+	auto &h = handle.Cast<OpenDalFileHandle>();
+	return ToFileMetadata(static_cast<uint64_t>(h.file_size), h.last_modified_ms, false,
+	                      h.etag.empty() ? nullptr : h.etag.c_str());
+}
+
+optional<FileMetadata> OpenDalFileSystem::GetStatsIfExists(const OpenFileInfo &file, optional_ptr<FileOpener> opener) {
+	std::string scheme, auth, rel;
+	if (!ParseUrl(file.path, scheme, auth, rel)) {
+		return nullopt;
+	}
+	OdOperator *op = OperatorFor(scheme, auth, file.path, opener);
+	OdMetadata meta = {};
+	OdError err = {};
+	od_stat(op, rel.c_str(), &meta, &err);
+	if (err.code == OdErrorCode::NotFound) {
+		ClearError(err);
+		return nullopt;
+	}
+	ThrowIfError(err, "opendal: stat: " + file.path);
+	std::unique_ptr<char, void (*)(char *)> etag_guard(meta.etag, od_string_free);
+	return ToFileMetadata(meta.content_length, meta.last_modified_ms, meta.is_dir != 0, meta.etag);
+}
+
 bool OpenDalFileSystem::DirectoryExists(const string &directory, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
 	if (!ParseUrl(directory, scheme, auth, rel)) {
@@ -678,13 +790,14 @@ void OpenDalFileSystem::Seek(FileHandle &handle, idx_t location) {
 }
 
 // List immediate children of a directory. Callback receives (name, is_dir).
-bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<void(const string &, bool)> &callback,
-                                  FileOpener *opener) {
+bool OpenDalFileSystem::ListFilesExtended(const string &directory,
+                                          const std::function<void(OpenFileInfo &info)> &callback,
+                                          optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
 	if (!ParseUrl(directory, scheme, auth, rel)) {
 		return false;
 	}
-	OdOperator *op = OperatorFor(scheme, auth, directory, opener);
+	OdOperator *op = OperatorFor(scheme, auth, directory, opener.get());
 	// OpenDAL expects a trailing slash to list a directory's children.
 	std::string dir = rel;
 	if (dir.empty() || dir.back() != '/') {
@@ -735,8 +848,14 @@ bool OpenDalFileSystem::ListFiles(const string &directory, const std::function<v
 		if (name.empty()) {
 			continue;
 		}
-		callback(name, ent.is_dir != 0);
+		OpenFileInfo info(name);
+		FillExtendedInfo(info, ToFileMetadata(ent.content_length, ent.last_modified_ms, ent.is_dir != 0, ent.etag));
+		callback(info);
 	}
+	return true;
+}
+
+bool OpenDalFileSystem::SupportsListFilesExtended() const {
 	return true;
 }
 
@@ -759,8 +878,12 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 		bool have_ctx = opener && FileOpener::TryGetClientContext(opener);
 		if (!have_ctx) {
 			results.emplace_back(path);
-		} else if (FileExists(path, opener)) {
+			return results;
+		}
+		auto stats = GetStatsIfExists(OpenFileInfo(path), opener);
+		if (stats && stats->file_type == FileType::FILE_TYPE_REGULAR) {
 			results.emplace_back(path);
+			FillExtendedInfo(results.back(), *stats);
 		}
 		return results;
 	}
@@ -813,6 +936,7 @@ vector<OpenFileInfo> OpenDalFileSystem::Glob(const string &path, FileOpener *ope
 		}
 		if (od_glob_match(pattern.c_str(), epath.c_str()) != 0) {
 			results.emplace_back(BuildUrl(scheme, auth, epath));
+			FillExtendedInfo(results.back(), ToFileMetadata(ent.content_length, ent.last_modified_ms, false, ent.etag));
 		}
 	}
 	std::sort(results.begin(), results.end(),
@@ -858,6 +982,59 @@ void OpenDalFileSystem::RemoveFile(const string &filename, optional_ptr<FileOpen
 		ThrowIfError(err, "opendal: remove: " + filename);
 	}
 	ClearError(err);
+}
+
+bool OpenDalFileSystem::TryRemoveFile(const string &filename, optional_ptr<FileOpener> opener) {
+	std::string scheme, auth, rel;
+	if (!ParseUrl(filename, scheme, auth, rel)) {
+		return false;
+	}
+	auto *op = OperatorFor(scheme, auth, filename, opener);
+	OdError err = {};
+	if (od_remove(op, rel.c_str(), /*recursive=*/0, &err) != 0) {
+		if (err.code == OdErrorCode::NotFound) {
+			ClearError(err);
+			return false;
+		}
+		ThrowIfError(err, "opendal: remove: " + filename);
+	}
+	ClearError(err);
+	return true;
+}
+
+// Group paths by operator and issue one batched delete per group, so services
+// with a multi-object delete API take far fewer round trips than one request
+// per file. Some S3/GCS-compatible stores reject the batch endpoint; fall back
+// to one delete per file in that case.
+void OpenDalFileSystem::RemoveFiles(const vector<string> &filenames, optional_ptr<FileOpener> opener) {
+	std::map<OdOperator *, std::vector<std::string>> groups;
+	for (auto &filename : filenames) {
+		std::string scheme, auth, rel;
+		if (!ParseUrl(filename, scheme, auth, rel)) {
+			throw IOException("opendal: remove: unrecognized URL: " + filename);
+		}
+		groups[OperatorFor(scheme, auth, filename, opener)].push_back(std::move(rel));
+	}
+	for (auto &group : groups) {
+		std::vector<const char *> ptrs;
+		ptrs.reserve(group.second.size());
+		for (auto &rel : group.second) {
+			ptrs.push_back(rel.c_str());
+		}
+		OdError err = {};
+		if (od_remove_many(group.first, ptrs.data(), ptrs.size(), &err) == 0) {
+			ClearError(err);
+			continue;
+		}
+		ClearError(err);
+		for (auto &rel : group.second) {
+			OdError single = {};
+			if (od_remove(group.first, rel.c_str(), /*recursive=*/0, &single) != 0) {
+				ThrowIfError(single, "opendal: remove: " + rel);
+			}
+			ClearError(single);
+		}
+	}
 }
 
 void OpenDalFileSystem::RemoveDirectory(const string &directory, optional_ptr<FileOpener> opener) {

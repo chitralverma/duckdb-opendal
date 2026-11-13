@@ -157,13 +157,17 @@ const OPENDAL_VERSION: &str = env!("OPENDAL_VERSION");
 /// `ring` crypto provider + reqwest HTTP transport (the `rustls-no-provider`
 /// feature auto-installs neither). Idempotent (guarded by a `Once`).
 ///
+/// `worker_threads` sizes the shared Tokio runtime (0 = Tokio default); it is
+/// honoured only on the call that first initializes the runtime.
+///
 /// # Safety
 /// `err` must be null or a valid, writable pointer.
 #[no_mangle]
-pub unsafe extern "C" fn od_init(err: *mut OdError) -> i32 {
+pub unsafe extern "C" fn od_init(worker_threads: usize, err: *mut OdError) -> i32 {
     use std::sync::OnceLock;
     static INIT: OnceLock<Result<(), String>> = OnceLock::new();
     crate::ffi::ffi_guard!(err, -1, "od_init", {
+        crate::runtime::configure(worker_threads);
         match INIT.get_or_init(|| {
             opendal::init_default_registry();
             // Another extension may already have installed a process provider.
@@ -235,7 +239,7 @@ mod tests {
 
     fn init() {
         let mut err = OdError::ok();
-        assert_eq!(unsafe { od_init(&mut err) }, 0);
+        assert_eq!(unsafe { od_init(0, &mut err) }, 0);
         assert_eq!(err.code as i32, OdErrorCode::Ok as i32);
     }
 
@@ -381,6 +385,7 @@ mod tests {
             let mut ent = OdEntry {
                 path: std::ptr::null(),
                 name: std::ptr::null(),
+                etag: std::ptr::null(),
                 content_length: 0,
                 last_modified_ms: 0,
                 is_dir: 0,

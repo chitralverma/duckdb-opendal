@@ -61,13 +61,16 @@ public:
 	bool FileExists(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
 	bool DirectoryExists(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
 
-	bool ListFiles(const string &directory, const std::function<void(const string &, bool)> &callback,
-	               FileOpener *opener = nullptr) override;
+	FileMetadata Stats(FileHandle &handle) override;
+	optional<FileMetadata> GetStatsIfExists(const OpenFileInfo &file,
+	                                        optional_ptr<FileOpener> opener = nullptr) override;
 
 	// ── Mutations ───────────────────────────────────────────────────────────
 	void CreateDirectory(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
 	void RemoveDirectory(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
 	void RemoveFile(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
+	bool TryRemoveFile(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
+	void RemoveFiles(const vector<string> &filenames, optional_ptr<FileOpener> opener = nullptr) override;
 	void MoveFile(const string &source, const string &target, optional_ptr<FileOpener> opener = nullptr) override;
 
 	void Seek(FileHandle &handle, idx_t location) override;
@@ -123,6 +126,14 @@ public:
 	// Name of the SCOPE-matched secret for `url`, or "" if none (for opendal_info).
 	std::string MatchedSecretName(optional_ptr<ClientContext> context, const std::string &scheme,
 	                              const std::string &url);
+
+protected:
+	unique_ptr<FileHandle> OpenFileExtended(const OpenFileInfo &file, FileOpenFlags flags,
+	                                        optional_ptr<FileOpener> opener) override;
+	bool SupportsOpenFileExtended() const override;
+	bool ListFilesExtended(const string &directory, const std::function<void(OpenFileInfo &info)> &callback,
+	                       optional_ptr<FileOpener> opener) override;
+	bool SupportsListFilesExtended() const override;
 
 private:
 	// Split a URL into scheme, authority (may be empty), and OpenDAL-relative

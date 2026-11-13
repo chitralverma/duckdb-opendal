@@ -8,15 +8,33 @@
 //! executor (see plan risk R-async). We must never call `block_on` from within
 //! a future already running on this runtime (no nested block_on).
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use tokio::runtime::{Builder, Runtime};
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+static WORKER_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+/// Set the worker thread count for the shared runtime. Zero keeps Tokio's
+/// default (one per core). Takes effect only if called before the runtime is
+/// first used; returns whether the value will be applied.
+pub(crate) fn configure(worker_threads: usize) -> bool {
+    if RUNTIME.get().is_some() {
+        return false;
+    }
+    WORKER_THREADS.store(worker_threads, Ordering::Relaxed);
+    true
+}
 
 /// Access the shared multi-thread Tokio runtime, initializing it on first use.
 pub(crate) fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(|| {
-        Builder::new_multi_thread()
+        let mut builder = Builder::new_multi_thread();
+        let workers = WORKER_THREADS.load(Ordering::Relaxed);
+        if workers > 0 {
+            builder.worker_threads(workers);
+        }
+        builder
             .enable_all()
             .thread_name("duckdb-opendal")
             .build()

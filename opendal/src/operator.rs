@@ -118,10 +118,11 @@ pub unsafe extern "C" fn od_operator_new(
                 let cap = info.capability();
                 let info_root = CString::new(info.root()).unwrap_or_default();
                 set_ok(err);
+                let io = config.io.with_service_defaults(&scheme);
                 Box::into_raw(Box::new(OdOperator {
                     op,
                     scheme,
-                    io: config.io,
+                    io,
                     cap,
                     info_root,
                     warning: applied

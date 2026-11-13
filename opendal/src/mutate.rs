@@ -73,6 +73,41 @@ pub unsafe extern "C" fn od_remove(
     })
 }
 
+/// Remove `len` files on one operator in a single batched delete (services
+/// with a multi-object delete API, such as S3's `DeleteObjects`, issue far
+/// fewer requests than one `od_remove` per path). Returns 0 on success, -1 on
+/// error.
+///
+/// # Safety
+/// - `op` must be a live handle from `od_operator_new`.
+/// - `paths` must point to `len` valid NUL-terminated C strings (or be null
+///   iff `len == 0`).
+#[no_mangle]
+pub unsafe extern "C" fn od_remove_many(
+    op: *const OdOperator,
+    paths: *const *const c_char,
+    len: usize,
+    err: *mut OdError,
+) -> i32 {
+    run(op, err, |o| {
+        guard(&o.scheme, o.cap.delete, "delete")?;
+        if len == 0 {
+            return Ok(());
+        }
+        if paths.is_null() {
+            return Err(MutErr::Invalid("paths null with len > 0".into()));
+        }
+        let mut owned = Vec::with_capacity(len);
+        for (i, raw) in std::slice::from_raw_parts(paths, len).iter().enumerate() {
+            match cstr(*raw) {
+                Some(p) => owned.push(p.to_owned()),
+                None => return Err(MutErr::Invalid(format!("path #{i} is null or not UTF-8"))),
+            }
+        }
+        block_on(o.op.delete_iter(owned)).map_err(MutErr::Opendal)
+    })
+}
+
 /// Rename/move `from` to `to` within the same operator. Returns 0 on success,
 /// -1 on error. Not all services support server-side rename.
 ///
