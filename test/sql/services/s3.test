@@ -179,3 +179,77 @@ COPY (SELECT range AS id, repeat(md5(range::VARCHAR), 16) AS payload FROM range(
 TO 's3://warehouse/abort-test/forced-close-failure.parquet' (FORMAT parquet, COMPRESSION uncompressed);
 ----
 forced completion failure
+
+# ── Request accounting through the fault proxy ───────────────────────────────
+# The proxy counts requests per HTTP method; GET /__counts reports them as CSV
+# and GET /__counts/reset zeroes them first. Both are read through the http
+# service, so the override is enabled for the block.
+statement ok
+CREATE SECRET s3_counted (
+    TYPE s3, SCOPE 's3://warehouse/counted',
+    config MAP{'access_key_id':'${OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'${OPENDAL_S3_SECRET_ACCESS_KEY}','region':'${OPENDAL_S3_REGION}','endpoint':'${OPENDAL_S3_PROXY_ENDPOINT}','enable_virtual_host_style':'false'}
+);
+
+statement ok
+SET opendal_override_native_filesystems = 'http';
+
+statement ok
+CREATE MACRO proxy_count(m) AS (
+    SELECT coalesce(max(count), 0)
+    FROM read_csv('${OPENDAL_S3_PROXY_ENDPOINT}/__counts', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
+    WHERE method = m
+);
+
+statement ok
+CREATE MACRO proxy_reset() AS (
+    SELECT count(*)
+    FROM read_csv('${OPENDAL_S3_PROXY_ENDPOINT}/__counts/reset', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
+);
+
+# Seed a partitioned dataset: 8 files under 8 partitions. OVERWRITE so the
+# block is idempotent against a bucket left dirty by a previous run.
+statement ok
+COPY (SELECT range % 8 AS part, range AS v FROM range(64))
+TO 's3://warehouse/counted/parts' (FORMAT parquet, PARTITION_BY part, OVERWRITE);
+
+query I
+SELECT count(*) FROM glob('s3://warehouse/counted/parts/**/*.parquet');
+----
+8
+
+# Glob results carry size/mtime/etag from the listing, so a scan over the
+# files issues no per-file HEAD.
+statement ok
+SELECT proxy_reset();
+
+query I
+SELECT count(*) FROM read_parquet('s3://warehouse/counted/parts/**/*.parquet');
+----
+64
+
+query I
+SELECT proxy_count('HEAD');
+----
+0
+
+# OVERWRITE removes the 8 existing objects with one batched DeleteObjects
+# (a POST), not 8 individual DELETE requests.
+statement ok
+SELECT proxy_reset();
+
+statement ok
+COPY (SELECT 9 AS part, 1 AS v)
+TO 's3://warehouse/counted/parts' (FORMAT parquet, PARTITION_BY part, OVERWRITE);
+
+query I
+SELECT proxy_count('DELETE');
+----
+0
+
+query I
+SELECT count(*) FROM glob('s3://warehouse/counted/parts/**/*.parquet');
+----
+1
+
+statement ok
+SET opendal_override_native_filesystems = '';

@@ -93,9 +93,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// One-time init of the Rust core: populate OpenDAL's service registry and
 	// install the rustls (ring) crypto provider + reqwest HTTP transport. Must
-	// run before any operator is built (idempotent).
+	// run before any operator is built (idempotent). The Tokio runtime is sized
+	// from DuckDB's async_threads setting when it is set explicitly.
+	auto &options = db.config.options;
+	size_t worker_threads = options.async_threads != DConstants::INVALID_INDEX ? options.async_threads : 0;
 	OdError init_error = {};
-	if (od_init(&init_error) != 0) {
+	if (od_init(worker_threads, &init_error) != 0) {
 		std::string message = std::string(init_error.message);
 		od_string_free(init_error.message);
 		throw IOException("opendal: initialization failed: " + message);

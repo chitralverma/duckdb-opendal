@@ -93,6 +93,11 @@ There is no global `config`: service keys mean different things per service.
 Changing a setting or secret affects operations started afterwards; files
 already open keep the configuration they were opened with.
 
+The extension runs OpenDAL on its own thread pool. Its size follows DuckDB's
+`async_threads` setting when that is set in the configuration the database was
+opened with; otherwise it is one thread per CPU. The pool is created when the
+extension loads and is not resized afterwards.
+
 ## URLs
 
 Every service uses the same URL shape:
@@ -134,13 +139,18 @@ Durations accept plain seconds or `ns`, `μs`, `ms`, `s`, `m`, `h`, `d`.
 
 ### `io_config`
 
-| Key                | Meaning                            | Notes                              |
-| ------------------ | ---------------------------------- | ---------------------------------- |
-| `read.concurrent`  | Parallel ranged reads per file     |                                    |
-| `read.chunk_size`  | Size of each read request          |                                    |
-| `write.concurrent` | Parallel parts per multipart write |                                    |
-| `write.chunk_size` | Size of each uploaded part         | Services impose their own minimums |
-| `concurrent_limit` | Ceiling on in-flight requests      | Applies across all operations      |
+| Key                | Meaning                            | Notes                                        |
+| ------------------ | ---------------------------------- | -------------------------------------------- |
+| `read.concurrent`  | Parallel ranged reads per file     | Default `4` on remote services               |
+| `read.chunk_size`  | Size of each read request          | Default `8 MiB` on remote services           |
+| `write.concurrent` | Parallel parts per multipart write | Default `4` on remote services               |
+| `write.chunk_size` | Size of each uploaded part         | Services impose their own minimums           |
+| `concurrent_limit` | Ceiling on in-flight requests      | Applies across all operations                |
+
+Remote services (everything except `fs` and `memory`) default to concurrent,
+prefetching reads and concurrent multipart uploads, since each request costs a
+network round trip. `fs` and `memory` keep OpenDAL's own defaults. Any value you
+set wins over these defaults.
 
 `read.concurrent` and `write.concurrent` control fan-out *within* a single read
 or write; `concurrent_limit` caps the operator as a whole. Set the ceiling for

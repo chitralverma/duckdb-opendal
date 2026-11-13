@@ -29,9 +29,12 @@ use crate::runtime::block_on;
 /// caller (`Glob`/`ListFiles`/`ls`/`du`) creates, consumes, and frees it in one
 /// scope, so the cache is never touched concurrently. Do not stash an
 /// `OdEntryList` in shared/scan state without a thread-safe cache.
+/// C strings handed out for one entry: path, name, optional etag.
+type EntryStrings = (CString, CString, Option<CString>);
+
 pub struct OdEntryList {
     entries: Vec<Entry>,
-    strings: UnsafeCell<HashMap<usize, (CString, CString)>>,
+    strings: UnsafeCell<HashMap<usize, EntryStrings>>,
 }
 
 /// One entry's metadata, returned by value from `od_list_entry`.
@@ -45,6 +48,9 @@ pub struct OdEntry {
     pub path: *const c_char,
     /// Base name of the entry, NUL-terminated. Borrowed; do NOT free.
     pub name: *const c_char,
+    /// Entity tag, or null when the service does not provide one. Borrowed;
+    /// do NOT free.
+    pub etag: *const c_char,
     pub content_length: u64,
     pub last_modified_ms: i64,
     pub is_dir: u8,
@@ -55,6 +61,7 @@ impl OdEntry {
         OdEntry {
             path: std::ptr::null(),
             name: std::ptr::null(),
+            etag: std::ptr::null(),
             content_length: 0,
             last_modified_ms: -1,
             is_dir: 0,
@@ -63,16 +70,24 @@ impl OdEntry {
 }
 
 /// Build (once) and return borrowed C-string pointers for entry `index`.
-unsafe fn cached_ptrs(list: &OdEntryList, index: usize) -> (*const c_char, *const c_char) {
+unsafe fn cached_ptrs(
+    list: &OdEntryList,
+    index: usize,
+) -> (*const c_char, *const c_char, *const c_char) {
     let cache = &mut *list.strings.get();
-    let (p, n) = cache.entry(index).or_insert_with(|| {
+    let (p, n, t) = cache.entry(index).or_insert_with(|| {
         let e = &list.entries[index];
         (
             CString::new(e.path()).unwrap_or_default(),
             CString::new(e.name()).unwrap_or_default(),
+            e.metadata().etag().and_then(|v| CString::new(v).ok()),
         )
     });
-    (p.as_ptr(), n.as_ptr())
+    (
+        p.as_ptr(),
+        n.as_ptr(),
+        t.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()),
+    )
 }
 
 /// List entries under `path`. When `recursive` is non-zero, descends into
@@ -172,7 +187,7 @@ pub unsafe extern "C" fn od_list_entry(
             set_error(err, OdErrorCode::InvalidInput, "index out of bounds");
             return 0;
         }
-        let (path_ptr, name_ptr) = cached_ptrs(list_ref, index);
+        let (path_ptr, name_ptr, etag_ptr) = cached_ptrs(list_ref, index);
         let meta = list_ref.entries[index].metadata();
         let last_modified_ms = meta
             .last_modified()
@@ -181,6 +196,7 @@ pub unsafe extern "C" fn od_list_entry(
         *out = OdEntry {
             path: path_ptr,
             name: name_ptr,
+            etag: etag_ptr,
             content_length: meta.content_length(),
             last_modified_ms,
             is_dir: if meta.is_dir() { 1 } else { 0 },
