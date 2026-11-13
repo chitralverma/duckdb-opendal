@@ -58,7 +58,9 @@ impl OdWriter {
 }
 
 /// Open a writer for `path` on `op`. Any existing object at `path` is
-/// overwritten on close.
+/// overwritten on close, unless `if_not_exists` is non-zero, in which case the
+/// service rejects the write when the object already exists (requires
+/// `write_with_if_not_exists`).
 ///
 /// # Safety
 /// - `op` must be a live handle from `od_operator_new`.
@@ -68,6 +70,7 @@ impl OdWriter {
 pub unsafe extern "C" fn od_writer_open(
     op: *const OdOperator,
     path: *const c_char,
+    if_not_exists: u8,
     err: *mut OdError,
 ) -> *mut OdWriter {
     ffi_guard!(err, std::ptr::null_mut(), "od_writer_open", {
@@ -80,6 +83,17 @@ pub unsafe extern "C" fn od_writer_open(
             set_error(err, code, msg);
             return std::ptr::null_mut();
         }
+        if if_not_exists != 0 && !odop.cap.write_with_if_not_exists {
+            set_error(
+                err,
+                OdErrorCode::Unsupported,
+                format!(
+                    "service '{}' does not support write_with_if_not_exists",
+                    odop.scheme
+                ),
+            );
+            return std::ptr::null_mut();
+        }
         let path = match cstr(path) {
             Some(s) => s,
             None => {
@@ -89,6 +103,9 @@ pub unsafe extern "C" fn od_writer_open(
         };
         // Unset fields leave service defaults intact; on S3 these tune multipart writes.
         let mut b = odop.op.writer_with(path);
+        if if_not_exists != 0 {
+            b = b.if_not_exists(true);
+        }
         if let Some(concurrent) = odop.io.write.concurrent {
             b = b.concurrent(concurrent.get());
         }

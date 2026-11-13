@@ -7,7 +7,7 @@ on:
     tags: ['**']
   pull_request:
   workflow_dispatch:
-  # Daily rebuild against the latest v1.5.x patch (duckdb_version tracks a branch).
+  # Daily rebuild against the latest v2.0.x patch (duckdb_version tracks a branch).
   schedule:
     - cron: '0 6 * * *'
 
@@ -23,10 +23,10 @@ permissions:
 jobs:
   cpp-checks:
     name: C++ checks (format, tidy)
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5-variegata
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v2.0-cyanoptera
     with:
-      duckdb_version: v1.5-variegata
-      ci_tools_version: v1.5-variegata
+      duckdb_version: v2.0-cyanoptera
+      ci_tools_version: v2.0-cyanoptera
       extension_name: opendal
       format_checks: 'format;tidy'
 
@@ -127,9 +127,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ./ccache_dir
-          key: ccache-sqltests-${{ runner.os }}-v1.5-variegata-${{ steps.ccache_timestamp.outputs.timestamp }}
+          key: ccache-sqltests-${{ runner.os }}-v2.0-cyanoptera-${{ steps.ccache_timestamp.outputs.timestamp }}
           restore-keys: |
-            ccache-sqltests-${{ runner.os }}-v1.5-variegata-
+            ccache-sqltests-${{ runner.os }}-v2.0-cyanoptera-
             ccache-sqltests-${{ runner.os }}-
 
       - name: Cache cargo registry
@@ -162,7 +162,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ./ccache_dir
-          key: ccache-sqltests-${{ runner.os }}-v1.5-variegata-${{ steps.ccache_timestamp.outputs.timestamp }}
+          key: ccache-sqltests-${{ runner.os }}-v2.0-cyanoptera-${{ steps.ccache_timestamp.outputs.timestamp }}
 
       - name: Run test tiers
         run: |
@@ -191,12 +191,12 @@ jobs:
   build:
     name: Build extension binaries
     needs: [rust-tests, sql-tests]
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      # Track the v1.5 release branch (auto-picks v1.5.x patches). Flip only on a
+      # Track the v2.0 release branch (auto-picks v2.0.x patches). Flip only on a
       # DuckDB minor bump. See MAINTAINING.md.
-      duckdb_version: v1.5-variegata
-      ci_tools_version: v1.5-variegata
+      duckdb_version: v2.0-cyanoptera
+      ci_tools_version: v2.0-cyanoptera
       extension_name: opendal
       extra_toolchains: "rust"
       skip_tests: true

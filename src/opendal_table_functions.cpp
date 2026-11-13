@@ -93,18 +93,18 @@ static LogicalType MetadataType() {
 	return LogicalType::STRUCT(children);
 }
 
-static void DefineEntryColumns(vector<LogicalType> &types, vector<string> &names) {
+static void DefineEntryColumns(vector<LogicalType> &types, vector<Identifier> &names) {
 	names = {"path", "name", "metadata"};
 	types = {LogicalType::VARCHAR, LogicalType::VARCHAR, MetadataType()};
 }
 
-static std::string StringParameter(const named_parameter_map_t &parameters, const std::string &name) {
-	auto entry = parameters.find(name);
+static std::string StringParameter(const named_argument_map_t &parameters, const std::string &name) {
+	auto entry = parameters.find(Identifier(name));
 	return entry == parameters.end() || entry->second.IsNull() ? std::string() : entry->second.ToString();
 }
 
-static bool BoolParameter(const named_parameter_map_t &parameters, const std::string &name) {
-	auto entry = parameters.find(name);
+static bool BoolParameter(const named_argument_map_t &parameters, const std::string &name) {
+	auto entry = parameters.find(Identifier(name));
 	return entry != parameters.end() && !entry->second.IsNull() && BooleanValue::Get(entry->second);
 }
 
@@ -112,12 +112,12 @@ static void ReadCommonOptions(TableFunctionBindInput &input, EntryBindData &resu
 	result.version = StringParameter(input.named_parameters, "version");
 	result.if_match = StringParameter(input.named_parameters, "if_match");
 	result.if_none_match = StringParameter(input.named_parameters, "if_none_match");
-	auto modified = input.named_parameters.find("if_modified_since");
+	auto modified = input.named_parameters.find(Identifier("if_modified_since"));
 	if (modified != input.named_parameters.end() && !modified->second.IsNull()) {
 		result.has_if_modified_since = true;
 		result.if_modified_since_ms = Timestamp::GetEpochMs(TimestampValue::Get(modified->second));
 	}
-	auto unmodified = input.named_parameters.find("if_unmodified_since");
+	auto unmodified = input.named_parameters.find(Identifier("if_unmodified_since"));
 	if (unmodified != input.named_parameters.end() && !unmodified->second.IsNull()) {
 		result.has_if_unmodified_since = true;
 		result.if_unmodified_since_ms = Timestamp::GetEpochMs(TimestampValue::Get(unmodified->second));
@@ -125,7 +125,7 @@ static void ReadCommonOptions(TableFunctionBindInput &input, EntryBindData &resu
 }
 
 static unique_ptr<FunctionData> BindEntry(EntryScanKind kind, TableFunctionBindInput &input,
-                                          vector<LogicalType> &return_types, vector<string> &names) {
+                                          vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto result = make_uniq<EntryBindData>();
 	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
 	result->kind = kind;
@@ -143,12 +143,12 @@ static unique_ptr<FunctionData> BindEntry(EntryScanKind kind, TableFunctionBindI
 }
 
 static unique_ptr<FunctionData> StatBind(ClientContext &, TableFunctionBindInput &input,
-                                         vector<LogicalType> &return_types, vector<string> &names) {
+                                         vector<LogicalType> &return_types, vector<Identifier> &names) {
 	return BindEntry(EntryScanKind::STAT, input, return_types, names);
 }
 
 static unique_ptr<FunctionData> ListBind(ClientContext &, TableFunctionBindInput &input,
-                                         vector<LogicalType> &return_types, vector<string> &names) {
+                                         vector<LogicalType> &return_types, vector<Identifier> &names) {
 	return BindEntry(EntryScanKind::LIST, input, return_types, names);
 }
 
@@ -231,7 +231,7 @@ static Value MetadataValue(const OdEntryMetadata &metadata) {
 static void EntryFunc(ClientContext &, TableFunctionInput &data, DataChunk &output) {
 	auto &state = data.global_state->Cast<EntryGlobalState>();
 	if (state.finished) {
-		output.SetCardinality(0);
+		output.CheckCardinality(0);
 		return;
 	}
 	idx_t count = 0;
@@ -247,12 +247,12 @@ static void EntryFunc(ClientContext &, TableFunctionInput &data, DataChunk &outp
 			state.finished = true;
 			break;
 		}
-		output.SetValue(0, count, Value(row.path));
-		output.SetValue(1, count, Value(row.name));
-		output.SetValue(2, count, MetadataValue(row.metadata));
+		output.data[0].Append(Value(row.path));
+		output.data[1].Append(Value(row.name));
+		output.data[2].Append(MetadataValue(row.metadata));
 		count++;
 	}
-	output.SetCardinality(count);
+	output.CheckCardinality(count);
 }
 
 struct DuBindData : public TableFunctionData {
@@ -298,7 +298,7 @@ static unique_ptr<GlobalTableFunctionState> DuInit(ClientContext &context, Table
 }
 
 static unique_ptr<FunctionData> DuBind(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
-                                       vector<string> &names) {
+                                       vector<Identifier> &names) {
 	auto result = make_uniq<DuBindData>();
 	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
 	result->url = input.inputs[0].GetValue<string>();
@@ -313,7 +313,7 @@ static unique_ptr<FunctionData> DuBind(ClientContext &, TableFunctionBindInput &
 static void DuFunc(ClientContext &, TableFunctionInput &data, DataChunk &output) {
 	auto &state = data.global_state->Cast<DuGlobalState>();
 	if (state.finished) {
-		output.SetCardinality(0);
+		output.CheckCardinality(0);
 		return;
 	}
 	idx_t count = 0;
@@ -329,13 +329,12 @@ static void DuFunc(ClientContext &, TableFunctionInput &data, DataChunk &output)
 			state.finished = true;
 			break;
 		}
-		output.SetValue(0, count,
-		                Value(OpenDalFileSystem::BuildUrlPublic(state.scheme, state.authority, row.directory)));
-		output.SetValue(1, count, Value::UBIGINT(row.file_count));
-		output.SetValue(2, count, Value::UBIGINT(row.total_size));
+		output.data[0].Append(Value(OpenDalFileSystem::BuildUrlPublic(state.scheme, state.authority, row.directory)));
+		output.data[1].Append(Value::UBIGINT(row.file_count));
+		output.data[2].Append(Value::UBIGINT(row.total_size));
 		count++;
 	}
-	output.SetCardinality(count);
+	output.CheckCardinality(count);
 }
 
 struct CopyBindData : public TableFunctionData {
@@ -363,7 +362,7 @@ struct CopyGlobalState : public GlobalTableFunctionState {
 };
 
 static unique_ptr<FunctionData> CopyBind(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
-                                         vector<string> &names) {
+                                         vector<Identifier> &names) {
 	auto result = make_uniq<CopyBindData>();
 	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
 	result->source = input.inputs[0].GetValue<string>();
@@ -375,7 +374,7 @@ static unique_ptr<FunctionData> CopyBind(ClientContext &, TableFunctionBindInput
 	result->if_version_not_match = StringParameter(input.named_parameters, "if_version_not_match");
 	result->source_version = StringParameter(input.named_parameters, "source_version");
 	auto read_size = [&](const std::string &name, idx_t &value, bool &present, bool allow_zero) {
-		auto entry = input.named_parameters.find(name);
+		auto entry = input.named_parameters.find(Identifier(name));
 		if (entry == input.named_parameters.end() || entry->second.IsNull()) {
 			return;
 		}
@@ -443,7 +442,7 @@ static void OpenCopyCursor(ClientContext &context, const CopyBindData &bind, Cop
 static void CopyFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
 	auto &state = data.global_state->Cast<CopyGlobalState>();
 	if (state.finished) {
-		output.SetCardinality(0);
+		output.CheckCardinality(0);
 		return;
 	}
 	auto &bind = data.bind_data->Cast<CopyBindData>();
@@ -463,28 +462,32 @@ static void CopyFunc(ClientContext &context, TableFunctionInput &data, DataChunk
 			state.finished = true;
 			break;
 		}
-		output.SetValue(0, count, Value(row.source));
-		output.SetValue(1, count, Value(row.destination));
-		output.SetValue(2, count, Value::UBIGINT(row.bytes_copied));
-		output.SetValue(3, count, MetadataValue(row.metadata));
+		output.data[0].Append(Value(row.source));
+		output.data[1].Append(Value(row.destination));
+		output.data[2].Append(Value::UBIGINT(row.bytes_copied));
+		output.data[3].Append(MetadataValue(row.metadata));
 		count++;
 	}
-	output.SetCardinality(count);
+	output.CheckCardinality(count);
 }
 
 static void AddStatOptions(TableFunction &function) {
-	function.named_parameters["version"] = LogicalType::VARCHAR;
-	function.named_parameters["if_match"] = LogicalType::VARCHAR;
-	function.named_parameters["if_none_match"] = LogicalType::VARCHAR;
-	function.named_parameters["if_modified_since"] = LogicalType::TIMESTAMP;
-	function.named_parameters["if_unmodified_since"] = LogicalType::TIMESTAMP;
+	function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
+		options.Add("version", LogicalType::VARCHAR)
+		    .Add("if_match", LogicalType::VARCHAR)
+		    .Add("if_none_match", LogicalType::VARCHAR)
+		    .Add("if_modified_since", LogicalType::TIMESTAMP)
+		    .Add("if_unmodified_since", LogicalType::TIMESTAMP);
+	});
 }
 
 static void AddListOptions(TableFunction &function) {
-	function.named_parameters["start_after"] = LogicalType::VARCHAR;
-	function.named_parameters["recursive"] = LogicalType::BOOLEAN;
-	function.named_parameters["versions"] = LogicalType::BOOLEAN;
-	function.named_parameters["deleted"] = LogicalType::BOOLEAN;
+	function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
+		options.Add("start_after", LogicalType::VARCHAR)
+		    .Add("recursive", LogicalType::BOOLEAN)
+		    .Add("versions", LogicalType::BOOLEAN)
+		    .Add("deleted", LogicalType::BOOLEAN);
+	});
 }
 
 // ── opendal_schemes() — schemes compiled into this build ─────────────────────
@@ -497,7 +500,7 @@ struct SchemesGlobalState : public GlobalTableFunctionState {
 };
 
 static unique_ptr<FunctionData> SchemesBind(ClientContext &, TableFunctionBindInput &, vector<LogicalType> &types,
-                                            vector<string> &names) {
+                                            vector<Identifier> &names) {
 	names = {"scheme"};
 	types = {LogicalType::VARCHAR};
 	return make_uniq<SchemesBindData>();
@@ -522,11 +525,11 @@ static void SchemesFunc(ClientContext &, TableFunctionInput &data, DataChunk &ou
 	idx_t count = 0;
 	while (state.offset < state.count && count < STANDARD_VECTOR_SIZE) {
 		const char *scheme = od_schemes_entry(state.list.get(), state.offset);
-		output.SetValue(0, count, scheme ? Value(scheme) : Value(LogicalType::VARCHAR));
+		output.data[0].Append(scheme ? Value(scheme) : Value(LogicalType::VARCHAR));
 		state.offset++;
 		count++;
 	}
-	output.SetCardinality(count);
+	output.CheckCardinality(count);
 }
 
 // ── opendal_info(path) — descriptor: support, secret, root, capabilities ─────
@@ -553,7 +556,7 @@ static std::string LexicalScheme(const std::string &url) {
 }
 
 static unique_ptr<FunctionData> InfoBind(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
-                                         vector<string> &names) {
+                                         vector<Identifier> &names) {
 	auto result = make_uniq<InfoBindData>();
 	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
 	result->url = input.inputs[0].GetValue<string>();
@@ -596,7 +599,7 @@ static Value CapabilitiesMap(OdOperator *op, const std::string &url) {
 static void InfoFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
 	auto &state = data.global_state->Cast<InfoGlobalState>();
 	if (state.done) {
-		output.SetCardinality(0);
+		output.CheckCardinality(0);
 		return;
 	}
 	state.done = true;
@@ -644,14 +647,14 @@ static void InfoFunc(ClientContext &context, TableFunctionInput &data, DataChunk
 		}
 	}
 
-	output.SetValue(0, 0, Value(scheme));
-	output.SetValue(1, 0, Value::BOOLEAN(supported));
-	output.SetValue(2, 0, secret_name);
-	output.SetValue(3, 0, usable);
-	output.SetValue(4, 0, root);
-	output.SetValue(5, 0, capabilities);
-	output.SetValue(6, 0, message);
-	output.SetCardinality(1);
+	output.data[0].Append(Value(scheme));
+	output.data[1].Append(Value::BOOLEAN(supported));
+	output.data[2].Append(secret_name);
+	output.data[3].Append(usable);
+	output.data[4].Append(root);
+	output.data[5].Append(capabilities);
+	output.data[6].Append(message);
+	output.CheckCardinality(1);
 }
 
 void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *fs) {
@@ -668,22 +671,26 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	loader.RegisterFunction(list);
 
 	TableFunction du("opendal_du", {LogicalType::VARCHAR}, DuFunc, DuBind, DuInit);
-	du.named_parameters["start_after"] = LogicalType::VARCHAR;
-	du.named_parameters["versions"] = LogicalType::BOOLEAN;
-	du.named_parameters["deleted"] = LogicalType::BOOLEAN;
+	du.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
+		options.Add("start_after", LogicalType::VARCHAR)
+		    .Add("versions", LogicalType::BOOLEAN)
+		    .Add("deleted", LogicalType::BOOLEAN);
+	});
 	du.function_info = info;
 	loader.RegisterFunction(du);
 
 	TableFunction copy("opendal_copy", {LogicalType::VARCHAR, LogicalType::VARCHAR}, CopyFunc, CopyBind, CopyInit);
-	copy.named_parameters["if_not_exists"] = LogicalType::BOOLEAN;
-	copy.named_parameters["if_match"] = LogicalType::VARCHAR;
-	copy.named_parameters["if_none_match"] = LogicalType::VARCHAR;
-	copy.named_parameters["if_version_match"] = LogicalType::VARCHAR;
-	copy.named_parameters["if_version_not_match"] = LogicalType::VARCHAR;
-	copy.named_parameters["source_version"] = LogicalType::VARCHAR;
-	copy.named_parameters["source_content_length_hint"] = LogicalType::UBIGINT;
-	copy.named_parameters["concurrent"] = LogicalType::UBIGINT;
-	copy.named_parameters["chunk_size"] = LogicalType::UBIGINT;
+	copy.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
+		options.Add("if_not_exists", LogicalType::BOOLEAN)
+		    .Add("if_match", LogicalType::VARCHAR)
+		    .Add("if_none_match", LogicalType::VARCHAR)
+		    .Add("if_version_match", LogicalType::VARCHAR)
+		    .Add("if_version_not_match", LogicalType::VARCHAR)
+		    .Add("source_version", LogicalType::VARCHAR)
+		    .Add("source_content_length_hint", LogicalType::UBIGINT)
+		    .Add("concurrent", LogicalType::UBIGINT)
+		    .Add("chunk_size", LogicalType::UBIGINT);
+	});
 	copy.function_info = info;
 	loader.RegisterFunction(copy);
 

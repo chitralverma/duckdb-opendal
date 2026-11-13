@@ -23,6 +23,9 @@ pub struct OdMetadata {
     pub last_modified_ms: i64,
     /// 1 if this path is a directory, 0 otherwise.
     pub is_dir: u8,
+    /// Entity tag, or null when the service does not provide one. Owned by the
+    /// caller; free with `od_string_free`.
+    pub etag: *mut c_char,
 }
 
 impl OdMetadata {
@@ -31,6 +34,7 @@ impl OdMetadata {
             content_length: 0,
             last_modified_ms: -1,
             is_dir: 0,
+            etag: std::ptr::null_mut(),
         }
     }
 }
@@ -80,10 +84,15 @@ pub unsafe extern "C" fn od_stat(
                     .last_modified()
                     .map(|t| t.into_inner().as_millisecond())
                     .unwrap_or(-1);
+                let etag = meta
+                    .etag()
+                    .and_then(|value| std::ffi::CString::new(value).ok())
+                    .map_or(std::ptr::null_mut(), std::ffi::CString::into_raw);
                 *out_meta = OdMetadata {
                     content_length: meta.content_length(),
                     last_modified_ms,
                     is_dir: if meta.is_dir() { 1 } else { 0 },
+                    etag,
                 };
                 set_ok(err);
             }
