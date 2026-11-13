@@ -34,7 +34,8 @@ GROUP BY path;
 
 - Cached blocks live in DuckDB's buffer pool, bounded by its memory limit. Under
   memory pressure they are dropped and re-fetched — nothing is written to disk.
-- DuckDB re-checks size and mtime, so stale data is not served.
+- DuckDB re-checks size and mtime, and validates cached ranges against the
+  object's ETag when the service provides one.
 - Turn it off with `SET enable_external_file_cache = false;`.
 
 ## 2. The OpenDAL data cache

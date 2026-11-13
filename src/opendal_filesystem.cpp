@@ -236,7 +236,7 @@ static std::string ApplySecret(optional_ptr<ClientContext> context, optional_ptr
 		throw IOException("opendal: secret: matched secret is not a key-value secret: " + url);
 	}
 	for (auto &entry : kv->secret_map) {
-		const std::string &k = entry.first;
+		const std::string &k = entry.first.GetIdentifierName();
 		if (k == "__scheme") {
 			continue;
 		}
@@ -247,7 +247,7 @@ static std::string ApplySecret(optional_ptr<ClientContext> context, optional_ptr
 			options[k] = v;
 		}
 	}
-	return base.GetName();
+	return base.GetName().GetIdentifierName();
 }
 
 static std::string CanonicalSchemeUrl(const std::string &url, const std::string &scheme) {
@@ -430,8 +430,8 @@ static void ValidateOpenFlags(FileOpenFlags flags, const std::string &path) {
 	if (flags.CreateFileIfNotExists()) {
 		throw IOException("opendal: open: create-if-missing mode is not supported: " + path);
 	}
-	if (flags.ExclusiveCreate() || flags.CreatePrivateFile() || flags.ReturnNullIfExists()) {
-		throw IOException("opendal: open: exclusive/private creation is not supported: " + path);
+	if (flags.CreatePrivateFile() || flags.ReturnNullIfExists()) {
+		throw IOException("opendal: open: private creation / null-if-exists is not supported: " + path);
 	}
 	if (flags.ReturnNullIfNotExists()) {
 		throw IOException("opendal: open: null-if-missing mode is not supported: " + path);
@@ -452,9 +452,9 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 			throw IOException("opendal: open: write opens must explicitly overwrite the destination: " + path);
 		}
 		// Streaming, append-only write. OpenDAL overwrites any existing object
-		// on close. (Read-modify-write / partial overwrite is not supported.)
+		// on close unless exclusive creation was requested.
 		OdError werr = {};
-		OdWriter *writer = od_writer_open(op, rel.c_str(), &werr);
+		OdWriter *writer = od_writer_open(op, rel.c_str(), flags.ExclusiveCreate() ? 1 : 0, &werr);
 		if (!writer) {
 			ThrowIfError(werr, "opendal: open (write): " + path);
 		}
@@ -476,6 +476,7 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	OdError serr = {};
 	od_stat(op, rel.c_str(), &meta, &serr);
 	ThrowIfError(serr, "opendal: stat: " + path);
+	std::unique_ptr<char, void (*)(char *)> etag_guard(meta.etag, od_string_free);
 	if (meta.is_dir) {
 		throw IOException("opendal: open: cannot open directory as file: " + path);
 	}
@@ -493,6 +494,9 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFile(const string &path, FileOpenF
 	}
 	auto handle = make_uniq<OpenDalFileHandle>(*this, path, flags, reader, static_cast<int64_t>(meta.content_length),
 	                                           meta.last_modified_ms);
+	if (meta.etag) {
+		handle->etag = meta.etag;
+	}
 	reader_guard.release();
 	handle->on_disk = false;
 	if (opener) {
@@ -628,6 +632,16 @@ FileType OpenDalFileSystem::GetFileType(FileHandle &handle) {
 	return FileType::FILE_TYPE_REGULAR;
 }
 
+string OpenDalFileSystem::GetVersionTag(FileHandle &handle) {
+	return handle.Cast<OpenDalFileHandle>().etag;
+}
+
+void OpenDalFileSystem::AbortFileWrite(FileHandle &handle) {
+	auto &h = handle.Cast<OpenDalFileHandle>();
+	h.write_committable = false;
+	h.Close();
+}
+
 bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpener> opener) {
 	std::string scheme, auth, rel;
 	if (!ParseUrl(filename, scheme, auth, rel)) {
@@ -642,6 +656,7 @@ bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpen
 		return false;
 	}
 	ThrowIfError(err, "opendal: stat: " + filename);
+	od_string_free(meta.etag);
 	return !meta.is_dir;
 }
 

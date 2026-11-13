@@ -19,14 +19,14 @@ static void CopyMap(CreateSecretInput &input, KeyValueSecret &secret, const char
 	for (auto &entry : ListValue::GetChildren(it->second)) {
 		auto &kv = StructValue::GetChildren(entry);
 		if (kv.size() == 2) {
-			secret.secret_map[std::string(prefix) + kv[0].ToString()] = Value(kv[1].ToString());
+			secret.secret_map[Identifier(std::string(prefix) + kv[0].ToString())] = Value(kv[1].ToString());
 		}
 	}
 }
 
 static unique_ptr<BaseSecret> CreateOpenDalSecret(ClientContext &, CreateSecretInput &input) {
 	auto secret = make_uniq<KeyValueSecret>(input.scope, input.type, input.provider, input.name);
-	secret->secret_map["__scheme"] = Value(input.type);
+	secret->secret_map[Identifier("__scheme")] = Value(input.type.GetIdentifierName());
 	CopyMap(input, *secret, "config", "config.");
 	CopyMap(input, *secret, "io_config", "io.");
 	CopyMap(input, *secret, "retry_config", "retry.");
@@ -42,7 +42,7 @@ static void RegisterOneService(ExtensionLoader &loader, const std::string &schem
 	// RegisterSecretType throws InternalException ("already registered secret
 	// type") on duplicates; swallow only that and let any other error surface.
 	SecretType type;
-	type.name = scheme;
+	type.name = Identifier(scheme);
 	type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
 	type.default_provider = "config";
 	try {

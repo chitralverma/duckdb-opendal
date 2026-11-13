@@ -13,7 +13,7 @@ matrix](README.md#compatibility) records them per release.
 
 | Axis | Pinned by | Moves when |
 | --- | --- | --- |
-| **A. DuckDB** (+ `extension-ci-tools`, together) | `duckdb_version` / `ci_tools_version` in `.github/workflows/MainDistributionPipeline.yml` + the `duckdb` / `extension-ci-tools` submodules — all pointed at the DuckDB **release-line branch** (`v1.5-variegata`) | DuckDB ships a new **minor** (patches auto-tracked) |
+| **A. DuckDB** (+ `extension-ci-tools`, together) | `duckdb_version` / `ci_tools_version` in `.github/workflows/MainDistributionPipeline.yml` + the `duckdb` / `extension-ci-tools` submodules — all pointed at the DuckDB **release-line branch** (`v2.0-cyanoptera`) | DuckDB ships a new **minor** (patches auto-tracked) |
 | **B. OpenDAL** | release version **or** git `rev` on the two OpenDAL deps in `opendal/Cargo.toml` + `opendal/Cargo.lock` | you want newer OpenDAL, a fix, or new-service support |
 | **C. The extension** | `version` in `opendal/Cargo.toml` (source of truth), mirrored to the `community-extensions` registry `description.yml`, plus the compiled-in service set (`opendal/Cargo.toml [features]`) | you ship features or fixes |
 
@@ -25,16 +25,16 @@ matrix](README.md#compatibility) records them per release.
 
 ## Axis A — Upgrade DuckDB (+ extension-ci-tools)
 
-The pipeline tracks the DuckDB **release-line branch** (`v1.5-variegata`), not a
+The pipeline tracks the DuckDB **release-line branch** (`v2.0-cyanoptera`), not a
 pinned patch tag. So:
 
 | Event | Action |
 | --- | --- |
-| **Patch** (`v1.5.5` → `v1.5.6`) | **Nothing** — the daily run covers it. |
-| **Minor** (`v1.5.x` → `v1.6.x`) | Flip to the new line branch (see below). |
+| **Patch** (`v2.0.0` → `v2.0.1`) | **Nothing** — the daily run covers it. |
+| **Minor** (`v2.0.x` → `v2.1.x`) | Flip to the new line branch (see below). |
 
 **Daily health check:** the `schedule` cron in `MainDistributionPipeline.yml`
-rebuilds + tests against the current `v1.5-variegata` head. It runs on `main`
+rebuilds + tests against the current `v2.0-cyanoptera` head. It runs on `main`
 (not a tag) → `create-release-draft` skipped, nothing published. A red run = a new
 DuckDB patch broke us → fix, then cut a release.
 

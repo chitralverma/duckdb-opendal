@@ -4,7 +4,9 @@
 duckdb_extension_load(opendal
     SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
     INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/src/include
+    LOAD_TESTS
 )
+duckdb_extension_statically_link(opendal)
 
 # Any extra extensions that should be built
 # e.g.: duckdb_extension_load(json)

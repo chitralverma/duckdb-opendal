@@ -5,7 +5,7 @@ Release notes are **generated, not hand-written**: tagging `vX.Y.Z` runs the
 release whose notes come from the merged pull requests. Read them on the
 [releases page](https://github.com/chitralverma/duckdb-opendal/releases).
 
-- **Unreleased changes:** [`v0.1.0...main`](https://github.com/chitralverma/duckdb-opendal/compare/v0.1.0...main).
+- **Unreleased changes:** [`v0.2.0...main`](https://github.com/chitralverma/duckdb-opendal/compare/v0.2.0...main).
 - **Which services and versions a build has:** `FROM opendal_schemes();` and
   `SELECT opendal_version();`.
 - **Compatibility per release:** the matrix in the [README](README.md#compatibility).

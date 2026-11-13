@@ -295,6 +295,7 @@ mod tests {
             content_length: 0,
             last_modified_ms: 0,
             is_dir: 9,
+            etag: std::ptr::null_mut(),
         };
         let mut serr = OdError::ok();
         unsafe { od_stat(op, path.as_ptr(), &mut meta, &mut serr) };
@@ -420,7 +421,7 @@ mod tests {
         // Write "hello world" in two chunks through the streaming writer.
         let path = CString::new("out/greeting.txt").unwrap();
         let mut werr = OdError::ok();
-        let w = unsafe { od_writer_open(op, path.as_ptr(), &mut werr) };
+        let w = unsafe { od_writer_open(op, path.as_ptr(), 0, &mut werr) };
         assert!(!w.is_null(), "writer_open failed: {}", werr.code as i32);
         let p1 = b"hello ";
         let p2 = b"world";
@@ -461,6 +462,7 @@ mod tests {
             content_length: 0,
             last_modified_ms: 0,
             is_dir: 9,
+            etag: std::ptr::null_mut(),
         };
         let mut serr = OdError::ok();
         unsafe { od_stat(op, path.as_ptr(), &mut meta, &mut serr) };
@@ -556,6 +558,7 @@ mod tests {
             content_length: 0,
             last_modified_ms: 0,
             is_dir: 9,
+            etag: std::ptr::null_mut(),
         };
         let mut serr = OdError::ok();
         unsafe { od_stat(op, path.as_ptr(), &mut meta, &mut serr) };
@@ -915,7 +918,7 @@ mod tests {
         // Round-trip a write + read through the tuned writer/reader.
         let path = CString::new("tuned.txt").unwrap();
         let mut werr = OdError::ok();
-        let w = unsafe { od_writer_open(op, path.as_ptr(), &mut werr) };
+        let w = unsafe { od_writer_open(op, path.as_ptr(), 0, &mut werr) };
         assert!(!w.is_null());
         let payload = b"tuned io";
         assert_eq!(

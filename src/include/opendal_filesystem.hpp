@@ -55,6 +55,8 @@ public:
 	int64_t GetFileSize(FileHandle &handle) override;
 	timestamp_t GetLastModifiedTime(FileHandle &handle) override;
 	FileType GetFileType(FileHandle &handle) override;
+	string GetVersionTag(FileHandle &handle) override;
+	void AbortFileWrite(FileHandle &handle) override;
 
 	bool FileExists(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
 	bool DirectoryExists(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
@@ -167,6 +169,7 @@ public:
 	int64_t file_size = 0;
 	int64_t position = 0;
 	int64_t last_modified_ms = -1;
+	std::string etag;
 
 	// Write state (append-only streaming).
 	OdWriter *writer = nullptr;

@@ -15,7 +15,7 @@ INSTALL opendal FROM community;
 LOAD opendal;
 ```
 
-> **Requires DuckDB ≥ 1.5.5.** Community binaries are per DuckDB version; older
+> **Requires DuckDB ≥ 2.0.0.** Community binaries are per DuckDB version; older
 > DuckDB returns HTTP 404 on `INSTALL`. See [Compatibility](#compatibility).
 
 ---
@@ -134,12 +134,12 @@ installed version with `SELECT opendal_version();`.
 
 Each release pins a DuckDB version and an Apache OpenDAL release or revision:
 
-| Extension            | DuckDB | OpenDAL   | Services                                                              |
-| -------------------- | ------ | --------- | --------------------------------------------------------------------- |
-| unreleased (`main`)  | v1.5.x | `fce9cde` | `azblob`, `azdls`, `azfile`, `fs`, `gcs`, `http`, `memory`, `s3`      |
-| 0.1.0                | v1.5.x | `3180510` | `fs`, `memory`, `s3`                                                  |
+| Extension | DuckDB | OpenDAL   | Services                                                         |
+| --------- | ------ | --------- | ---------------------------------------------------------------- |
+| 0.2.0     | v2.0.x | `fce9cde` | `azblob`, `azdls`, `azfile`, `fs`, `gcs`, `http`, `memory`, `s3` |
+| 0.1.0     | v1.5.x | `3180510` | `fs`, `memory`, `s3`                                             |
 
-`v1.5.x` = any patch on the DuckDB v1.5 line. The row lists what that release
+`v2.0.x` = any patch on the DuckDB v2.0 line. The row lists what that release
 shipped; for the services in *your* build run `FROM opendal_schemes();`.
 
 See the [releases](https://github.com/chitralverma/duckdb-opendal/releases) for
