@@ -8,7 +8,7 @@
 --
 -- http:// and https:// are reserved by DuckDB's native httpfs, so claim them
 -- explicitly instead of depending on extension load order.
-SET GLOBAL opendal_override_native_filesystems = 'http,https';
+SET GLOBAL opendal_override_schemes = 'http,https';
 
 -- Anonymous reads need no secret at all: the endpoint comes from the URL. This
 -- one only exists for the Basic-auth prefix, matched by its narrower scope.

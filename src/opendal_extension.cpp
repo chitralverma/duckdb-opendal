@@ -4,6 +4,8 @@
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/scalar_function.hpp"
+#include "duckdb/function/pragma_function.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "duckdb/main/database.hpp"
 #include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
 
@@ -22,10 +24,7 @@
 
 namespace duckdb {
 
-// Callback for the `opendal_override_native_filesystems` setting: updates the
-// set of schemes for which opendal wins DuckDB's VFS dispatch over native
-// extensions (e.g. httpfs's s3://).
-static void SetOverrideNativeFilesystems(ClientContext &, SetScope, Value &parameter) {
+static void SetOverrideSchemesSetting(ClientContext &, SetScope, Value &parameter) {
 	OpenDalFileSystem::SetOverrideSchemes(parameter.IsNull() ? std::string() : parameter.ToString());
 }
 
@@ -81,6 +80,14 @@ inline void OpendalVersionScalarFun(DataChunk &args, ExpressionState &state, Vec
 
 static OpenDalFileSystem *g_opendal_filesystem = nullptr;
 
+static void OpendalResetOperatorsPragma(ClientContext &context, const FunctionParameters &) {
+	if (!g_opendal_filesystem) {
+		return;
+	}
+	auto dropped = g_opendal_filesystem->ResetOperators();
+	DUCKDB_LOG_INFO(context, "opendal: reset %llu cached operator(s)", dropped);
+}
+
 inline void OpendalIsManuallySetScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &input = args.data[0];
 	UnaryExecutor::Execute<string_t, bool>(input, result, args.size(), [&](string_t path) {
@@ -117,6 +124,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(version_fn);
 	loader.RegisterFunction(ScalarFunction("opendal_is_manually_set", {LogicalType::VARCHAR}, LogicalType::BOOLEAN,
 	                                       OpendalIsManuallySetScalarFun));
+	loader.RegisterFunction(PragmaFunction::PragmaStatement("opendal_reset_operators", OpendalResetOperatorsPragma));
 
 	// Table functions: opendal_ls(), opendal_stat(), opendal_du().
 	RegisterOpenDalTableFunctions(loader, fs_ptr);
@@ -124,14 +132,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// CREATE SECRET support for the OpenDAL service schemes (SCOPE-matched).
 	RegisterOpenDalSecrets(loader);
 
-	// Setting: opendal_override_native_filesystems — comma-separated schemes for
-	// which opendal should win over native/core extensions (e.g. httpfs's
-	// s3://). Empty (default) = no override; native handlers keep precedence.
 	db.config.AddExtensionOption(
-	    "opendal_override_native_filesystems",
-	    "Comma-separated schemes (e.g. 's3,gcs') for which the OpenDAL filesystem overrides native "
+	    "opendal_override_schemes",
+	    "Comma-separated schemes (e.g. 's3,gcs') for which the OpenDAL filesystem takes precedence over other "
 	    "extensions in DuckDB's filesystem dispatch. Empty disables all overrides.",
-	    LogicalType::VARCHAR, Value(""), SetOverrideNativeFilesystems);
+	    LogicalType::VARCHAR, Value(""), SetOverrideSchemesSetting);
 
 	auto map_type = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR);
 	db.config.AddExtensionOption("opendal_io_config", "Global OpenDAL reader/writer options.", map_type, Value(),

@@ -191,7 +191,7 @@ CREATE SECRET s3_counted (
 );
 
 statement ok
-SET opendal_override_native_filesystems = 'http';
+SET opendal_override_schemes = 'http';
 
 statement ok
 CREATE MACRO proxy_count(m) AS (
@@ -252,4 +252,4 @@ SELECT count(*) FROM glob('s3://warehouse/counted/parts/**/*.parquet');
 1
 
 statement ok
-SET opendal_override_native_filesystems = '';
+SET opendal_override_schemes = '';

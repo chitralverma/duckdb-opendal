@@ -81,7 +81,7 @@ plain HTTP.
   instead — see [configuration](../configuration.md) for the URL rules.
 - **`http://` and `https://` are DuckDB's most contested schemes** — `httpfs`
   claims them and DuckDB auto-loads it. To route them through this extension:
-  `SET opendal_override_native_filesystems = 'http,https';` — see
+  `SET opendal_override_schemes = 'http,https';` — see
   [coexistence](../coexistence.md). Without it you are almost certainly using
   `httpfs`, and none of the settings here apply.
 - Range requests drive projection and filter pushdown, so reading a few columns

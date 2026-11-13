@@ -1,0 +1,18 @@
+# name: test/sql/common/temp_directory.test
+# description: Spilling to an OpenDAL scheme is rejected with a clear error
+# group: [common]
+
+require opendal
+
+require-env OPENDAL_BASE
+
+statement ok
+SET temp_directory = '${OPENDAL_BASE}/tmp';
+
+statement ok
+SET memory_limit = '10MB';
+
+statement error
+CREATE TABLE spill AS SELECT range AS i, repeat('x', 200) AS s FROM range(300000);
+----
+temp_directory is set to
