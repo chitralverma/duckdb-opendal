@@ -59,3 +59,16 @@ duration must be positive
 
 statement ok
 RESET opendal_timeout_config;
+
+# Drops the operator cache. Write after it: the memory service keeps its data
+# in the operator, so a reset empties it there.
+statement ok
+PRAGMA opendal_reset_operators;
+
+statement ok
+COPY (SELECT 1 AS x) TO '${OPENDAL_BASE}/gcfg/reset.csv';
+
+query I
+SELECT x FROM read_csv('${OPENDAL_BASE}/gcfg/reset.csv');
+----
+1

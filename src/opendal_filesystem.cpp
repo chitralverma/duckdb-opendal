@@ -5,6 +5,7 @@
 #include "duckdb/logging/file_system_logger.hpp"
 #include "duckdb/logging/logger.hpp"
 #include "duckdb/main/database.hpp"
+#include "duckdb/storage/buffer_manager.hpp"
 #include "duckdb/main/secret/secret.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/catalog/catalog_transaction.hpp"
@@ -16,10 +17,10 @@
 
 namespace duckdb {
 
-// ── Native-filesystem override (opendal_override_native_filesystems) ─────────
+// ── Scheme override (opendal_override_schemes) ───────────────────────────────
 // A process-global set of schemes for which opendal should win DuckDB's VFS
-// dispatch over a native/core extension (e.g. httpfs's s3://). Populated by the
-// `opendal_override_native_filesystems` setting.
+// dispatch over any other filesystem claiming them (e.g. httpfs's s3://).
+// Populated by the `opendal_override_schemes` setting.
 //
 // DuckDB's VFS dispatch calls CanHandleFile(path) and, on the same thread and
 // immediately after, IsManuallySet(). We stash the just-matched scheme in a
@@ -173,6 +174,22 @@ OpenDalFileSystem::~OpenDalFileSystem() {
 		}
 	}
 	operators_.clear();
+	for (auto *op : retired_operators_) {
+		od_operator_free(op);
+	}
+	retired_operators_.clear();
+}
+
+idx_t OpenDalFileSystem::ResetOperators() {
+	std::lock_guard<std::mutex> lk(mu_);
+	idx_t count = operators_.size();
+	// Open handles borrow operators without a refcount, so retired ones live
+	// until the filesystem is destroyed.
+	for (auto &entry : operators_) {
+		retired_operators_.push_back(entry.second);
+	}
+	operators_.clear();
+	return count;
 }
 
 bool OpenDalFileSystem::ParseUrl(const std::string &url, std::string &out_scheme, std::string &out_authority,
@@ -515,9 +532,27 @@ static bool TryKnownMetadata(const OpenFileInfo &file, OdMetadata &meta, std::st
 	return true;
 }
 
+// Spill files are read-write block files; name the setting instead of failing
+// with the generic open-flags error.
+static void RejectTemporaryDirectoryUse(const std::string &path, optional_ptr<FileOpener> opener) {
+	auto db = FileOpener::TryGetDatabase(opener);
+	if (!db) {
+		return;
+	}
+	auto &temp_dir = db->GetBufferManager().GetTemporaryDirectory();
+	if (temp_dir.empty() || path.compare(0, temp_dir.size(), temp_dir) != 0) {
+		return;
+	}
+	throw IOException("opendal: open: temp_directory is set to '" + temp_dir +
+	                  "', but DuckDB's temporary files need a local directory. SET temp_directory to a local path.");
+}
+
 unique_ptr<FileHandle> OpenDalFileSystem::OpenFileExtended(const OpenFileInfo &file, FileOpenFlags flags,
                                                            optional_ptr<FileOpener> opener) {
 	const std::string &path = file.path;
+	if (flags.OpenForReading() && flags.OpenForWriting()) {
+		RejectTemporaryDirectoryUse(path, opener);
+	}
 	ValidateOpenFlags(flags, path);
 	std::string scheme, auth, rel;
 	if (!ParseUrl(path, scheme, auth, rel)) {

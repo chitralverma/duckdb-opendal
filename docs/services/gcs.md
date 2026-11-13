@@ -64,7 +64,7 @@ CREATE SECRET gcs_emulator (
 
 - `gcs://` is also claimed by DuckDB's native `httpfs` extension. If both are
   loaded, say which one you want:
-  `SET opendal_override_native_filesystems = 'gcs';` — see
+  `SET opendal_override_schemes = 'gcs';` — see
   [coexistence](../coexistence.md).
 - There is no server-side rename. Overwriting an existing object copies and
   deletes, and `opendal_copy(..., if_not_exists := true)` is rejected because

@@ -79,7 +79,7 @@ region and `enable_virtual_host_style`.
 
 - `s3://` is also claimed by DuckDB's native `httpfs` extension. If both are
   loaded, say which one you want:
-  `SET opendal_override_native_filesystems = 's3';` — see
+  `SET opendal_override_schemes = 's3';` — see
   [coexistence](../coexistence.md).
 - Large writes use multipart uploads; tune concurrency and part size with
   `io_config` (see [configuration](../configuration.md)).

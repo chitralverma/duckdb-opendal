@@ -1,13 +1,14 @@
-# Coexistence with DuckDB's own filesystems
+# Coexistence with other filesystem extensions
 
 Some URL schemes are claimed by more than one extension: `s3://` by both
 `opendal` and DuckDB's built-in `httpfs`, for example. This page shows how to
 decide which one serves a query.
 
-Only contested schemes are affected — today `s3://` and `gcs://`, both claimed by
-`httpfs`. Every other scheme this extension serves is its own (DuckDB's `azure`
-extension uses `azure://` / `abfss://`, which `opendal` does not serve), so those
-URLs always go through `opendal`.
+Only contested schemes are affected: with DuckDB's core extensions that is
+`s3://`, `gcs://`, `http://` and `https://`, all also claimed by `httpfs` (the
+`azure` extension uses `az://`/`abfss://`, which `opendal` does not serve). A
+third-party extension can claim any scheme, including ones such as `azblob://`
+that only `opendal` serves today; the same switch resolves that clash.
 
 ## The symptom
 
@@ -25,22 +26,23 @@ SELECT scheme, supported, secret_name, usable FROM opendal_info('s3://warehouse/
 
 ## Choosing `opendal` for a scheme
 
-`opendal_override_native_filesystems` is a comma-separated list of schemes where
+`opendal_override_schemes` is a comma-separated list of schemes where
 `opendal` takes precedence:
 
 ```sql
-SET opendal_override_native_filesystems = 's3';
+SET opendal_override_schemes = 's3';
 
 -- Now served by opendal, using its secrets, retries and caching:
 SELECT * FROM read_parquet('s3://warehouse/data.parquet');
 
 -- Hand it back to httpfs:
-SET opendal_override_native_filesystems = '';
+SET opendal_override_schemes = '';
 ```
 
 - Empty by default — nothing is overridden.
-- Per scheme: list several with `'s3,gcs'`. Schemes `opendal` does not support
-  are never taken over, whatever you list.
+- Per scheme: list several with `'s3,gcs'`. Any scheme `opendal` serves can be
+  listed; schemes it does not support are never taken over, whatever you list.
+- Removing a scheme from the list hands it back to the other extension.
 - It is a session/global setting; set it before the queries it should affect.
 
 You can mix handlers in one session:
@@ -48,7 +50,7 @@ You can mix handlers in one session:
 ```sql
 LOAD opendal;
 LOAD httpfs;
-SET opendal_override_native_filesystems = 's3';
+SET opendal_override_schemes = 's3';
 
 SELECT * FROM read_parquet('s3://warehouse/a.parquet');    -- opendal
 SELECT * FROM read_parquet('s3n://warehouse/b.parquet');   -- httpfs

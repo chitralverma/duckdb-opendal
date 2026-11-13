@@ -91,7 +91,16 @@ what it changes. Clear a global with `RESET opendal_cache_config`.
 There is no global `config`: service keys mean different things per service.
 
 Changing a setting or secret affects operations started afterwards; files
-already open keep the configuration they were opened with.
+already open keep the configuration they were opened with. The connection to
+each service is built on first use and kept, so a global changed later only
+reaches services not used yet. To apply it everywhere, drop the cached
+connections (this also empties the `memory` service, which lives inside its
+connection):
+
+```sql
+SET GLOBAL opendal_retry_config = MAP{'max_times': '8'};
+PRAGMA opendal_reset_operators;
+```
 
 The extension runs OpenDAL on its own thread pool. Its size follows DuckDB's
 `async_threads` setting when that is set in the configuration the database was

@@ -27,7 +27,7 @@ LOAD opendal;
 - **Scoped Secrets**: Configure credentials, custom endpoints, and regions with bucket/path specificity using DuckDB's native secret manager.
 - **Configurable Layers**: Tuning of retry behavior, timeout ceilings, concurrent request limits, and data caching per secret or globally.
 - **Built-in Data Caching**: Support for in-memory and persistent on-disk data caching (leveraging Foyer) without any manual query adjustments.
-- **Coexistence Layer**: Dynamically delegate specific schemes (like `s3://`) to `opendal` instead of native extensions (like `httpfs`) using `opendal_override_native_filesystems`.
+- **Coexistence Layer**: Dynamically delegate specific schemes (like `s3://`) to `opendal` instead of other extensions (like `httpfs`) using `opendal_override_schemes`.
 
 ---
 
@@ -105,19 +105,19 @@ SELECT * FROM opendal_copy(
 );
 ```
 
-### 4. Native Coexistence
+### 4. Coexistence
 
-By default, DuckDB routes `s3://` and `gcs://` to its native `httpfs` extension. You can instruct `opendal` to take precedence for specific schemes using:
+By default, DuckDB routes `s3://` and `gcs://` to its built-in `httpfs` extension. You can instruct `opendal` to take precedence for specific schemes, whichever extension also claims them, using:
 
 ```sql
 -- Let opendal handle s3:// and gcs:// queries
-SET opendal_override_native_filesystems = 's3,gcs';
+SET opendal_override_schemes = 's3,gcs';
 
 -- Queries under these schemes now run through opendal's filesystem registry
 SELECT * FROM read_parquet('s3://my-bucket/dataset.parquet');
 
 -- Revert back to httpfs handling
-SET opendal_override_native_filesystems = '';
+SET opendal_override_schemes = '';
 ```
 
 ---

@@ -94,5 +94,5 @@ SELECT * FROM read_parquet('fs:///data/big.parquet');   -- now cached by cache_h
 - **`s3://` caveat:** loading `cache_httpfs` pulls in DuckDB's native `httpfs`,
   which also claims `s3://` and may take precedence. Either wrap `opendal` for
   schemes `httpfs` does not own (`fs://`, the Azure schemes, …), or force
-  `opendal` to win with `SET opendal_override_native_filesystems = 's3';` and use
+  `opendal` to win with `SET opendal_override_schemes = 's3';` and use
   option 1 or 2 instead. See [coexistence](coexistence.md).
