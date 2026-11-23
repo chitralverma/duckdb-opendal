@@ -47,6 +47,8 @@ git ls-remote --heads https://github.com/duckdb/extension-ci-tools "vX.Y*"
      `code-quality-check` → the new line branch.
    - The `@vX.Y-*` ref on the reusable `_extension_distribution.yml` /
      `_extension_code_quality.yml` workflows → the new line.
+   - Check `extension-ci-tools/config/distribution_matrix.json` for platforms
+     marked `"opt_in": true`; list the ones to build in `opt_in_archs`.
 4. **Update docs**:
    - The submodule-pin note in `CONTRIBUTING.md`.
    - The DuckDB column of the compatibility matrix in `README.md`.
