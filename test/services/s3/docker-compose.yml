@@ -47,7 +47,9 @@ services:
         fi
         echo 'FINISHED SETTING UP MINIO'
 
-  fault-proxy:
+  # Counts requests (see ../proxy.py) and fails multipart completion under
+  # abort-test/.
+  proxy:
     image: python:3.12-alpine
     depends_on:
       minio:
@@ -55,13 +57,14 @@ services:
     ports:
       - "19101:9101"
     volumes:
-      - ./fault_proxy.py:/app/fault_proxy.py:ro
+      - ../proxy.py:/app/proxy.py:ro
     environment:
-      FAULT_PROXY_UPSTREAM_HOST: minio
-      FAULT_PROXY_UPSTREAM_PORT: "9000"
-      FAULT_PROXY_BIND_HOST: "0.0.0.0"
-      FAULT_PROXY_BIND_PORT: "9101"
-    command: ["python3", "/app/fault_proxy.py"]
+      PROXY_UPSTREAM_HOST: minio
+      PROXY_UPSTREAM_PORT: "9000"
+      PROXY_BIND_HOST: "0.0.0.0"
+      PROXY_BIND_PORT: "9101"
+      PROXY_FAIL_PREFIX: /warehouse/abort-test/
+    command: ["python3", "/app/proxy.py"]
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 9101), 2)"]
       interval: 2s

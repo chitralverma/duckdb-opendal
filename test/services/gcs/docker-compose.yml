@@ -23,3 +23,22 @@ services:
       - "127.0.0.1:19200"
       - "-external-url"
       - "http://127.0.0.1:19200"
+
+  # Counts requests (see ../proxy.py).
+  proxy:
+    image: python:3.12-alpine
+    ports:
+      - "19201:9101"
+    volumes:
+      - ../proxy.py:/app/proxy.py:ro
+    environment:
+      PROXY_UPSTREAM_HOST: fake-gcs
+      PROXY_UPSTREAM_PORT: "4443"
+      PROXY_BIND_HOST: "0.0.0.0"
+      PROXY_BIND_PORT: "9101"
+    command: ["python3", "/app/proxy.py"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 9101), 2)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

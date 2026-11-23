@@ -44,3 +44,25 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+
+  # Counts requests (see ../proxy.py).
+  proxy:
+    image: python:3.12-alpine
+    depends_on:
+      nginx:
+        condition: service_healthy
+    ports:
+      - "19301:9101"
+    volumes:
+      - ../proxy.py:/app/proxy.py:ro
+    environment:
+      PROXY_UPSTREAM_HOST: nginx
+      PROXY_UPSTREAM_PORT: "80"
+      PROXY_BIND_HOST: "0.0.0.0"
+      PROXY_BIND_PORT: "9101"
+    command: ["python3", "/app/proxy.py"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 9101), 2)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

@@ -1,25 +1,30 @@
 # Caching
 
-Repeated reads can be cached three ways. They stack, but you normally pick one —
-caching the same bytes twice just wastes memory. None of them require changing
-your queries.
+Repeated reads can be cached three ways. They stack, but you normally pick one,
+since caching the same bytes twice just wastes memory. None of them require
+changing your queries.
 
-|                  | DuckDB external cache   | OpenDAL data cache             | `cache_httpfs`                        |
-| ---------------- | ----------------------- | ------------------------------ | ------------------------------------- |
-| Setup            | none, on by default     | `cache_config`                 | `LOAD` + wrap                         |
-| Lives in         | RAM (buffer pool)       | RAM and/or disk                | disk (default)                        |
-| Survives restart | no                      | with `disk_path`               | yes                                   |
-| Applies to       | any seekable filesystem | all `opendal` schemes          | any filesystem, by name               |
-| Best for         | most workloads          | a persistent cache per service | large, repeatedly scanned remote data |
+|                  | DuckDB external cache            | OpenDAL data cache              | `cache_httpfs`                        |
+| ---------------- | -------------------------------- | ------------------------------- | ------------------------------------- |
+| Setup            | none, on by default              | `cache_config`                  | `LOAD` + wrap                         |
+| Lives in         | RAM (buffer pool)                | RAM and/or disk                 | disk (default)                        |
+| Survives restart | no                               | with `disk_path`                | yes                                   |
+| Applies to       | `s3`, `gcs`, `http(s)` URLs      | all `opendal` schemes           | any filesystem, by name               |
+| Best for         | most workloads on those schemes  | Azure and `fs`, or a disk cache | large, repeatedly scanned remote data |
 
-Start with the first — there is nothing to do. Move to the second when you want
-a persistent on-disk cache without another extension. Reach for `cache_httpfs`
+Start with the first if your data is on S3, GCS or HTTP. Use the second for the
+Azure services and `fs`, which DuckDB does not cache, or when you want a
+persistent on-disk cache without another extension. Reach for `cache_httpfs`
 when you need its extra features (metadata caching, profiling).
 
 ## 1. DuckDB's external file cache (default)
 
-DuckDB caches byte ranges for any filesystem that reports itself seekable,
-including `opendal`. It is on by default.
+DuckDB caches byte ranges of remote files in its buffer pool. It is on by
+default, and decides what is remote from the URL alone: `s3://`, `s3a://`,
+`s3n://`, `gcs://`, `gs://`, `r2://`, `http://` and `https://` qualify. The
+`azblob`, `azdls`, `azfile` and `fs` schemes do not, so their reads are not
+cached unless you `SET cache_local_files = true`, which also caches every local
+file.
 
 ```sql
 SELECT current_setting('enable_external_file_cache');   -- true
@@ -33,44 +38,65 @@ GROUP BY path;
 ```
 
 - Cached blocks live in DuckDB's buffer pool, bounded by its memory limit. Under
-  memory pressure they are dropped and re-fetched — nothing is written to disk.
+  memory pressure they are dropped and re-fetched. Nothing is written to disk.
 - DuckDB re-checks size and mtime, and validates cached ranges against the
   object's ETag when the service provides one.
 - Turn it off with `SET enable_external_file_cache = false;`.
 
 ## 2. The OpenDAL data cache
 
-The extension can cache object data itself, in memory and optionally on disk.
-Configure it globally or per secret with `cache_config`.
+The extension can cache object data itself, in memory and optionally on disk,
+for every scheme. Configure it globally or per secret with `cache_config`.
 
 ```sql
 -- Everything, in memory:
-SET GLOBAL opendal_cache_config = MAP{'memory_size': '256 MiB', 'shards': '4'};
+SET GLOBAL opendal_cache_config = MAP{'memory_size': '256 MiB'};
 
--- One bucket, with a persistent disk tier:
-CREATE SECRET s3_cached (
-    TYPE s3, SCOPE 's3://warehouse',
-    config MAP{'access_key_id': '...', 'secret_access_key': '...', 'region': 'us-east-1'},
+-- One container, with a persistent disk tier:
+CREATE SECRET azblob_cached (
+    TYPE azblob, SCOPE 'azblob://warehouse',
+    config MAP{'account_name': '...', 'account_key': '...'},
     cache_config MAP{
         'memory_size': '256 MiB',
-        'disk_path': '/var/cache/opendal',
-        'disk_size': '4 GiB',
-        'block_size': '4 MiB'
+        'disk_path': '/var/cache/duckdb-opendal',
+        'disk_size': '8 GiB'
     }
 );
 
-SELECT * FROM read_parquet('s3://warehouse/data.parquet');   -- served via the cache
+SELECT * FROM read_parquet('azblob://warehouse/data.parquet');   -- served via the cache
 ```
 
+- The cache stores fixed-size ranges of each object (`chunk_size`, 256 KiB by
+  default), and fetches only the ranges a query reads. Reading a Parquet footer
+  costs a few chunks, not the whole file. On a miss it fetches up to 4 MiB of
+  adjacent chunks in one request.
 - Memory only, until you set `disk_path`; that adds a persistent tier that
-  evicts by capacity.
-- Each service/bucket gets its own cache namespace, so identical paths in
-  different places never collide.
-- Consider `SET enable_external_file_cache = false;` so the same bytes are not
-  also held in DuckDB's buffer pool.
+  evicts by capacity and is reused after a restart.
+- Cached ranges are tied to the object's version, ETag or modification time, so
+  a changed object is never served from stale chunks. That metadata is trusted
+  for `ttl` (1 minute by default) before it is checked again; writes, renames
+  and deletes through `opendal` take effect immediately.
+- Each distinct service configuration (endpoint, bucket, credentials, options)
+  gets its own cache, and its own subdirectory under `disk_path`, so identical
+  paths in different places never collide.
+- While a file is read through this cache, DuckDB's external file cache steps
+  aside for it, so the bytes are not held twice.
 - Caching is best-effort: if the cache cannot be set up (an unwritable
-  `disk_path`, say) the query still runs, uncached, with a warning.
-- Object data only — no metadata or listing results are cached.
+  `disk_path`, or one in use by another process, say) the query still runs,
+  uncached, with a warning.
+- Object data only. No metadata or listing results are cached.
+
+### The disk tier
+
+- `disk_path` is a local directory. A relative path is resolved against the
+  working directory, and `~` against the home directory. When DuckDB restricts
+  file access (`enable_external_access = false`), it must be inside
+  `allowed_directories`, or the query fails.
+- Cached data is stored unencrypted, in a directory readable only by its owner.
+  Anyone with access to that account can read it, so do not point an encrypted
+  or tightly scoped bucket at a shared or long-lived cache directory.
+- One process uses a cache directory at a time. A second DuckDB process with the
+  same configuration runs uncached, with a warning, until the first closes.
 
 All keys are listed in [configuration](configuration.md#cache_config).
 

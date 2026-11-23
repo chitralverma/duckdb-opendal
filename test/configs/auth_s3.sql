@@ -12,3 +12,17 @@ CREATE SECRET s3_common (
         'enable_virtual_host_style': 'false'
     }
 );
+
+-- test/sql/common/cache.test reads one object through the data cache and the
+-- counting proxy.
+CREATE SECRET s3_cached (
+    TYPE s3, SCOPE '${OPENDAL_CACHED_FILE}',
+    config MAP{
+        'access_key_id': '${OPENDAL_S3_ACCESS_KEY_ID}',
+        'secret_access_key': '${OPENDAL_S3_SECRET_ACCESS_KEY}',
+        'region': '${OPENDAL_S3_REGION}',
+        'endpoint': '${OPENDAL_PROXY}',
+        'enable_virtual_host_style': 'false'
+    },
+    cache_config MAP{'memory_size': '64 MiB'}
+);

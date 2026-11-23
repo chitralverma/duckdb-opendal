@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""MinIO proxy that fails CompleteMultipartUpload for one test prefix and
-counts requests per method.
+"""HTTP proxy in front of a service emulator that counts requests.
 
-Used by test/sql/services/s3.test to force a multipart-completion failure while
-still allowing the abort, proving no orphaned uploads remain, and to assert how
-many requests a statement issued. Runs as the `fault-proxy` service in
-test/services/s3/docker-compose.yml.
+Each emulator tier runs it as the `proxy` service in its docker-compose.yml, so
+tests can assert how many requests, and how many GET body bytes, a statement
+issued.
 
-  GET /__counts            -> CSV "method,count" per HTTP method seen so far
+  GET /__counts            -> CSV "method,count": requests per HTTP method seen
+                              so far, plus GET_BYTES, the object data served by
+                              GET (JSON and XML API responses are not counted)
   GET /__counts/reset      -> zero the counters, then respond like /__counts
 
-Configuration (env, with standalone-friendly defaults):
-  FAULT_PROXY_UPSTREAM_HOST   upstream MinIO host      (default 127.0.0.1)
-  FAULT_PROXY_UPSTREAM_PORT   upstream MinIO port      (default 19100)
-  FAULT_PROXY_BIND_HOST       address to listen on     (default 127.0.0.1)
-  FAULT_PROXY_BIND_PORT       port to listen on        (default 19101)
-  FAULT_PROXY_FAIL_PREFIX     path prefix to fail      (default /warehouse/abort-test/)
+Configuration (env):
+  PROXY_UPSTREAM_HOST   upstream host            (default 127.0.0.1)
+  PROXY_UPSTREAM_PORT   upstream port            (required)
+  PROXY_BIND_HOST       address to listen on     (default 127.0.0.1)
+  PROXY_BIND_PORT       port to listen on        (required)
+  PROXY_FAIL_PREFIX     optional path prefix whose multipart completion (a POST
+                        with uploadId) fails with a 500, so a test can prove an
+                        aborted upload leaves nothing behind
 """
 
 import os
@@ -25,11 +27,11 @@ from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-UPSTREAM_HOST = os.environ.get("FAULT_PROXY_UPSTREAM_HOST", "127.0.0.1")
-UPSTREAM_PORT = int(os.environ.get("FAULT_PROXY_UPSTREAM_PORT", "19100"))
-BIND_HOST = os.environ.get("FAULT_PROXY_BIND_HOST", "127.0.0.1")
-BIND_PORT = int(os.environ.get("FAULT_PROXY_BIND_PORT", "19101"))
-FAIL_PREFIX = os.environ.get("FAULT_PROXY_FAIL_PREFIX", "/warehouse/abort-test/")
+UPSTREAM_HOST = os.environ.get("PROXY_UPSTREAM_HOST", "127.0.0.1")
+UPSTREAM_PORT = int(os.environ["PROXY_UPSTREAM_PORT"])
+BIND_HOST = os.environ.get("PROXY_BIND_HOST", "127.0.0.1")
+BIND_PORT = int(os.environ["PROXY_BIND_PORT"])
+FAIL_PREFIX = os.environ.get("PROXY_FAIL_PREFIX")
 
 COUNTS = Counter()
 COUNTS_LOCK = threading.Lock()
@@ -63,7 +65,15 @@ class Handler(BaseHTTPRequestHandler):
                 body = "".join(f"{m},{c}\n" for m, c in sorted(COUNTS.items())).encode()
             if not body:
                 body = b"none,0\n"
-        self.send_response(200)
+        # Clients read this like any object, with a Range header, and reject a
+        # 200 to a ranged read.
+        start, end = byte_range(self.headers.get("Range"), len(body))
+        if start is None:
+            self.send_response(200)
+        else:
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{len(body)}")
+            body = body[start : end + 1]
         self.send_header("Content-Type", "text/csv")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -75,7 +85,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
-        if self.path.startswith(FAIL_PREFIX) and "uploadId" in query:
+        if FAIL_PREFIX and self.path.startswith(FAIL_PREFIX) and "uploadId" in query:
             length = int(self.headers.get("Content-Length", "0"))
             if length:
                 self.rfile.read(length)
@@ -94,8 +104,6 @@ class Handler(BaseHTTPRequestHandler):
         self.proxy()
 
     def proxy(self):
-        with COUNTS_LOCK:
-            COUNTS[self.command] += 1
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length) if length else None
         headers = {key: value for key, value in self.headers.items() if key.lower() != "connection"}
@@ -104,6 +112,11 @@ class Handler(BaseHTTPRequestHandler):
             connection.request(self.command, self.path, body=body, headers=headers)
             response = connection.getresponse()
             payload = response.read()
+            with COUNTS_LOCK:
+                COUNTS[self.command] += 1
+                kind = (response.getheader("Content-Type") or "").split(";")[0].strip()
+                if self.command == "GET" and not kind.endswith(("json", "xml")):
+                    COUNTS["GET_BYTES"] += len(payload)
             self.send_response(response.status, response.reason)
             for key, value in response.getheaders():
                 if key.lower() not in {
@@ -128,6 +141,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, _format, *_args):
         pass
+
+
+def byte_range(header, size):
+    """The (start, end) of a single `bytes=start-[end]` range, or (None, None)."""
+    if not header or not header.startswith("bytes=") or "," in header:
+        return None, None
+    start, _, end = header[len("bytes=") :].partition("-")
+    if not start.isdigit() or (end and not end.isdigit()) or int(start) >= size:
+        return None, None
+    return int(start), min(int(end), size - 1) if end else size - 1
 
 
 if __name__ == "__main__":

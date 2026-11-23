@@ -8,6 +8,7 @@ mod retry;
 mod timeout;
 mod value;
 
+pub(crate) use cache::CacheGuard;
 pub(crate) use io::IoConfig;
 
 pub(crate) struct OperatorConfig {
@@ -20,6 +21,8 @@ pub(crate) struct OperatorConfig {
 
 pub(crate) struct AppliedConfig {
     pub(crate) op: Operator,
+    /// Set when reads go through the data cache.
+    pub(crate) cache: Option<CacheGuard>,
     pub(crate) warning: Option<String>,
 }
 
@@ -59,15 +62,17 @@ impl OperatorConfig {
             op = config.apply(op);
         }
         op = self.io.apply_layer(op);
-        let warning = match &self.cache {
-            Some(config) => {
-                let (layered, warning) = config.apply(op, self.cache_namespace.as_deref());
-                op = layered;
-                warning
-            }
-            None => None,
+        let (cache, warning) = match &self.cache {
+            Some(config) => match config.apply(op.clone(), self.cache_namespace.as_deref()) {
+                Ok((layered, guard)) => {
+                    op = layered;
+                    (Some(guard), None)
+                }
+                Err(error) => (None, Some(format!("OpenDAL cache disabled: {error}"))),
+            },
+            None => (None, None),
         };
-        AppliedConfig { op, warning }
+        AppliedConfig { op, cache, warning }
     }
 }
 
@@ -108,6 +113,9 @@ mod tests {
         for key in [
             "cache.shradz",
             "cache.memory_mb",
+            "cache.block_size",
+            "cache.min_file_size",
+            "cache.max_file_size",
             "timeout.seconds",
             "retry.min_delay_ms",
         ] {

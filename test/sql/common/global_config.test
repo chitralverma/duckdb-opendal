@@ -25,7 +25,7 @@ statement ok
 SET GLOBAL opendal_timeout_config = MAP{'operation_timeout':'30s'};
 
 statement ok
-SET GLOBAL opendal_cache_config = MAP{'memory_size':'16 MiB','shards':'2','min_file_size':'0'};
+SET GLOBAL opendal_cache_config = MAP{'memory_size':'16 MiB','shards':'2','chunk_size':'64 KiB'};
 
 statement ok
 COPY (SELECT range AS id FROM range(1000)) TO '${OPENDAL_BASE}/gcfg/data.parquet' (FORMAT parquet);

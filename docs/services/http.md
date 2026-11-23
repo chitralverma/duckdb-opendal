@@ -85,6 +85,7 @@ plain HTTP.
   [coexistence](../coexistence.md). Without it you are almost certainly using
   `httpfs`, and none of the settings here apply.
 - Range requests drive projection and filter pushdown, so reading a few columns
-  from a large remote Parquet file does not download all of it. Servers that do
-  not honour `Range` fall back to full reads.
+  from a large remote Parquet file does not download all of it. The server must
+  honour `Range`: a ranged read answered with `200 OK` instead of
+  `206 Partial Content` fails rather than return the wrong bytes.
 - Caching helps most here; see [caching](../caching.md).

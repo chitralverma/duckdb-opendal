@@ -50,3 +50,15 @@ unknown OpenDAL option 'cache.shradz'
 
 statement ok
 RESET opendal_cache_config;
+
+# A removed cache option names its replacement instead of being ignored.
+statement ok
+SET GLOBAL opendal_cache_config = MAP{'block_size':'4 MiB'};
+
+statement error
+SELECT * FROM opendal_stat('${OPENDAL_BASE}/errors/data.parquet');
+----
+cache.block_size is no longer supported
+
+statement ok
+RESET opendal_cache_config;

@@ -26,7 +26,7 @@ LOAD opendal;
 - **Table Functions**: Inspect and manage storage from SQL — list, stat, measure and copy objects, and check what a URL resolves to. See [the table-function reference](docs/table-functions.md).
 - **Scoped Secrets**: Configure credentials, custom endpoints, and regions with bucket/path specificity using DuckDB's native secret manager.
 - **Configurable Layers**: Tuning of retry behavior, timeout ceilings, concurrent request limits, and data caching per secret or globally.
-- **Built-in Data Caching**: Support for in-memory and persistent on-disk data caching (leveraging Foyer) without any manual query adjustments.
+- **Built-in Data Caching**: In-memory and on-disk caching of the byte ranges queries actually read, for every service, without any query changes. See [Caching](docs/caching.md).
 - **Coexistence Layer**: Dynamically delegate specific schemes (like `s3://`) to `opendal` instead of other extensions (like `httpfs`) using `opendal_override_schemes`.
 
 ---

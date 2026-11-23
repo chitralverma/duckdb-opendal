@@ -10,6 +10,9 @@ require opendal
 
 require parquet
 
+# The last block disables external access, which cannot be undone on reload.
+require skip_reload
+
 statement ok
 CREATE SECRET svc_fs (TYPE fs, SCOPE 'fs://', config MAP{'root':'.'});
 
@@ -136,3 +139,30 @@ RESET opendal_cache_config;
 
 statement ok
 CALL disable_logging();
+
+# With external access disabled, a disk cache outside allowed_directories fails
+# the query instead of writing there. Last: this cannot be switched back on.
+statement ok
+SET allowed_directories = ['__TEST_DIR__/svc'];
+
+statement ok
+SET enable_external_access = false;
+
+statement ok
+SET GLOBAL opendal_cache_config = MAP{'disk_path':'__TEST_DIR__/elsewhere'};
+
+statement error
+SELECT count(*) FROM opendal_stat('fs:///__TEST_DIR__/svc/out.parquet');
+----
+is not an allowed directory
+
+statement ok
+SET GLOBAL opendal_cache_config = MAP{'disk_path':'__TEST_DIR__/svc/cache'};
+
+query I
+SELECT count(*) FROM opendal_stat('fs:///__TEST_DIR__/svc/out.parquet');
+----
+1
+
+statement ok
+RESET opendal_cache_config;

@@ -163,6 +163,14 @@ service; `<svc>-up` depends on it. A tier exposes them under its own
 sets `OPENDAL_EXTERNAL_BASE` in its config, which makes
 `common/external_read.test` run. Never regenerate fixtures per service.
 
+### Counting proxy
+
+`test/services/proxy.py` runs as a tier's `proxy` compose service. It forwards
+to the emulator and counts requests per method, plus `GET_BYTES`, the object
+data served by GET. Tests read `${OPENDAL_PROXY}/__counts` and zero it with
+`/__counts/reset`. A tier that also sets `OPENDAL_CACHED_FILE` (and a cached
+secret for it, through the proxy) runs `common/cache.test`.
+
 ### How env substitution works
 
 The SQLLogicTest runner substitutes `${VAR}`/`{VAR}` anywhere in a test body from

@@ -57,6 +57,7 @@ public:
 	timestamp_t GetLastModifiedTime(FileHandle &handle) override;
 	FileType GetFileType(FileHandle &handle) override;
 	string GetVersionTag(FileHandle &handle) override;
+	optional<timestamp_t> GetCacheValidUntil(FileHandle &handle) override;
 	void AbortFileWrite(FileHandle &handle) override;
 
 	bool FileExists(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
@@ -185,6 +186,8 @@ public:
 	int64_t position = 0;
 	int64_t last_modified_ms = -1;
 	std::string etag;
+	// Reads go through the OpenDAL data cache.
+	bool cached = false;
 
 	// Write state (append-only streaming).
 	OdWriter *writer = nullptr;

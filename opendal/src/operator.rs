@@ -35,6 +35,8 @@ pub struct OdOperator {
     /// Effective operator root, cached at construction for `od_operator_root`.
     pub(crate) info_root: CString,
     pub(crate) warning: Option<std::ffi::CString>,
+    /// Set when reads go through the data cache. Dropped after `op`.
+    pub(crate) cache: Option<crate::config::CacheGuard>,
 }
 
 /// Build an Operator from `uri` (`scheme://authority`) plus `len` key/value
@@ -128,6 +130,7 @@ pub unsafe extern "C" fn od_operator_new(
                     warning: applied
                         .warning
                         .and_then(|warning| std::ffi::CString::new(warning).ok()),
+                    cache: applied.cache,
                 }))
             }
             Err(e) => {
@@ -136,6 +139,19 @@ pub unsafe extern "C" fn od_operator_new(
             }
         }
     })
+}
+
+/// Return 1 if reads through `op` use the OpenDAL data cache, else 0.
+///
+/// # Safety
+///
+/// `op` must be null or a live handle from `od_operator_new`.
+#[no_mangle]
+pub unsafe extern "C" fn od_operator_cached(op: *const OdOperator) -> u8 {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        u8::from(!op.is_null() && (*op).cache.is_some())
+    }))
+    .unwrap_or(0)
 }
 
 /// Return an operator-construction warning, or null. Borrowed from `op`.

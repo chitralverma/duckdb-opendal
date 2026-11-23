@@ -42,27 +42,30 @@ services-s3 = ["opendal/services-s3"]
 [dependencies.opendal]
 default-features = false
 features = [
+  "auto-simulate",
   "executors-tokio",
   "http-transport-reqwest-rustls-no-provider",
   "layers-retry",
   "layers-timeout",
   "layers-concurrent-limit",
-  "layers-foyer",
+  "layers-cache",
 ]
 git = "https://github.com/apache/opendal.git"
-rev = "fce9cdefdea7c8e54dfbaf3c88c3b6d5ec68146e"
+rev = "d3a93511b5f910031e9332eb8f4c165ee49eae77"
 
 [dependencies]
 bytes = "1"
-foyer = "0.22" # match opendal-layer-foyer's transitive version
+foyer = "0.22.3" # match opendal-service-foyer's version
 futures = "0.3"
 human-units = { version = "=0.6.0", default-features = false, features = [
   "std",
   "iec-units",
 ] }
-opendal-http-transport-reqwest = { git = "https://github.com/apache/opendal.git", rev = "fce9cdefdea7c8e54dfbaf3c88c3b6d5ec68146e", default-features = false, features = [
+opendal-http-transport-reqwest = { git = "https://github.com/apache/opendal.git", rev = "d3a93511b5f910031e9332eb8f4c165ee49eae77", default-features = false, features = [
   "rustls-no-provider",
 ] }
+# The cache backend, used directly so it does not register a `foyer` scheme.
+opendal-service-foyer = { git = "https://github.com/apache/opendal.git", rev = "d3a93511b5f910031e9332eb8f4c165ee49eae77" }
 percent-encoding = "2"
 # ring provider, not the default aws-lc-rs: aws-lc-sys fails its ARMv8 asm build
 # under MSVC on windows_arm64.
