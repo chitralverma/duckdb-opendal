@@ -201,9 +201,13 @@ jobs:
       extra_toolchains: "rust"
       skip_tests: true
       # Exclude:
-      # - WASM targets: extension-ci-tools pins rust-toolchain@1.86 which is below opendal's MSRV (1.91). See https://github.com/duckdb/extension-ci-tools/issues/385
+      # - WASM targets: tokio's net feature (via reqwest/hyper) pulls in mio, which does not build for wasm32-unknown-emscripten.
       # - Windows MinGW target: Rtools MinGW toolchain is missing libgcc_eh.a which is required by rustc for the gnu target. Rely on standard MSVC instead.
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw'
+      # osx_amd64 is opt-in on the v2.0 matrix.
+      opt_in_archs: 'osx_amd64'
+      # 'auto' drops osx_arm64 and linux_arm64 on PRs.
+      reduced_ci_mode: 'disabled'
 
   # Downloadable per-platform binaries (unsigned/manual installs); the community
   # registry builds from source and doesn't use these. See MAINTAINING.md.
