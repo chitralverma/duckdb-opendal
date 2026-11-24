@@ -2,7 +2,8 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use human_units::iec::Byte;
+use human_units::iec::{iec_unit, Byte, Prefix};
+use human_units::si::si_unit;
 
 pub(crate) fn positive_usize(
     section: &str,
@@ -68,45 +69,44 @@ impl ByteSize {
     }
 }
 
+/// `value` in IEC units, e.g. `iec(8, Prefix::Mebi)` is 8 MiB.
+pub(crate) const fn iec(value: u64, prefix: Prefix) -> usize {
+    Byte::with_iec_prefix(value, prefix).0 as usize
+}
+
+/// Bytes in powers of 1000 (`kB`, `MB`, ...).
+#[si_unit(symbol = "B", min_prefix = "")]
+struct SiBytes(u64);
+
+/// Bits in powers of 1000 (`kb`, `Mb`, ...).
+#[si_unit(symbol = "b", min_prefix = "")]
+struct SiBits(u64);
+
+/// Bits in powers of 1024 (`Kib`, `Mib`, ...).
+#[iec_unit(symbol = "b")]
+struct IecBits(u64);
+
 fn parse_bytes(value: &str) -> Option<u64> {
     let value = value.trim();
-    if let Ok(bytes) = value.parse::<u64>() {
+    // `KB` is the common spelling of SI `kB`.
+    let value = match value.strip_suffix("KB") {
+        Some(number) => format!("{number}kB"),
+        None => value.to_string(),
+    };
+    if let Some(bytes) = value
+        .parse::<u64>()
+        .ok()
+        .or_else(|| value.parse::<Byte>().ok().map(|v| v.0))
+        .or_else(|| value.parse::<SiBytes>().ok().map(|v| v.0))
+    {
         return Some(bytes);
     }
-    if let Ok(bytes) = value.parse::<Byte>() {
-        return Some(bytes.0);
-    }
-
-    let split = value.rfind(char::is_numeric)?;
-    let number = value[..=split].trim().parse::<u64>().ok()?;
-    let unit = value[split + 1..].trim();
-    let (factor, bits) = match unit {
-        "B" => (1, false),
-        "kB" | "KB" => (1_000, false),
-        "MB" => (1_000_000, false),
-        "GB" => (1_000_000_000, false),
-        "TB" => (1_000_000_000_000, false),
-        "PB" => (1_000_000_000_000_000, false),
-        "EB" => (1_000_000_000_000_000_000, false),
-        "b" => (1, true),
-        "kb" => (1_000, true),
-        "Mb" => (1_000_000, true),
-        "Gb" => (1_000_000_000, true),
-        "Tb" => (1_000_000_000_000, true),
-        "Kib" => (1_u64 << 10, true),
-        "Mib" => (1_u64 << 20, true),
-        "Gib" => (1_u64 << 30, true),
-        "Tib" => (1_u64 << 40, true),
-        "Pib" => (1_u64 << 50, true),
-        "Eib" => (1_u64 << 60, true),
-        _ => return None,
-    };
-    let value = number.checked_mul(factor)?;
-    if bits {
-        (value % 8 == 0).then_some(value / 8)
-    } else {
-        Some(value)
-    }
+    let bits = value
+        .parse::<SiBits>()
+        .map(|v| v.0)
+        .or_else(|_| value.parse::<IecBits>().map(|v| v.0))
+        .ok()?;
+    (bits % 8 == 0).then_some(bits / 8)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -187,6 +187,24 @@ mod tests {
             1_048_576
         );
         assert!(ByteSize::parse("io", "chunk_size", "1 b").is_err());
+        for (value, bytes) in [
+            ("2 KB", 2_000),
+            ("2 kB", 2_000),
+            ("16 kb", 2_000),
+            ("3 GB", 3_000_000_000),
+        ] {
+            assert_eq!(
+                ByteSize::parse("io", "chunk_size", value).unwrap().get(),
+                bytes,
+                "{value}"
+            );
+        }
+        for value in ["1 mB", "1 Kb", "1 MIB", "99999999999 EB"] {
+            assert!(
+                ByteSize::parse("io", "chunk_size", value).is_err(),
+                "{value}"
+            );
+        }
 
         assert_eq!(
             HumanDuration::parse("timeout", "io_timeout", "15")

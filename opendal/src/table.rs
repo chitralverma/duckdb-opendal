@@ -4,10 +4,12 @@ use std::collections::HashMap;
 use std::ffi::{c_char, CString};
 
 use futures::TryStreamExt;
+use human_units::iec::Prefix;
 use opendal::options::{CopyOptions, ListOptions, ReaderOptions, StatOptions, WriteOptions};
 use opendal::{Entry, EntryMode, Lister, Metadata};
 
 use crate::capability::require;
+use crate::config::iec;
 use crate::error::{set_error, set_ok, set_opendal_error, OdError, OdErrorCode};
 use crate::ffi::{cstr, ffi_guard, free_handle};
 use crate::operator::OdOperator;
@@ -1004,7 +1006,7 @@ unsafe fn copy_one(
                 .op
                 .writer_options(destination, writer_options),
         )?;
-        let chunk = options.chunk.unwrap_or(8 * 1024 * 1024) as u64;
+        let chunk = options.chunk.unwrap_or(iec(8, Prefix::Mebi)) as u64;
         let mut offset = 0u64;
         while offset < source_size {
             let end = source_size.min(offset.saturating_add(chunk));

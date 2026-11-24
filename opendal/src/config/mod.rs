@@ -10,6 +10,7 @@ mod value;
 
 pub(crate) use cache::CacheGuard;
 pub(crate) use io::IoConfig;
+pub(crate) use value::iec;
 
 pub(crate) struct OperatorConfig {
     pub(crate) io: IoConfig,
@@ -79,6 +80,7 @@ impl OperatorConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use human_units::iec::Prefix;
 
     fn values(values: &[(&str, &str)]) -> Vec<(String, String)> {
         values
@@ -102,7 +104,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(config.io.read.concurrent.map(|value| value.get()), Some(2));
-        assert_eq!(config.io.read_chunk(), Some(8 * 1024 * 1024));
+        assert_eq!(config.io.read_chunk(), Some(iec(8, Prefix::Mebi)));
         assert!(config.retry.is_some());
         assert!(config.timeout.is_some());
         assert!(config.cache.is_some());
