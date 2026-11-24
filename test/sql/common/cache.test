@@ -3,9 +3,9 @@
 # group: [common]
 
 #
-# ${OPENDAL_CACHED_FILE} is the 24 MB ext_big.parquet fixture behind a secret,
+# {OPENDAL_CACHED_FILE} is the 24 MB ext_big.parquet fixture behind a secret,
 # set up by the config's init script, that sends it through the data cache and
-# the tier's counting proxy at ${OPENDAL_PROXY} (test/services/proxy.py).
+# the tier's counting proxy at {OPENDAL_PROXY} (test/services/proxy.py).
 # GET_BYTES counts the object data the proxy served.
 
 require opendal
@@ -31,14 +31,14 @@ SET cache_local_files = true;
 statement ok
 CREATE MACRO proxy_count(m) AS (
     SELECT coalesce(max(count), 0)
-    FROM read_csv('${OPENDAL_PROXY}/__counts', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
+    FROM read_csv('{OPENDAL_PROXY}/__counts', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
     WHERE method = m
 );
 
 statement ok
 CREATE MACRO proxy_reset() AS (
     SELECT count(*)
-    FROM read_csv('${OPENDAL_PROXY}/__counts/reset', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
+    FROM read_csv('{OPENDAL_PROXY}/__counts/reset', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
 );
 
 # Reading the footer fetches the chunks at the end of the object: one fill, not
@@ -47,7 +47,7 @@ statement ok
 SELECT proxy_reset();
 
 query I
-SELECT num_rows FROM parquet_file_metadata('${OPENDAL_CACHED_FILE}');
+SELECT num_rows FROM parquet_file_metadata('{OPENDAL_CACHED_FILE}');
 ----
 250000
 
@@ -62,7 +62,7 @@ statement ok
 SELECT proxy_reset();
 
 query I
-SELECT num_rows FROM parquet_file_metadata('${OPENDAL_CACHED_FILE}');
+SELECT num_rows FROM parquet_file_metadata('{OPENDAL_CACHED_FILE}');
 ----
 250000
 
@@ -77,7 +77,7 @@ statement ok
 SELECT proxy_reset();
 
 query II
-SELECT count(*), sum(id) FROM read_parquet('${OPENDAL_CACHED_FILE}');
+SELECT count(*), sum(id) FROM read_parquet('{OPENDAL_CACHED_FILE}');
 ----
 250000	31249875000
 
@@ -88,6 +88,6 @@ true
 
 # DuckDB's external file cache keeps no second copy of the cached object.
 query I
-SELECT count(*) FROM duckdb_external_file_cache() WHERE path = '${OPENDAL_CACHED_FILE}';
+SELECT count(*) FROM duckdb_external_file_cache() WHERE path = '{OPENDAL_CACHED_FILE}';
 ----
 0

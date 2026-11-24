@@ -7,7 +7,7 @@ require opendal
 require-env OPENDAL_BASE
 
 statement ok
-SET temp_directory = '${OPENDAL_BASE}/tmp';
+SET temp_directory = '{OPENDAL_BASE}/tmp';
 
 statement ok
 SET memory_limit = '10MB';

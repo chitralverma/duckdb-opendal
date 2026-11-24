@@ -8,9 +8,9 @@
 -- (<authority> up to the first dot) from the URL authority, so the secret only
 -- has to carry the filesystem and the credential.
 CREATE SECRET azdls_common (
-    TYPE azdls, SCOPE 'azdls://${OPENDAL_AZDLS_HOST}',
+    TYPE azdls, SCOPE 'azdls://{OPENDAL_AZDLS_HOST}',
     config MAP{
-        'filesystem': '${OPENDAL_AZDLS_FILESYSTEM}',
-        'account_key': '${OPENDAL_AZDLS_ACCOUNT_KEY}'
+        'filesystem': '{OPENDAL_AZDLS_FILESYSTEM}',
+        'account_key': '{OPENDAL_AZDLS_ACCOUNT_KEY}'
     }
 );

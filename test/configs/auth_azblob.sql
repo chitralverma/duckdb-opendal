@@ -8,22 +8,22 @@
 -- everything else must come from the secret because the operator URI carries
 -- no path or query.
 CREATE SECRET azblob_common (
-    TYPE azblob, SCOPE 'azblob://${OPENDAL_AZBLOB_CONTAINER}',
+    TYPE azblob, SCOPE 'azblob://{OPENDAL_AZBLOB_CONTAINER}',
     config MAP{
-        'endpoint': '${OPENDAL_AZBLOB_ENDPOINT}',
-        'account_name': '${OPENDAL_AZBLOB_ACCOUNT_NAME}',
-        'account_key': '${OPENDAL_AZBLOB_ACCOUNT_KEY}'
+        'endpoint': '{OPENDAL_AZBLOB_ENDPOINT}',
+        'account_name': '{OPENDAL_AZBLOB_ACCOUNT_NAME}',
+        'account_key': '{OPENDAL_AZBLOB_ACCOUNT_KEY}'
     }
 );
 
 -- test/sql/common/cache.test reads one object through the data cache and the
 -- counting proxy.
 CREATE SECRET azblob_cached (
-    TYPE azblob, SCOPE '${OPENDAL_CACHED_FILE}',
+    TYPE azblob, SCOPE '{OPENDAL_CACHED_FILE}',
     config MAP{
-        'endpoint': '${OPENDAL_PROXY}/${OPENDAL_AZBLOB_ACCOUNT_NAME}',
-        'account_name': '${OPENDAL_AZBLOB_ACCOUNT_NAME}',
-        'account_key': '${OPENDAL_AZBLOB_ACCOUNT_KEY}'
+        'endpoint': '{OPENDAL_PROXY}/{OPENDAL_AZBLOB_ACCOUNT_NAME}',
+        'account_name': '{OPENDAL_AZBLOB_ACCOUNT_NAME}',
+        'account_key': '{OPENDAL_AZBLOB_ACCOUNT_KEY}'
     },
     cache_config MAP{'memory_size': '64 MiB'}
 );
