@@ -750,12 +750,14 @@ mod tests {
                     &mut err,
                 )
             };
-            assert!(!op.is_null(), "{uri}: operator_new failed");
+            // as_ref() is the null check: no raw dereference past this point.
+            let odop =
+                unsafe { op.as_ref() }.unwrap_or_else(|| panic!("{uri}: operator_new failed"));
             let scheme = uri.split("://").next().unwrap();
-            assert_eq!(unsafe { &(*op).scheme }, scheme);
-            assert_eq!(unsafe { (*op).op.info().name().to_string() }, "my-bucket");
-            assert!(unsafe { (*op).cap.write_can_multi }, "{uri}");
-            assert_eq!(unsafe { (*op).io.write_chunk() }, write_chunk, "{uri}");
+            assert_eq!(odop.scheme, scheme);
+            assert_eq!(odop.op.info().name(), "my-bucket");
+            assert!(odop.cap.write_can_multi, "{uri}");
+            assert_eq!(odop.io.write_chunk(), write_chunk, "{uri}");
             unsafe { od_operator_free(op) };
         }
     }
