@@ -119,11 +119,33 @@ static void LoadInternal(ExtensionLoader &loader) {
 	g_opendal_filesystem = fs_ptr;
 	db.GetFileSystem().RegisterSubSystem(std::move(fs_uptr));
 
-	// opendal_version() — returns the linked duckdb-opendal / OpenDAL version.
-	auto version_fn = ScalarFunction("opendal_version", {}, LogicalType::VARCHAR, OpendalVersionScalarFun);
-	loader.RegisterFunction(version_fn);
-	loader.RegisterFunction(ScalarFunction("opendal_is_manually_set", {LogicalType::VARCHAR}, LogicalType::BOOLEAN,
-	                                       OpendalIsManuallySetScalarFun));
+	// Scalar functions carry a FunctionDescription so duckdb_functions() can
+	// show a description, parameter names, and an example for each one.
+	auto register_scalar = [&](ScalarFunction function, vector<string> parameter_names, string description,
+	                           string example) {
+		// duckdb_functions() reads positional parameter names from the signature.
+		// SetName keeps the parameter positional-only, so calls do not change.
+		for (idx_t i = 0; i < parameter_names.size(); i++) {
+			function.GetSignature().GetParameter(i).SetName(Identifier(parameter_names[i]));
+		}
+		CreateScalarFunctionInfo info(std::move(function));
+		FunctionDescription desc;
+		desc.parameter_names = std::move(parameter_names);
+		desc.description = std::move(description);
+		desc.examples = {std::move(example)};
+		desc.categories = {"opendal"};
+		info.descriptions.push_back(std::move(desc));
+		loader.RegisterFunction(std::move(info));
+	};
+	register_scalar(ScalarFunction("opendal_version", {}, LogicalType::VARCHAR, OpendalVersionScalarFun), {},
+	                "Returns the duckdb-opendal extension version and the OpenDAL core version it was built with.",
+	                "opendal_version()");
+	register_scalar(ScalarFunction("opendal_is_manually_set", {LogicalType::VARCHAR}, LogicalType::BOOLEAN,
+	                               OpendalIsManuallySetScalarFun),
+	                {"path"},
+	                "Returns true if opendal_override_schemes routes the URL's scheme to OpenDAL instead of the "
+	                "default DuckDB filesystem.",
+	                "opendal_is_manually_set('s3://bucket/file.parquet')");
 	loader.RegisterFunction(PragmaFunction::PragmaStatement("opendal_reset_operators", OpendalResetOperatorsPragma));
 
 	// Table functions: opendal_ls(), opendal_stat(), opendal_du().
