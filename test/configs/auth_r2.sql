@@ -1,11 +1,9 @@
 -- Init script for the r2:// service (loaded by test/configs/r2.json).
---
--- r2:// is also claimed by DuckDB's native httpfs, so claim it explicitly
--- instead of depending on extension load order.
+
+-- httpfs also claims r2://.
 SET GLOBAL opendal_override_schemes = 'r2';
 
--- Real R2 derives the endpoint from `account_id`; this tier points `endpoint`
--- at MinIO instead (the preset allows exactly one of the two).
+-- Real R2 would use `account_id`; this tier points `endpoint` at MinIO.
 CREATE SECRET r2_common (
     TYPE r2, SCOPE 'r2://warehouse',
     config MAP{

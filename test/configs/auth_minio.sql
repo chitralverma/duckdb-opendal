@@ -1,6 +1,4 @@
 -- Init script for the minio:// service (loaded by test/configs/minio.json).
--- The preset takes only connection + credential keys: no region (defaults to
--- `auto`), no addressing style (always path style).
 CREATE SECRET minio_common (
     TYPE minio, SCOPE 'minio://warehouse',
     config MAP{

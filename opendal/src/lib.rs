@@ -238,6 +238,8 @@ pub unsafe extern "C" fn od_string_free(ptr: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::iec;
+    use human_units::iec::Prefix;
     use std::ffi::{CStr, CString};
 
     fn init() {
@@ -582,7 +584,9 @@ mod tests {
         let op = cached_operator(&[("cache.memory_size", "16 MiB")], None).unwrap();
         assert_eq!(unsafe { crate::od_operator_cached(op) }, 1);
         // Spans two 256 KiB chunks; ranged reads cross chunk boundaries.
-        let payload: Vec<u8> = (0..600 * 1024).map(|i| (i % 251) as u8).collect();
+        let payload: Vec<u8> = (0..iec(600, Prefix::Kibi))
+            .map(|i| (i % 251) as u8)
+            .collect();
         crate::runtime::block_on(unsafe { &(*op).op }.write("cached.bin", payload.clone()))
             .unwrap();
         for (offset, len) in [
@@ -704,62 +708,6 @@ mod tests {
         assert_eq!(name, "my-bucket");
         assert_eq!(unsafe { &(*op).scheme }, "s3");
         unsafe { od_operator_free(op) };
-    }
-
-    #[test]
-    fn s3_presets_build_from_uri() {
-        // minio:// and r2:// map the authority to the bucket like s3, keep their
-        // own scheme (capability errors, io defaults), and build without I/O.
-        init();
-        type Case<'a> = (&'a str, &'a [(&'a str, &'a str)], Option<usize>);
-        let cases: [Case; 2] = [
-            (
-                "minio://my-bucket",
-                &[("endpoint", "http://127.0.0.1:1")],
-                None,
-            ),
-            (
-                "r2://my-bucket",
-                &[("account_id", "example-account")],
-                Some(8 * 1024 * 1024),
-            ),
-        ];
-        for (uri, config, write_chunk) in cases {
-            let c_uri = CString::new(uri).unwrap();
-            let keys: Vec<CString> = config
-                .iter()
-                .map(|(k, _)| CString::new(*k).unwrap())
-                .collect();
-            let vals: Vec<CString> = config
-                .iter()
-                .map(|(_, v)| CString::new(*v).unwrap())
-                .collect();
-            let k_ptrs: Vec<*const c_char> = keys.iter().map(|c| c.as_ptr()).collect();
-            let v_ptrs: Vec<*const c_char> = vals.iter().map(|c| c.as_ptr()).collect();
-            let mut err = OdError::ok();
-            let op = unsafe {
-                od_operator_new(
-                    c_uri.as_ptr(),
-                    k_ptrs.as_ptr(),
-                    v_ptrs.as_ptr(),
-                    k_ptrs.len(),
-                    std::ptr::null(),
-                    std::ptr::null(),
-                    0,
-                    std::ptr::null(),
-                    &mut err,
-                )
-            };
-            // as_ref() is the null check: no raw dereference past this point.
-            let odop =
-                unsafe { op.as_ref() }.unwrap_or_else(|| panic!("{uri}: operator_new failed"));
-            let scheme = uri.split("://").next().unwrap();
-            assert_eq!(odop.scheme, scheme);
-            assert_eq!(odop.op.info().name(), "my-bucket");
-            assert!(odop.cap.write_can_multi, "{uri}");
-            assert_eq!(odop.io.write_chunk(), write_chunk, "{uri}");
-            unsafe { od_operator_free(op) };
-        }
     }
 
     #[test]

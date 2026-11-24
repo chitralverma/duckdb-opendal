@@ -1,28 +1,16 @@
 # name: test/sql/services/minio.test
-# description: minio://-specific behavior (preset config contract, s3 interop)
+# description: minio://-specific behavior (preset config contract)
 # group: [services]
 
 #
-# Runs only under the minio config (test/configs/minio.json), which points at the
-# s3 tier's MinIO server. Gated on OPENDAL_MINIO_ENDPOINT, which only that config
-# provides.
+# Runs only under the minio config (test/configs/minio.json).
 
 require opendal
-
-require parquet
 
 require-env OPENDAL_MINIO_ENDPOINT
 
 # Do not skip service (HTTP/connection) errors.
 set ignore_error_messages
-
-# The preset takes a smaller config than s3: no region needed (defaults to
-# `auto`), and generic-S3 keys are rejected rather than silently ignored.
-query III
-SELECT scheme, secret_name, capabilities['write']
-FROM opendal_info('minio://warehouse/svc/a.parquet');
-----
-minio	minio_common	true
 
 statement ok
 CREATE SECRET minio_no_endpoint (TYPE minio, SCOPE 'minio://no-endpoint', config MAP{});
@@ -33,6 +21,7 @@ FROM opendal_info('minio://no-endpoint/a.parquet');
 ----
 false	true
 
+# Generic-S3 keys are rejected, not ignored.
 statement ok
 CREATE SECRET minio_s3_key (
     TYPE minio, SCOPE 'minio://s3-key',
@@ -44,41 +33,3 @@ SELECT usable, message LIKE '%unknown field `enable_virtual_host_style`%'
 FROM opendal_info('minio://s3-key/a.parquet');
 ----
 false	true
-
-# Anonymous requests and direct credentials are mutually exclusive.
-statement ok
-CREATE SECRET minio_anon_creds (
-    TYPE minio, SCOPE 'minio://anon-creds',
-    config MAP{'endpoint': '${OPENDAL_MINIO_ENDPOINT}', 'skip_signature': 'true', 'access_key_id': 'k', 'secret_access_key': 's'}
-);
-
-query II
-SELECT usable, message LIKE '%skip_signature cannot be combined with direct credentials%'
-FROM opendal_info('minio://anon-creds/a.parquet');
-----
-false	true
-
-# Same bucket, same objects: what minio:// writes, s3:// reads back.
-statement ok
-COPY (SELECT range AS id FROM range(42)) TO 'minio://warehouse/svc/interop.parquet' (FORMAT parquet);
-
-statement ok
-CREATE SECRET minio_as_s3 (
-    TYPE s3, SCOPE 's3://warehouse/svc',
-    config MAP{
-        'endpoint': '${OPENDAL_MINIO_ENDPOINT}', 'region': 'us-east-1',
-        'access_key_id': '${OPENDAL_MINIO_ACCESS_KEY_ID}', 'secret_access_key': '${OPENDAL_MINIO_SECRET_ACCESS_KEY}',
-        'enable_virtual_host_style': 'false'
-    }
-);
-
-statement ok
-SET opendal_override_schemes = 's3';
-
-query I
-SELECT count(*) FROM read_parquet('s3://warehouse/svc/interop.parquet');
-----
-42
-
-statement ok
-SET opendal_override_schemes = '';

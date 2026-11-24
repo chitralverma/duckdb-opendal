@@ -1,5 +1,4 @@
-# minio:// test tier: the s3 tier's MinIO stack (server, `init`, counting
-# proxy), reused as-is. Only the scheme differs.
+# minio:// tier: reuses the s3 tier's MinIO stack.
 
 name: opendal-minio-test
 

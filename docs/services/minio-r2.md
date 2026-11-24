@@ -1,9 +1,8 @@
 # `minio://`, `r2://` — MinIO and Cloudflare R2
 
-Dedicated presets for two S3-compatible stores. They share the `s3` runtime but
-take a smaller config with provider defaults, and reject keys that do not apply
-rather than ignoring them. For any other S3-compatible store, or an option
-these presets lack, use [`s3://`](s3-like.md).
+S3 presets with a smaller config and provider defaults. Keys that do not apply
+are rejected. For other S3-compatible stores, or options these lack, use
+[`s3://`](s3-like.md).
 
 ## URL
 
@@ -17,7 +16,6 @@ The authority is the **bucket**.
 ## Secret
 
 ```sql
--- MinIO: endpoint is required; region defaults to `auto`; always path style.
 CREATE SECRET minio (
     TYPE minio,
     SCOPE 'minio://warehouse',
@@ -28,7 +26,6 @@ CREATE SECRET minio (
     }
 );
 
--- R2: the endpoint is derived from the account id; region is always `auto`.
 CREATE SECRET r2 (
     TYPE r2,
     SCOPE 'r2://warehouse',
@@ -38,32 +35,26 @@ CREATE SECRET r2 (
         'secret_access_key': '...'
     }
 );
-
-SELECT * FROM read_parquet('minio://warehouse/events/2026.parquet');
 ```
 
-| Key                 | Service | Meaning                                                    |
-| ------------------- | ------- | ---------------------------------------------------------- |
-| `access_key_id`     | both    | Access key; set with `secret_access_key`.                  |
-| `secret_access_key` | both    | Secret key.                                                |
-| `session_token`     | both    | Session token for temporary credentials.                   |
-| `endpoint`          | minio   | Deployment endpoint. Required.                             |
-| `region`            | minio   | Signing region. Default `auto`.                            |
-| `skip_signature`    | minio   | Send unsigned requests; not with credentials.              |
-| `account_id`        | r2      | Derives `https://<account_id>.r2.cloudflarestorage.com`.   |
-| `jurisdiction`      | r2      | `eu` or `fedramp`; needs `account_id`.                     |
-| `endpoint`          | r2      | Explicit endpoint (proxy, gateway); not with `account_id`. |
+| Key                 | Service | Meaning                                                  |
+| ------------------- | ------- | -------------------------------------------------------- |
+| `access_key_id`     | both    | Access key.                                              |
+| `secret_access_key` | both    | Secret key.                                              |
+| `session_token`     | both    | Session token for temporary credentials.                 |
+| `endpoint`          | minio   | Deployment endpoint. Required.                           |
+| `region`            | minio   | Signing region. Default `auto`.                          |
+| `skip_signature`    | minio   | Send unsigned requests; not with credentials.            |
+| `account_id`        | r2      | Derives `https://<account_id>.r2.cloudflarestorage.com`. |
+| `jurisdiction`      | r2      | `eu` or `fedramp`; needs `account_id`.                   |
+| `endpoint`          | r2      | Explicit endpoint instead of `account_id`.               |
 
-Without credential keys, both fall back to the standard `AWS_*` environment
-variables and the shared AWS credentials file. They never use EC2 metadata, SSO
-or role assumption.
+Without credentials, both read `AWS_*` env vars and the shared AWS credentials
+file.
 
 ## Notes
 
-- **`r2://` is also claimed by DuckDB's `httpfs`.** To route it through this
-  extension: `SET opendal_override_schemes = 'r2';` — see
-  [coexistence](../coexistence.md). `minio://` is served only by this extension.
-- **R2 multipart uploads need equal-size parts**, so `r2://` writes use 8 MiB
-  parts by default. Change it with `io_config MAP{'write.chunk_size': ...}`
-  (see [configuration](../configuration.md)), but keep it fixed.
-- Existing `TYPE s3` secrets for MinIO or R2 keep working on `s3://`.
+- `r2://` is also claimed by `httpfs`:
+  `SET opendal_override_schemes = 'r2';` — see [coexistence](../coexistence.md).
+- R2 multipart uploads need equal-size parts, so `r2://` writes use 8 MiB parts
+  unless `io_config` sets `write.chunk_size`.
