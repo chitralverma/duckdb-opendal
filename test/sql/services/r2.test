@@ -78,5 +78,29 @@ SELECT count(*) FROM glob('r2://warehouse/svc/uneven*');
 ----
 0
 
+# Control: the same s3:// service with a fixed part size completes, so the
+# failure above is the part sizes, not the s3:// client.
+statement ok
+CREATE SECRET r2_as_s3_fixed (
+    TYPE s3, SCOPE 's3://warehouse/svc/fixed',
+    config MAP{
+        'endpoint': '{OPENDAL_R2_ENDPOINT}',
+        'region': 'auto',
+        'enable_virtual_host_style': 'false',
+        'access_key_id': '{OPENDAL_R2_ACCESS_KEY_ID}',
+        'secret_access_key': '{OPENDAL_R2_SECRET_ACCESS_KEY}'
+    },
+    io_config MAP{'write.chunk_size': '8 MiB'}
+);
+
+statement ok
+COPY (SELECT * FROM read_parquet('{OPENDAL_EXTERNAL_BASE}/ext_big.parquet'))
+TO 's3://warehouse/svc/fixed/even.parquet' (FORMAT parquet, COMPRESSION uncompressed);
+
+query I
+SELECT count(*) FROM read_parquet('r2://warehouse/svc/fixed/even.parquet');
+----
+250000
+
 statement ok
 SET opendal_override_schemes = 'r2';

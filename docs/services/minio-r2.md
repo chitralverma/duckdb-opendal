@@ -80,5 +80,5 @@ requests addressed to `localhost` or `127.0.0.1`. The `r2` test tier runs on it
 - `r2://` is also claimed by `httpfs`:
   `SET opendal_override_schemes = 'r2';` — see [coexistence](../coexistence.md).
 - R2 multipart uploads need equal-size parts, so `r2://` writes use 8 MiB parts
-  unless `io_config` sets `write.chunk_size`. The same write through `s3://`
-  pointed at R2 fails at completion.
+  unless `io_config` sets `write.chunk_size`. Through `s3://` pointed at R2, set
+  `write.chunk_size` yourself: without it, large writes fail at completion.
