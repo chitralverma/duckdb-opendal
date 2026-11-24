@@ -707,6 +707,60 @@ mod tests {
     }
 
     #[test]
+    fn s3_presets_build_from_uri() {
+        // minio:// and r2:// map the authority to the bucket like s3, keep their
+        // own scheme (capability errors, io defaults), and build without I/O.
+        init();
+        type Case<'a> = (&'a str, &'a [(&'a str, &'a str)], Option<usize>);
+        let cases: [Case; 2] = [
+            (
+                "minio://my-bucket",
+                &[("endpoint", "http://127.0.0.1:1")],
+                None,
+            ),
+            (
+                "r2://my-bucket",
+                &[("account_id", "example-account")],
+                Some(8 * 1024 * 1024),
+            ),
+        ];
+        for (uri, config, write_chunk) in cases {
+            let c_uri = CString::new(uri).unwrap();
+            let keys: Vec<CString> = config
+                .iter()
+                .map(|(k, _)| CString::new(*k).unwrap())
+                .collect();
+            let vals: Vec<CString> = config
+                .iter()
+                .map(|(_, v)| CString::new(*v).unwrap())
+                .collect();
+            let k_ptrs: Vec<*const c_char> = keys.iter().map(|c| c.as_ptr()).collect();
+            let v_ptrs: Vec<*const c_char> = vals.iter().map(|c| c.as_ptr()).collect();
+            let mut err = OdError::ok();
+            let op = unsafe {
+                od_operator_new(
+                    c_uri.as_ptr(),
+                    k_ptrs.as_ptr(),
+                    v_ptrs.as_ptr(),
+                    k_ptrs.len(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    &mut err,
+                )
+            };
+            assert!(!op.is_null(), "{uri}: operator_new failed");
+            let scheme = uri.split("://").next().unwrap();
+            assert_eq!(unsafe { &(*op).scheme }, scheme);
+            assert_eq!(unsafe { (*op).op.info().name().to_string() }, "my-bucket");
+            assert!(unsafe { (*op).cap.write_can_multi }, "{uri}");
+            assert_eq!(unsafe { (*op).io.write_chunk() }, write_chunk, "{uri}");
+            unsafe { od_operator_free(op) };
+        }
+    }
+
+    #[test]
     fn memory_operator_with_disk_cache() {
         let dir = tempfile::tempdir().unwrap();
         let disk_path = dir.path().to_str().unwrap().to_string();
