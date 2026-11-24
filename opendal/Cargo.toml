@@ -29,6 +29,8 @@ default = [
   "services-azdls",
   "services-azfile",
   "services-http",
+  "services-minio",
+  "services-r2",
 ]
 services-azblob = ["opendal/services-azblob"]
 services-azdls = ["opendal/services-azdls"]
@@ -37,6 +39,8 @@ services-fs = ["opendal/services-fs"]
 services-gcs = ["opendal/services-gcs"]
 services-http = ["opendal/services-http"]
 services-memory = ["opendal/services-memory"]
+services-minio = ["opendal/services-minio"]
+services-r2 = ["opendal/services-r2"]
 services-s3 = ["opendal/services-s3"]
 
 [dependencies.opendal]

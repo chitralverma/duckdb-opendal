@@ -1,0 +1,7 @@
+# minio:// test tier: the s3 tier's MinIO stack (server, `init`, counting
+# proxy), reused as-is. Only the scheme differs.
+
+name: opendal-minio-test
+
+include:
+  - ../s3/docker-compose.yml

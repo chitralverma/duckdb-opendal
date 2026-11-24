@@ -1,0 +1,80 @@
+# name: test/sql/services/r2.test
+# description: r2://-specific behavior (endpoint rules, equal-size multipart parts)
+# group: [services]
+
+#
+# Runs only under the r2 config (test/configs/r2.json), which points the preset's
+# `endpoint` at the s3 tier's MinIO server. Gated on OPENDAL_R2_ENDPOINT, which
+# only that config provides. Real R2 is not exercised.
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_R2_ENDPOINT
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+# ── Endpoint: exactly one of account_id (the R2 way) and endpoint. Operators
+# are built without a request, so these need no network.
+
+statement ok
+CREATE SECRET r2_account (
+    TYPE r2, SCOPE 'r2://by-account',
+    config MAP{'account_id': 'example-account', 'access_key_id': 'k', 'secret_access_key': 's'}
+);
+
+query III
+SELECT secret_name, usable, capabilities['write']
+FROM opendal_info('r2://by-account/a.parquet');
+----
+r2_account	true	true
+
+statement ok
+CREATE SECRET r2_both (
+    TYPE r2, SCOPE 'r2://both',
+    config MAP{'account_id': 'example-account', 'endpoint': '${OPENDAL_R2_ENDPOINT}'}
+);
+
+query II
+SELECT usable, message LIKE '%account_id and endpoint are mutually exclusive%'
+FROM opendal_info('r2://both/a.parquet');
+----
+false	true
+
+statement ok
+CREATE SECRET r2_neither (TYPE r2, SCOPE 'r2://neither', config MAP{});
+
+query II
+SELECT usable, message LIKE '%exactly one of account_id and endpoint is required%'
+FROM opendal_info('r2://neither/a.parquet');
+----
+false	true
+
+# The region is always `auto`; setting one is a config error, not a no-op.
+statement ok
+CREATE SECRET r2_region (
+    TYPE r2, SCOPE 'r2://region',
+    config MAP{'account_id': 'example-account', 'region': 'us-east-1'}
+);
+
+query II
+SELECT usable, message LIKE '%unknown field `region`%'
+FROM opendal_info('r2://region/a.parquet');
+----
+false	true
+
+# ── Multipart: R2 rejects uploads whose non-trailing parts differ in size, so
+# r2:// cuts equal 8 MiB parts by default (pinned by a Rust unit test). MinIO
+# does not enforce that rule, so this only checks the chunked path round-trips:
+# a ~24 MB incompressible write goes out as several parts.
+
+statement ok
+COPY (SELECT * FROM read_parquet('${OPENDAL_EXTERNAL_BASE}/ext_big.parquet'))
+TO 'r2://warehouse/svc/multipart.parquet' (FORMAT parquet, COMPRESSION uncompressed);
+
+query II
+SELECT count(*), max(id) FROM read_parquet('r2://warehouse/svc/multipart.parquet');
+----
+250000	249999

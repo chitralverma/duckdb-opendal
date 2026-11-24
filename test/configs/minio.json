@@ -1,0 +1,14 @@
+{
+  "description": "opendal common suite over minio:// (MinIO server)",
+  "init_script": "test/configs/auth_minio.sql",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
+  "test_env": [
+    { "env_name": "OPENDAL_BASE", "env_value": "minio://warehouse/odfs-minio" },
+    { "env_name": "OPENDAL_EXTERNAL_BASE", "env_value": "minio://warehouse/external" },
+    { "env_name": "OPENDAL_MINIO_ENDPOINT", "env_value": "http://127.0.0.1:19100" },
+    { "env_name": "OPENDAL_MINIO_ACCESS_KEY_ID", "env_value": "minioadmin" },
+    { "env_name": "OPENDAL_MINIO_SECRET_ACCESS_KEY", "env_value": "minioadmin" },
+    { "env_name": "OPENDAL_PROXY", "env_value": "http://127.0.0.1:19101" },
+    { "env_name": "OPENDAL_CACHED_FILE", "env_value": "minio://warehouse/external/ext_big.parquet" }
+  ]
+}

@@ -1061,6 +1061,8 @@ mod tests {
         assert!(sup("memory"));
         assert!(sup("fs"));
         assert!(sup("s3"));
+        assert!(sup("minio"));
+        assert!(sup("r2"));
         assert!(!sup("definitely_not_a_scheme"));
 
         let mut err = OdError::ok();

@@ -5,7 +5,7 @@ Some URL schemes are claimed by more than one extension: `s3://` by both
 decide which one serves a query.
 
 Only contested schemes are affected: with DuckDB's core extensions that is
-`s3://`, `gcs://`, `http://` and `https://`, all also claimed by `httpfs` (the
+`s3://`, `gcs://`, `r2://`, `http://` and `https://`, all also claimed by `httpfs` (the
 `azure` extension uses `az://`/`abfss://`, which `opendal` does not serve). A
 third-party extension can claim any scheme, including ones such as `azblob://`
 that only `opendal` serves today; the same switch resolves that clash.

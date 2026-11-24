@@ -1,0 +1,9 @@
+# r2:// test tier. There is no R2 emulator, but the preset takes an explicit
+# `endpoint` for gateways and test servers, so this is the s3 tier's MinIO stack
+# reused as-is. R2-only behaviour (account_id endpoints, part-size rules) is
+# covered offline in test/sql/services/r2.test.
+
+name: opendal-r2-test
+
+include:
+  - ../s3/docker-compose.yml

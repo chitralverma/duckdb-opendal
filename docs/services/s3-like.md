@@ -2,7 +2,8 @@
 
 Amazon S3, and anything else that speaks the S3 API — MinIO, Cloudflare R2,
 Ceph, Wasabi, and so on. They all use the `s3` secret type; only the endpoint
-and addressing style differ.
+and addressing style differ. MinIO and R2 also have their own, simpler schemes:
+see [`minio://`, `r2://`](minio-r2.md).
 
 ## URL
 

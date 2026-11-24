@@ -73,8 +73,14 @@ impl IoConfig {
     pub(crate) fn with_service_defaults(mut self, scheme: &str) -> Self {
         const REMOTE_READ_CHUNK: ByteSize = ByteSize::from_bytes(8 * 1024 * 1024);
         const REMOTE_CONCURRENT: usize = 4;
+        // R2 rejects multipart uploads whose non-trailing parts differ in size.
+        // OpenDAL only cuts equal parts when a chunk size is given.
+        const R2_WRITE_CHUNK: ByteSize = ByteSize::from_bytes(8 * 1024 * 1024);
         if !is_remote(scheme) {
             return self;
+        }
+        if scheme == "r2" && self.write.chunk_size.is_none() {
+            self.write.chunk_size = Some(R2_WRITE_CHUNK);
         }
         let concurrent = NonZeroUsize::new(REMOTE_CONCURRENT);
         if self.read.concurrent.is_none() {
@@ -125,6 +131,15 @@ mod tests {
         assert_eq!(io.read.concurrent.map(|v| v.get()), Some(4));
         assert_eq!(io.read_chunk(), Some(8 * 1024 * 1024));
         assert_eq!(io.write.concurrent.map(|v| v.get()), Some(4));
+        assert!(io.write_chunk().is_none());
+    }
+
+    #[test]
+    fn r2_writes_equal_parts_by_default() {
+        let io = parsed(&[]).with_service_defaults("r2");
+        assert_eq!(io.write_chunk(), Some(8 * 1024 * 1024));
+        let io = parsed(&[("write.chunk_size", "16 MiB")]).with_service_defaults("r2");
+        assert_eq!(io.write_chunk(), Some(16 * 1024 * 1024));
     }
 
     #[test]
