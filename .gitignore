@@ -22,3 +22,6 @@ scripts/__pycache__/
 
 # generated external-object test fixtures (created by `make fixtures`)
 test/services/fixtures/
+
+# r2 tier dependencies, if installed outside its Docker image
+test/services/r2/node_modules/

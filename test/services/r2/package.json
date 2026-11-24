@@ -1,0 +1,16 @@
+{
+  "name": "opendal-r2-test-tier",
+  "private": true,
+  "description": "Miniflare-backed local Cloudflare R2 for the r2:// SQL test tier",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "miniflare": "4.20260730.0"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "undici": "7.30.2"
+  }
+}

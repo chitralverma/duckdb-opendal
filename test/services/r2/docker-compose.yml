@@ -1,7 +1,53 @@
-# r2:// tier: no R2 emulator, so the preset's `endpoint` points at the s3 tier's
-# MinIO stack.
+# Miniflare for the r2:// test tier: Cloudflare's local R2 simulator (the one
+# `wrangler dev` runs), serving R2's S3-compatible API. It enforces R2's rules
+# that MinIO does not, such as equal-size multipart parts. Built from the
+# Dockerfile here (miniflare pinned by package-lock.json); server.mjs seeds the
+# shared fixtures, so there is no `init` service (see CONTRIBUTING.md,
+# "Service tiers").
 
 name: opendal-r2-test
 
-include:
-  - ../s3/docker-compose.yml
+services:
+  miniflare:
+    build: .
+    # Rebuild on every `up` (cached) so a bumped package-lock.json is picked up.
+    pull_policy: build
+    ports:
+      - "19120:8787"
+    volumes:
+      - ../fixtures:/fixtures:ro
+    environment:
+      R2_PORT: "8787"
+      R2_BUCKETS: warehouse
+      R2_ACCESS_KEY_ID: r2-test-access-key
+      R2_SECRET_ACCESS_KEY: r2-test-secret-key
+      R2_FIXTURES_DIR: /fixtures
+    healthcheck:
+      # server.mjs writes the ready file once the fixtures are in the bucket.
+      test: ["CMD", "test", "-f", "/tmp/r2-ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # Counts requests (see ../proxy.py). It forwards the client's Host header, a
+  # 127.0.0.1 one, which Miniflare requires on its local endpoints.
+  proxy:
+    image: python:3.12-alpine
+    depends_on:
+      miniflare:
+        condition: service_healthy
+    ports:
+      - "19121:9101"
+    volumes:
+      - ../proxy.py:/app/proxy.py:ro
+    environment:
+      PROXY_UPSTREAM_HOST: miniflare
+      PROXY_UPSTREAM_PORT: "8787"
+      PROXY_BIND_HOST: "0.0.0.0"
+      PROXY_BIND_PORT: "9101"
+    command: ["python3", "/app/proxy.py"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 9101), 2)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

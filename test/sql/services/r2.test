@@ -1,9 +1,10 @@
 # name: test/sql/services/r2.test
-# description: r2://-specific behavior (account_id endpoint, multipart writes)
+# description: r2://-specific behavior (account_id endpoint, equal-size multipart parts)
 # group: [services]
 
 #
-# Runs only under the r2 config (test/configs/r2.json).
+# Runs only under the r2 config (test/configs/r2.json), against Miniflare's
+# local R2, which enforces R2's multipart rules.
 
 require opendal
 
@@ -47,3 +48,59 @@ query II
 SELECT count(*), max(id) FROM read_parquet('r2://warehouse/svc/multipart.parquet');
 ----
 250000	249999
+
+# The same write through the generic s3:// service cuts parts as the buffers
+# arrive, so they differ in size, and R2 refuses to complete the upload. This is
+# why r2:// fixes the part size.
+statement ok
+SET opendal_override_schemes = 'r2,s3';
+
+statement ok
+CREATE SECRET r2_as_s3 (
+    TYPE s3, SCOPE 's3://warehouse/svc',
+    config MAP{
+        'endpoint': '{OPENDAL_R2_ENDPOINT}',
+        'region': 'auto',
+        'enable_virtual_host_style': 'false',
+        'access_key_id': '{OPENDAL_R2_ACCESS_KEY_ID}',
+        'secret_access_key': '{OPENDAL_R2_SECRET_ACCESS_KEY}'
+    }
+);
+
+statement error
+COPY (SELECT * FROM read_parquet('{OPENDAL_EXTERNAL_BASE}/ext_big.parquet'))
+TO 's3://warehouse/svc/uneven.parquet' (FORMAT parquet, COMPRESSION uncompressed);
+----
+service_operation: CompleteMultipartUpload
+
+query I
+SELECT count(*) FROM glob('r2://warehouse/svc/uneven*');
+----
+0
+
+# Control: the same s3:// service with a fixed part size completes, so the
+# failure above is the part sizes, not the s3:// client.
+statement ok
+CREATE SECRET r2_as_s3_fixed (
+    TYPE s3, SCOPE 's3://warehouse/svc/fixed',
+    config MAP{
+        'endpoint': '{OPENDAL_R2_ENDPOINT}',
+        'region': 'auto',
+        'enable_virtual_host_style': 'false',
+        'access_key_id': '{OPENDAL_R2_ACCESS_KEY_ID}',
+        'secret_access_key': '{OPENDAL_R2_SECRET_ACCESS_KEY}'
+    },
+    io_config MAP{'write.chunk_size': '8 MiB'}
+);
+
+statement ok
+COPY (SELECT * FROM read_parquet('{OPENDAL_EXTERNAL_BASE}/ext_big.parquet'))
+TO 's3://warehouse/svc/fixed/even.parquet' (FORMAT parquet, COMPRESSION uncompressed);
+
+query I
+SELECT count(*) FROM read_parquet('r2://warehouse/svc/fixed/even.parquet');
+----
+250000
+
+statement ok
+SET opendal_override_schemes = 'r2';

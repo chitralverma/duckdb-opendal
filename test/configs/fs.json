@@ -1,5 +1,5 @@
 {
-  "description": "opendal common suite over fs://",
+  "description": "opendal common suite over fs:// (local disk, the test temp dir)",
   "init_script": "test/configs/auth_fs.sql",
   "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
   "test_env": [

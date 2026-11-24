@@ -36,6 +36,16 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
+def missing_credentials(service):
+    """The env vars a service's config template needs but are unset ([] if none)."""
+    template = os.path.join(REPO_ROOT, "test", "services", service, "config.template.json")
+    if not os.path.exists(template):
+        return []
+    with open(template, encoding="utf-8") as handle:
+        body = handle.read()
+    return sorted({name for name in PLACEHOLDER.findall(body) if not os.environ.get(name)})
+
+
 def render(service):
     stub = os.path.join(REPO_ROOT, "test", "configs", service + ".json")
     template = os.path.join(REPO_ROOT, "test", "services", service, "config.template.json")
@@ -45,7 +55,7 @@ def render(service):
     with open(template, encoding="utf-8") as handle:
         body = handle.read()
 
-    missing = sorted({name for name in PLACEHOLDER.findall(body) if not os.environ.get(name)})
+    missing = missing_credentials(service)
     if missing:
         message = f"{service}: credentials not configured ({', '.join(missing)})"
         # A skipped tier is indistinguishable from a passing one, so coverage can
