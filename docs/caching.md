@@ -22,9 +22,9 @@ when you need its extra features (metadata caching, profiling).
 DuckDB caches byte ranges of remote files in its buffer pool. It is on by
 default, and decides what is remote from the URL alone: `s3://`, `s3a://`,
 `s3n://`, `gcs://`, `gs://`, `r2://`, `http://` and `https://` qualify. The
-`azblob`, `azdls`, `azfile` and `fs` schemes do not, so their reads are not
-cached unless you `SET cache_local_files = true`, which also caches every local
-file.
+`azblob`, `azdls`, `azfile`, `minio` and `fs` schemes do not, so their reads are
+not cached unless you `SET cache_local_files = true`, which also caches every
+local file.
 
 ```sql
 SELECT current_setting('enable_external_file_cache');   -- true

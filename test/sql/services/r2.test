@@ -1,0 +1,49 @@
+# name: test/sql/services/r2.test
+# description: r2://-specific behavior (account_id endpoint, multipart writes)
+# group: [services]
+
+#
+# Runs only under the r2 config (test/configs/r2.json).
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_R2_ENDPOINT
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+# The endpoint is derived from account_id; no request is made.
+statement ok
+CREATE SECRET r2_account (
+    TYPE r2, SCOPE 'r2://by-account',
+    config MAP{'account_id': 'example-account', 'access_key_id': 'k', 'secret_access_key': 's'}
+);
+
+query II
+SELECT secret_name, usable FROM opendal_info('r2://by-account/a.parquet');
+----
+r2_account	true
+
+statement ok
+CREATE SECRET r2_both (
+    TYPE r2, SCOPE 'r2://both',
+    config MAP{'account_id': 'example-account', 'endpoint': '{OPENDAL_R2_ENDPOINT}'}
+);
+
+query II
+SELECT usable, message LIKE '%account_id and endpoint are mutually exclusive%'
+FROM opendal_info('r2://both/a.parquet');
+----
+false	true
+
+# A ~24 MB write goes out as several fixed-size parts.
+statement ok
+COPY (SELECT * FROM read_parquet('{OPENDAL_EXTERNAL_BASE}/ext_big.parquet'))
+TO 'r2://warehouse/svc/multipart.parquet' (FORMAT parquet, COMPRESSION uncompressed);
+
+query II
+SELECT count(*), max(id) FROM read_parquet('r2://warehouse/svc/multipart.parquet');
+----
+250000	249999

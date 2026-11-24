@@ -238,6 +238,8 @@ pub unsafe extern "C" fn od_string_free(ptr: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::iec;
+    use human_units::iec::Prefix;
     use std::ffi::{CStr, CString};
 
     fn init() {
@@ -582,7 +584,9 @@ mod tests {
         let op = cached_operator(&[("cache.memory_size", "16 MiB")], None).unwrap();
         assert_eq!(unsafe { crate::od_operator_cached(op) }, 1);
         // Spans two 256 KiB chunks; ranged reads cross chunk boundaries.
-        let payload: Vec<u8> = (0..600 * 1024).map(|i| (i % 251) as u8).collect();
+        let payload: Vec<u8> = (0..iec(600, Prefix::Kibi))
+            .map(|i| (i % 251) as u8)
+            .collect();
         crate::runtime::block_on(unsafe { &(*op).op }.write("cached.bin", payload.clone()))
             .unwrap();
         for (offset, len) in [
@@ -1061,6 +1065,8 @@ mod tests {
         assert!(sup("memory"));
         assert!(sup("fs"));
         assert!(sup("s3"));
+        assert!(sup("minio"));
+        assert!(sup("r2"));
         assert!(!sup("definitely_not_a_scheme"));
 
         let mut err = OdError::ok();

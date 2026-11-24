@@ -1,0 +1,35 @@
+# name: test/sql/services/minio.test
+# description: minio://-specific behavior (preset config contract)
+# group: [services]
+
+#
+# Runs only under the minio config (test/configs/minio.json).
+
+require opendal
+
+require-env OPENDAL_MINIO_ENDPOINT
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+statement ok
+CREATE SECRET minio_no_endpoint (TYPE minio, SCOPE 'minio://no-endpoint', config MAP{});
+
+query II
+SELECT usable, message LIKE '%endpoint is required for MinIO%'
+FROM opendal_info('minio://no-endpoint/a.parquet');
+----
+false	true
+
+# Generic-S3 keys are rejected, not ignored.
+statement ok
+CREATE SECRET minio_s3_key (
+    TYPE minio, SCOPE 'minio://s3-key',
+    config MAP{'endpoint': '{OPENDAL_MINIO_ENDPOINT}', 'enable_virtual_host_style': 'false'}
+);
+
+query II
+SELECT usable, message LIKE '%unknown field `enable_virtual_host_style`%'
+FROM opendal_info('minio://s3-key/a.parquet');
+----
+false	true

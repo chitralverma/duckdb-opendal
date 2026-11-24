@@ -16,7 +16,7 @@ use opendal_service_foyer::{Foyer, FoyerKey, FoyerValue};
 
 use crate::runtime::block_on;
 
-use super::value::{non_empty_path, positive_usize, unknown, ByteSize, HumanDuration};
+use super::value::{iec, non_empty_path, positive_usize, unknown, ByteSize, HumanDuration};
 
 /// The smallest chunk for which a cache fill still reads 4 MiB per request.
 const DEFAULT_CHUNK: usize = iec(256, Prefix::Kibi);
@@ -24,10 +24,6 @@ const CHUNK_RANGE: RangeInclusive<usize> = iec(64, Prefix::Kibi)..=iec(4, Prefix
 /// Foyer's default disk block, which fits any allowed chunk.
 const DISK_BLOCK: usize = iec(16, Prefix::Mebi);
 const MIN_DISK_SIZE: usize = 8 * DISK_BLOCK;
-
-const fn iec(value: u64, prefix: Prefix) -> usize {
-    Byte::with_iec_prefix(value, prefix).0 as usize
-}
 
 type Hybrid = HybridCache<FoyerKey, FoyerValue>;
 

@@ -7,14 +7,15 @@ your build ships depends on how it was compiled:
 FROM opendal_schemes();
 ```
 
-| Service                           | Scheme                               | Guide                 |
-| --------------------------------- | ------------------------------------ | --------------------- |
-| Local filesystem                  | `fs://`, `file://`                   | [fs](fs.md)           |
-| In-process memory                 | `memory://`                          | [memory](memory.md)   |
-| S3 and S3-compatible              | `s3://`                              | [s3-like](s3-like.md) |
-| Google Cloud Storage              | `gcs://`                             | [gcs](gcs.md)         |
-| Azure Blob, Data Lake Gen2, Files | `azblob://`, `azdls://`, `azfile://` | [azure](azure.md)     |
-| HTTP servers (read-only)          | `http://`, `https://`                | [http](http.md)       |
+| Service                           | Scheme                               | Guide                   |
+| --------------------------------- | ------------------------------------ | ----------------------- |
+| Local filesystem                  | `fs://`, `file://`                   | [fs](fs.md)             |
+| In-process memory                 | `memory://`                          | [memory](memory.md)     |
+| S3 and S3-compatible              | `s3://`                              | [s3-like](s3-like.md)   |
+| MinIO, Cloudflare R2              | `minio://`, `r2://`                  | [minio-r2](minio-r2.md) |
+| Google Cloud Storage              | `gcs://`                             | [gcs](gcs.md)           |
+| Azure Blob, Data Lake Gen2, Files | `azblob://`, `azdls://`, `azfile://` | [azure](azure.md)       |
+| HTTP servers (read-only)          | `http://`, `https://`                | [http](http.md)         |
 
 ## How every service works
 
@@ -44,6 +45,8 @@ CREATE SECRET <name> (
 | `fs://`               | *(empty)*    | `root`                           |
 | `memory://`           | *(empty)*    | —                                |
 | `s3://`               | bucket       | credentials, `region`            |
+| `minio://`            | bucket       | `endpoint`, credentials          |
+| `r2://`               | bucket       | `account_id`, credentials        |
 | `gcs://`              | bucket       | credentials                      |
 | `azblob://`           | container    | `endpoint`, credentials          |
 | `azdls://`            | account host | `filesystem`, credential         |

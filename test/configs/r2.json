@@ -1,0 +1,14 @@
+{
+  "description": "opendal common suite over r2:// (MinIO as the R2 endpoint)",
+  "init_script": "test/configs/auth_r2.sql",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
+  "test_env": [
+    { "env_name": "OPENDAL_BASE", "env_value": "r2://warehouse/odfs-r2" },
+    { "env_name": "OPENDAL_EXTERNAL_BASE", "env_value": "r2://warehouse/external" },
+    { "env_name": "OPENDAL_R2_ENDPOINT", "env_value": "http://127.0.0.1:19100" },
+    { "env_name": "OPENDAL_R2_ACCESS_KEY_ID", "env_value": "minioadmin" },
+    { "env_name": "OPENDAL_R2_SECRET_ACCESS_KEY", "env_value": "minioadmin" },
+    { "env_name": "OPENDAL_PROXY", "env_value": "http://127.0.0.1:19101" },
+    { "env_name": "OPENDAL_CACHED_FILE", "env_value": "r2://warehouse/external/ext_big.parquet" }
+  ]
+}

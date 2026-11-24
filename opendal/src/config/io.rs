@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 
+use human_units::iec::Prefix;
 use opendal::layers::ConcurrentLimitLayer;
 use opendal::Operator;
 
-use super::value::{positive_usize, unknown, ByteSize};
+use super::value::{iec, positive_usize, unknown, ByteSize};
+
+/// Default remote read chunk, and the fixed R2 write part.
+const REMOTE_CHUNK: ByteSize = ByteSize::from_bytes(iec(8, Prefix::Mebi));
 
 /// Services served over a network, where per-request latency dominates.
 fn is_remote(scheme: &str) -> bool {
@@ -71,17 +75,21 @@ impl IoConfig {
     /// in-memory services keep OpenDAL's own defaults. Explicit user settings
     /// always win.
     pub(crate) fn with_service_defaults(mut self, scheme: &str) -> Self {
-        const REMOTE_READ_CHUNK: ByteSize = ByteSize::from_bytes(8 * 1024 * 1024);
         const REMOTE_CONCURRENT: usize = 4;
         if !is_remote(scheme) {
             return self;
+        }
+        // R2 rejects multipart uploads whose non-trailing parts differ in size,
+        // and OpenDAL only cuts equal parts when a chunk size is set.
+        if scheme == "r2" && self.write.chunk_size.is_none() {
+            self.write.chunk_size = Some(REMOTE_CHUNK);
         }
         let concurrent = NonZeroUsize::new(REMOTE_CONCURRENT);
         if self.read.concurrent.is_none() {
             self.read.concurrent = concurrent;
         }
         if self.read.chunk_size.is_none() {
-            self.read.chunk_size = Some(REMOTE_READ_CHUNK);
+            self.read.chunk_size = Some(REMOTE_CHUNK);
         }
         if self.write.concurrent.is_none() {
             self.write.concurrent = concurrent;
@@ -123,8 +131,17 @@ mod tests {
     fn remote_services_get_prefetch_defaults() {
         let io = parsed(&[]).with_service_defaults("s3");
         assert_eq!(io.read.concurrent.map(|v| v.get()), Some(4));
-        assert_eq!(io.read_chunk(), Some(8 * 1024 * 1024));
+        assert_eq!(io.read_chunk(), Some(iec(8, Prefix::Mebi)));
         assert_eq!(io.write.concurrent.map(|v| v.get()), Some(4));
+        assert!(io.write_chunk().is_none());
+    }
+
+    #[test]
+    fn r2_writes_equal_parts_by_default() {
+        let io = parsed(&[]).with_service_defaults("r2");
+        assert_eq!(io.write_chunk(), Some(iec(8, Prefix::Mebi)));
+        let io = parsed(&[("write.chunk_size", "16 MiB")]).with_service_defaults("r2");
+        assert_eq!(io.write_chunk(), Some(iec(16, Prefix::Mebi)));
     }
 
     #[test]
@@ -142,7 +159,7 @@ mod tests {
         let io = parsed(&[("read.concurrent", "1"), ("read.chunk_size", "1 MiB")])
             .with_service_defaults("s3");
         assert_eq!(io.read.concurrent.map(|v| v.get()), Some(1));
-        assert_eq!(io.read_chunk(), Some(1024 * 1024));
+        assert_eq!(io.read_chunk(), Some(iec(1, Prefix::Mebi)));
         assert_eq!(io.write.concurrent.map(|v| v.get()), Some(4));
     }
 }

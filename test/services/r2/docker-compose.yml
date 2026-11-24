@@ -1,0 +1,7 @@
+# r2:// tier: no R2 emulator, so the preset's `endpoint` points at the s3 tier's
+# MinIO stack.
+
+name: opendal-r2-test
+
+include:
+  - ../s3/docker-compose.yml
