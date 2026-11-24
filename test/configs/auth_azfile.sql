@@ -8,9 +8,9 @@
 -- (<authority> up to the first dot) from the URL authority, so the secret only
 -- has to carry the share name and the credential.
 CREATE SECRET azfile_common (
-    TYPE azfile, SCOPE 'azfile://${OPENDAL_AZFILE_HOST}',
+    TYPE azfile, SCOPE 'azfile://{OPENDAL_AZFILE_HOST}',
     config MAP{
-        'share_name': '${OPENDAL_AZFILE_SHARE_NAME}',
-        'account_key': '${OPENDAL_AZFILE_ACCOUNT_KEY}'
+        'share_name': '{OPENDAL_AZFILE_SHARE_NAME}',
+        'account_key': '{OPENDAL_AZFILE_ACCOUNT_KEY}'
     }
 );

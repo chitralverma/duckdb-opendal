@@ -14,21 +14,21 @@ set ignore_error_messages
 # Build a small tree using a Hive-partitioned write (creates subdirectories).
 statement ok
 COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
-TO '${OPENDAL_BASE}/glob/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+TO '{OPENDAL_BASE}/glob/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
 
 statement ok
 COPY (SELECT range AS id FROM range(1000))
-TO '${OPENDAL_BASE}/glob/single.parquet' (FORMAT parquet);
+TO '{OPENDAL_BASE}/glob/single.parquet' (FORMAT parquet);
 
 # Recursive glob across all partitions: 60 rows total.
 query I
-SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/glob/tree/**/*.parquet');
+SELECT count(*) FROM read_parquet('{OPENDAL_BASE}/glob/tree/**/*.parquet');
 ----
 60
 
 # Recursive glob restricted to one partition value.
 query I
-SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/glob/tree/part=0/*.parquet');
+SELECT count(*) FROM read_parquet('{OPENDAL_BASE}/glob/tree/part=0/*.parquet');
 ----
 20
 
@@ -36,19 +36,19 @@ SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/glob/tree/part=0/*.parquet');
 
 # Exact path.
 query I
-SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/single.parquet');
+SELECT count(*) FROM glob('{OPENDAL_BASE}/glob/single.parquet');
 ----
 1
 
 # Wildcard across the partitioned tree (one leaf file per partition dir).
 query I
-SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/tree/**/*.parquet');
+SELECT count(*) FROM glob('{OPENDAL_BASE}/glob/tree/**/*.parquet');
 ----
 3
 
 # glob() of a non-existent directory returns no rows (clean, no error).
 query I
-SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/does_not_exist_xyz/*.parquet');
+SELECT count(*) FROM glob('{OPENDAL_BASE}/glob/does_not_exist_xyz/*.parquet');
 ----
 0
 
@@ -56,43 +56,43 @@ SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/does_not_exist_xyz/*.parquet');
 # A flat fixture with a same-stem pair and one nested file exercises the exact
 # URLs glob() reconstructs (not just counts) plus * vs ** depth handling.
 statement ok
-COPY (SELECT range AS id FROM range(2)) TO '${OPENDAL_BASE}/glob/flat/top.parquet' (FORMAT parquet);
+COPY (SELECT range AS id FROM range(2)) TO '{OPENDAL_BASE}/glob/flat/top.parquet' (FORMAT parquet);
 
 statement ok
-COPY (SELECT range AS id FROM range(2)) TO '${OPENDAL_BASE}/glob/flat/top.csv' (FORMAT csv, HEADER);
+COPY (SELECT range AS id FROM range(2)) TO '{OPENDAL_BASE}/glob/flat/top.csv' (FORMAT csv, HEADER);
 
 statement ok
-COPY (SELECT range AS id FROM range(2)) TO '${OPENDAL_BASE}/glob/flat/sub/deep.parquet' (FORMAT parquet);
+COPY (SELECT range AS id FROM range(2)) TO '{OPENDAL_BASE}/glob/flat/sub/deep.parquet' (FORMAT parquet);
 
 # `*` matches only the immediate files (directories are excluded), and glob()
 # returns the fully-reconstructed per-file URLs (asserted by basename, ordered).
 query I
 SELECT string_agg(regexp_replace(file, '.*/', ''), ',' ORDER BY file)
-FROM glob('${OPENDAL_BASE}/glob/flat/*');
+FROM glob('{OPENDAL_BASE}/glob/flat/*');
 ----
 top.csv,top.parquet
 
 # `**` recurses into subdirectories.
 query I
 SELECT string_agg(regexp_replace(file, '.*/', ''), ',' ORDER BY file)
-FROM glob('${OPENDAL_BASE}/glob/flat/**');
+FROM glob('{OPENDAL_BASE}/glob/flat/**');
 ----
 deep.parquet,top.csv,top.parquet
 
 # Extension filter at one level (not recursive, not the .csv).
 query I
-SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/flat/*.parquet');
+SELECT count(*) FROM glob('{OPENDAL_BASE}/glob/flat/*.parquet');
 ----
 1
 
 # Same-stem, multiple extensions.
 query I
-SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/flat/top.*');
+SELECT count(*) FROM glob('{OPENDAL_BASE}/glob/flat/top.*');
 ----
 2
 
 # `**/*.parquet` matches the top-level and nested parquet, skipping the .csv.
 query I
-SELECT count(*) FROM glob('${OPENDAL_BASE}/glob/flat/**/*.parquet');
+SELECT count(*) FROM glob('{OPENDAL_BASE}/glob/flat/**/*.parquet');
 ----
 2

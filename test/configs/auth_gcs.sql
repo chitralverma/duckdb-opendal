@@ -3,9 +3,9 @@
 -- fake-gcs-server emulator is unauthenticated: allow anonymous access and skip
 -- real-GCS credential / VM-metadata discovery.
 CREATE SECRET gcs_common (
-    TYPE gcs, SCOPE 'gcs://${OPENDAL_GCS_BUCKET}',
+    TYPE gcs, SCOPE 'gcs://{OPENDAL_GCS_BUCKET}',
     config MAP{
-        'endpoint': '${OPENDAL_GCS_ENDPOINT}',
+        'endpoint': '{OPENDAL_GCS_ENDPOINT}',
         'allow_anonymous': 'true',
         'disable_config_load': 'true',
         'disable_vm_metadata': 'true'
@@ -15,9 +15,9 @@ CREATE SECRET gcs_common (
 -- test/sql/common/cache.test reads one object through the data cache and the
 -- counting proxy.
 CREATE SECRET gcs_cached (
-    TYPE gcs, SCOPE '${OPENDAL_CACHED_FILE}',
+    TYPE gcs, SCOPE '{OPENDAL_CACHED_FILE}',
     config MAP{
-        'endpoint': '${OPENDAL_PROXY}',
+        'endpoint': '{OPENDAL_PROXY}',
         'allow_anonymous': 'true',
         'disable_config_load': 'true',
         'disable_vm_metadata': 'true'

@@ -4,7 +4,7 @@
 
 #
 # Self-contained: uses explicit memory://, fs:// and file:// schemes (not
-# ${OPENDAL_BASE}) and creates its own secrets, so it runs under any config.
+# {OPENDAL_BASE}) and creates its own secrets, so it runs under any config.
 
 require opendal
 
@@ -29,24 +29,24 @@ SELECT id FROM read_parquet('memory:///registry/path.parquet');
 # Write once via fs://, then read the same object through the `file` scheme
 # (OpenDAL's fs service registers both), including an upper-case scheme.
 statement ok
-COPY (SELECT range AS id FROM range(5)) TO 'fs:///__TEST_DIR__/uri/x.parquet' (FORMAT parquet);
+COPY (SELECT range AS id FROM range(5)) TO 'fs:///{TEST_DIR}/uri/x.parquet' (FORMAT parquet);
 
 query I
-SELECT count(*) FROM glob('fs:///__TEST_DIR__/uri/x.parquet');
+SELECT count(*) FROM glob('fs:///{TEST_DIR}/uri/x.parquet');
 ----
 1
 
 query I
-SELECT count(*) FROM glob('file:///__TEST_DIR__/uri/x.parquet');
+SELECT count(*) FROM glob('file:///{TEST_DIR}/uri/x.parquet');
 ----
 1
 
 query I
-SELECT count(*) FROM glob('FILE:///__TEST_DIR__/uri/x.parquet');
+SELECT count(*) FROM glob('FILE:///{TEST_DIR}/uri/x.parquet');
 ----
 1
 
 query I
-SELECT count(*) FROM read_parquet('file:///__TEST_DIR__/uri/x.parquet');
+SELECT count(*) FROM read_parquet('file:///{TEST_DIR}/uri/x.parquet');
 ----
 5
