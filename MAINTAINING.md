@@ -52,7 +52,7 @@ DuckDB patch broke us → fix, then cut a release.
 5. **Docs**: submodule-pin note in `CONTRIBUTING.md` and the
    [compatibility matrix](README.md#compatibility).
 6. **Verify**: `make format-all`, build (`GEN=ninja make`), then `make rust-test`,
-   `make test-local`, and one provisioned tier
+   `make test-local`, and one emulator tier
    (`make s3-up && make test-common-s3 && make s3-verify && make s3-down`).
 7. **Review** `git diff --submodule=log`; note any C-API compatibility changes.
 8. Proceed to **[Releasing](#releasing)**.

@@ -16,14 +16,14 @@ include extension-ci-tools/makefiles/duckdb_extension.Makefile
 # No target below names a service: everything a tier needs lives in
 # test/services/<svc>/ (docker-compose.yml, optional ready.sh / verify.sh, an
 # optional one-shot compose service named `init`).
-.PHONY: test-local fixtures
+.PHONY: test-local test-tiers fixtures
 UNITTEST_BIN := ./build/release/test/unittest
 SERVICES_DIR := test/services
 FIXTURES_DIR := $(SERVICES_DIR)/fixtures
 SERVICE_DIR = $(SERVICES_DIR)/$*
 COMPOSE = docker compose -f $(SERVICE_DIR)/docker-compose.yml
 NEED_COMPOSE = test -f $(SERVICE_DIR)/docker-compose.yml || \
-	{ echo "no $(SERVICE_DIR)/docker-compose.yml — '$*' is not a provisioned service" >&2; exit 2; }
+	{ echo "no $(SERVICE_DIR)/docker-compose.yml — '$*' is not an emulator tier" >&2; exit 2; }
 
 fixtures: ## Generate the shared external-object test fixtures
 	mkdir -p $(FIXTURES_DIR)
@@ -43,6 +43,9 @@ test-common-%: ## Run the common suite for a service (e.g. test-common-fs)
 	  if [ -f test/sql/services/$*.test ]; then run "test/sql/services/$*.test" || exit $$?; fi
 
 test-local: test-common-fs test-common-memory ## Run all infra-free tiers (fs + memory)
+
+test-tiers: ## Run every tier in the plan like CI does (needs Docker), then print results
+	python3 $(SERVICES_DIR)/run_tiers.py
 
 %-up: fixtures ## Start + provision a service tier (e.g. s3-up)
 	@$(NEED_COMPOSE)

@@ -1,5 +1,5 @@
 {
-  "description": "opendal common suite over memory://",
+  "description": "opendal common suite over memory:// (in-process)",
   "init_script": "test/configs/auth_memory.sql",
   "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
   "test_env": [

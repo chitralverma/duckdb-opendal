@@ -165,27 +165,9 @@ jobs:
           key: ccache-sqltests-${{ runner.os }}-v2.0-cyanoptera-${{ steps.ccache_timestamp.outputs.timestamp }}
 
       - name: Run test tiers
-        run: |
-          set -euo pipefail
-          names=$(python3 test/services/plan.py --have-secrets "$HAVE_SECRETS" --names)
-          provisioned=$(python3 test/services/plan.py --have-secrets "$HAVE_SECRETS" --provisioned)
-          echo "services: $names"
-          echo "provisioned: $provisioned"
-          for name in $names; do
-            echo "::group::service $name"
-            if echo " $provisioned " | grep -q " $name "; then
-              # Always tear down (even on failure) so a later service can reuse ports.
-              rc=0
-              make "$name-up" || rc=$?
-              if [ "$rc" -eq 0 ]; then make "test-common-$name" || rc=$?; fi
-              if [ "$rc" -eq 0 ]; then make "$name-verify" || rc=$?; fi
-              make "$name-down" || true
-              [ "$rc" -eq 0 ] || exit "$rc"
-            else
-              make "test-common-$name"
-            fi
-            echo "::endgroup::"
-          done
+        # Prints the plan, one log group per tier, then a results table (also in
+        # the job summary). Every tier runs; the step fails if any tier failed.
+        run: python3 test/services/run_tiers.py --have-secrets "$HAVE_SECRETS"
 
   # Per-platform binaries. Tests already ran, so skip_tests — build + upload only.
   build:

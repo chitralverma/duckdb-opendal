@@ -27,7 +27,7 @@ opendal/                   Rust crate: src/*.rs, Cargo.toml ([features] select s
 test/sql/common/           functionality tests, run against every service
 test/sql/services/         service-specific quirks only
 test/configs/              per-service --test-config JSON + auth_<svc>.sql
-test/services/             docker-compose provisioning + plan.py + shared fixtures/
+test/services/             docker-compose provisioning + plan.py/run_tiers.py + shared fixtures/
 duckdb/, extension-ci-tools/   submodules on the v2.0 line (v2.0-cyanoptera)
 ```
 
@@ -83,6 +83,7 @@ if any) against one service by setting `DUCKDB_TEST_CONFIG=test/configs/<name>.j
 make test-local            # fs + memory (no infrastructure)
 make test-common-fs        # a single service
 make test-common-memory
+make test-tiers            # every tier, like CI (needs Docker)
 ```
 
 > Note: plain `make test` (from extension-ci-tools) runs `test/*` with no config,
@@ -91,18 +92,31 @@ make test-common-memory
 
 ### Service tiers
 
-A tier is either **provisioned** (an emulator in Docker) or **credential-gated**
-(a real cloud account). Everything a tier needs lives in `test/services/<svc>/`;
-no Makefile or CI target names a service.
+Every service is a tier of one of three kinds, which `test/services/plan.py`
+works out from `test/services/<svc>/`:
+
+| Kind       | Marker                       | Backend                                    |
+| ---------- | ---------------------------- | ------------------------------------------ |
+| `local`    | none                         | nothing to start (`fs`, `memory`)          |
+| `emulator` | `docker-compose.yml`         | an emulator in Docker, on every PR         |
+| `cloud`    | `requires-secrets`           | a real account, only where secrets exist   |
+
+The parenthesized end of a config's `description` names the backend
+(`"... over r2:// (Miniflare local R2)"`); the plan prints it next to each tier.
+`plan.py --table` shows the plan. `make test-tiers` (CI's `Run test tiers` step)
+runs it via `test/services/run_tiers.py` and ends with one result line per tier:
+passed, failed at a step, or skipped (a cloud tier without credentials). Under
+GitHub Actions the same table goes to the job summary. Everything a tier needs
+lives in `test/services/<svc>/`; no Makefile or CI target names a service.
 
 ```sh
-make s3-up            # start + provision (any provisioned service)
+make s3-up            # start + provision (any emulator service)
 make test-common-s3   # the common suite (+ services/s3.test, if present)
 make s3-verify        # the service's post-test checks, if it has any
 make s3-down          # stop and remove
 ```
 
-**Provisioned services** — `test/services/<svc>/`:
+**Emulator services** — `test/services/<svc>/`:
 
 | File                 | Role                                                          |
 | -------------------- | ------------------------------------------------------------- |
@@ -120,7 +134,7 @@ config sets neither `OPENDAL_BASE` nor `OPENDAL_EXTERNAL_BASE` — the
 service-agnostic common tests still run, and the read/stat/capability coverage
 goes in `test/sql/services/<svc>.test`.
 
-**Credential-gated services** — no compose; an empty `requires-secrets` marker
+**Cloud services** — no compose; an empty `requires-secrets` marker
 makes the planner drop them when secrets are unavailable (fork PRs). They skip
 unless their env vars are set:
 
@@ -137,7 +151,7 @@ exports it. Adding a service means editing that secret, not the workflow.
 
 The runner only substitutes `{...}` in an `init_script` from the config's own
 `test_env` (materialized *before* `on_init` runs) — never from the process
-environment. So a credential-gated service ships two files and `test-common-<svc>`
+environment. So a cloud service ships two files and `test-common-<svc>`
 picks between them via `test/services/render_config.py`:
 
 - `test/configs/<svc>.json` — tracked stub: no `OPENDAL_BASE`, no `init_script`,
@@ -147,12 +161,13 @@ picks between them via `test/services/render_config.py`:
   the `$`), rendered `0600` to `build/test-configs/<svc>.json` (gitignored)
   when every referenced var is set.
 
-A skipped tier looks exactly like a passing one, so an expired secret would
-quietly drop coverage to zero. `OPENDAL_REQUIRE_CLOUD_TIERS=1` turns a missing
+A skipped tier passes the test run like a real one (the tier results call it
+"skipped"), so an expired secret would quietly drop coverage to zero.
+`OPENDAL_REQUIRE_CLOUD_TIERS=1` turns a missing
 credential into a hard failure. CI applies it on `main` pushes and the scheduled
 run — but only when the repo variable `OPENDAL_REQUIRE_CLOUD_TIERS` is set to
 `1`, so it is opt-in: turn it on once `OPENDAL_TEST_ENV` actually carries every
-credential-gated service, otherwise the first push to `main` fails on the
+cloud service, otherwise the first push to `main` fails on the
 missing secret.
 
 ### External-object fixtures
@@ -160,7 +175,8 @@ missing secret.
 `make fixtures` generates `test/services/fixtures/` once, shared by every
 service; `<svc>-up` depends on it. A tier exposes them under its own
 `external/` prefix however its backend allows (MinIO copies them in from the
-`init` service, fake-gcs-server mounts them, Azurite uploads them over REST) and
+`init` service, fake-gcs-server mounts them, Azurite uploads them over REST,
+Miniflare's server script writes them through the R2 binding) and
 sets `OPENDAL_EXTERNAL_BASE` in its config, which makes
 `common/external_read.test` run. Never regenerate fixtures per service.
 
@@ -209,7 +225,7 @@ its own PR — see [issue #6](https://github.com/chitralverma/duckdb-opendal/iss
 
 `test/services/plan.py` discovers the service from `test/configs/<svc>.json`;
 the CI `sql-tests` job then runs it with no workflow change (emulators on every
-PR including forks, credential-gated services only where secrets exist).
+PR including forks, cloud services only where secrets exist).
 
 ## Formatting & linting
 
