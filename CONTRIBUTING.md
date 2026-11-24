@@ -222,6 +222,11 @@ uv run ruff format test/services && uv run ruff check test/services   # settings
 CI runs the C++ format/tidy checks, the Rust format/clippy checks, and the SQL
 test tiers on every PR. Keep changes formatter-clean.
 
+## Pull requests
+
+Opening a PR fills in [the template](.github/pull_request_template.md). Follow
+its comments, then delete them.
+
 ## License
 
 By contributing you agree your contributions are licensed under the project's
