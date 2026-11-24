@@ -7,20 +7,20 @@ SET GLOBAL opendal_override_schemes = 'r2';
 CREATE SECRET r2_common (
     TYPE r2, SCOPE 'r2://warehouse',
     config MAP{
-        'endpoint': '${OPENDAL_R2_ENDPOINT}',
-        'access_key_id': '${OPENDAL_R2_ACCESS_KEY_ID}',
-        'secret_access_key': '${OPENDAL_R2_SECRET_ACCESS_KEY}'
+        'endpoint': '{OPENDAL_R2_ENDPOINT}',
+        'access_key_id': '{OPENDAL_R2_ACCESS_KEY_ID}',
+        'secret_access_key': '{OPENDAL_R2_SECRET_ACCESS_KEY}'
     }
 );
 
 -- test/sql/common/cache.test reads one object through the data cache and the
 -- counting proxy.
 CREATE SECRET r2_cached (
-    TYPE r2, SCOPE '${OPENDAL_CACHED_FILE}',
+    TYPE r2, SCOPE '{OPENDAL_CACHED_FILE}',
     config MAP{
-        'endpoint': '${OPENDAL_PROXY}',
-        'access_key_id': '${OPENDAL_R2_ACCESS_KEY_ID}',
-        'secret_access_key': '${OPENDAL_R2_SECRET_ACCESS_KEY}'
+        'endpoint': '{OPENDAL_PROXY}',
+        'access_key_id': '{OPENDAL_R2_ACCESS_KEY_ID}',
+        'secret_access_key': '{OPENDAL_R2_SECRET_ACCESS_KEY}'
     },
     cache_config MAP{'memory_size': '64 MiB'}
 );

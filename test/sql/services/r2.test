@@ -29,7 +29,7 @@ r2_account	true
 statement ok
 CREATE SECRET r2_both (
     TYPE r2, SCOPE 'r2://both',
-    config MAP{'account_id': 'example-account', 'endpoint': '${OPENDAL_R2_ENDPOINT}'}
+    config MAP{'account_id': 'example-account', 'endpoint': '{OPENDAL_R2_ENDPOINT}'}
 );
 
 query II
@@ -40,7 +40,7 @@ false	true
 
 # A ~24 MB write goes out as several fixed-size parts.
 statement ok
-COPY (SELECT * FROM read_parquet('${OPENDAL_EXTERNAL_BASE}/ext_big.parquet'))
+COPY (SELECT * FROM read_parquet('{OPENDAL_EXTERNAL_BASE}/ext_big.parquet'))
 TO 'r2://warehouse/svc/multipart.parquet' (FORMAT parquet, COMPRESSION uncompressed);
 
 query II

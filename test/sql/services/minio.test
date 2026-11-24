@@ -25,7 +25,7 @@ false	true
 statement ok
 CREATE SECRET minio_s3_key (
     TYPE minio, SCOPE 'minio://s3-key',
-    config MAP{'endpoint': '${OPENDAL_MINIO_ENDPOINT}', 'enable_virtual_host_style': 'false'}
+    config MAP{'endpoint': '{OPENDAL_MINIO_ENDPOINT}', 'enable_virtual_host_style': 'false'}
 );
 
 query II
