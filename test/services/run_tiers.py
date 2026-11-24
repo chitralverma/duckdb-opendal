@@ -86,15 +86,15 @@ def summary(results, dropped):
         cells += [f"{ICONS.get(result, '❌')} {result}", f"{seconds:.0f}s"]
         lines.append("| " + " | ".join(cells) + " |")
     for service in dropped:
-        cells = [f"`{service['name']}`", service["kind"], service["backend"], "⏭️ not run (no secrets)", ""]
+        cells = [f"`{service['name']}`", service["kind"], service["backend"]]
+        cells += ["⏭️ not run (no secrets)", ""]
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines) + "\n"
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    raw = argparse.RawDescriptionHelpFormatter
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=raw)
     parser.add_argument("--have-secrets", choices=["true", "false"], default="true")
     parser.add_argument("services", nargs="*", help="run only these (default: the whole plan)")
     args = parser.parse_args()

@@ -115,9 +115,8 @@ def table(services, dropped):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    raw = argparse.RawDescriptionHelpFormatter
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=raw)
     parser.add_argument("--have-secrets", choices=["true", "false"], default="true")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--table", action="store_true", help="print the plan grouped by kind")
