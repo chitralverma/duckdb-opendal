@@ -28,10 +28,10 @@ statement ok
 SET GLOBAL opendal_cache_config = MAP{'memory_size':'16 MiB','shards':'2','chunk_size':'64 KiB'};
 
 statement ok
-COPY (SELECT range AS id FROM range(1000)) TO '${OPENDAL_BASE}/gcfg/data.parquet' (FORMAT parquet);
+COPY (SELECT range AS id FROM range(1000)) TO '{OPENDAL_BASE}/gcfg/data.parquet' (FORMAT parquet);
 
 query I
-SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/gcfg/data.parquet');
+SELECT count(*) FROM read_parquet('{OPENDAL_BASE}/gcfg/data.parquet');
 ----
 1000
 
@@ -53,7 +53,7 @@ statement ok
 SET GLOBAL opendal_timeout_config = MAP{'operation_timeout':'0s'};
 
 statement error
-SELECT * FROM opendal_stat('${OPENDAL_BASE}/gcfg/data.parquet');
+SELECT * FROM opendal_stat('{OPENDAL_BASE}/gcfg/data.parquet');
 ----
 duration must be positive
 
@@ -66,9 +66,9 @@ statement ok
 PRAGMA opendal_reset_operators;
 
 statement ok
-COPY (SELECT 1 AS x) TO '${OPENDAL_BASE}/gcfg/reset.csv';
+COPY (SELECT 1 AS x) TO '{OPENDAL_BASE}/gcfg/reset.csv';
 
 query I
-SELECT x FROM read_csv('${OPENDAL_BASE}/gcfg/reset.csv');
+SELECT x FROM read_csv('{OPENDAL_BASE}/gcfg/reset.csv');
 ----
 1

@@ -3,7 +3,7 @@
 # group: [common]
 
 #
-# ${OPENDAL_EXTERNAL_BASE} points at a prefix seeded at provisioning time by the
+# {OPENDAL_EXTERNAL_BASE} points at a prefix seeded at provisioning time by the
 # service's init sidecar (e.g. `mc cp` for s3), i.e. objects opendal did not
 # write. Only configs whose service is externally seeded set this var, so the
 # file is skipped for in-process services (memory) and any service without an
@@ -19,16 +19,16 @@ require-env OPENDAL_EXTERNAL_BASE
 set ignore_error_messages
 
 query II
-SELECT count(*), sum(d) FROM read_parquet('${OPENDAL_EXTERNAL_BASE}/ext_seed.parquet');
+SELECT count(*), sum(d) FROM read_parquet('{OPENDAL_EXTERNAL_BASE}/ext_seed.parquet');
 ----
 100	9900
 
 query II
-SELECT count(*), max(id) FROM read_csv('${OPENDAL_EXTERNAL_BASE}/ext_seed.csv');
+SELECT count(*), max(id) FROM read_csv('{OPENDAL_EXTERNAL_BASE}/ext_seed.csv');
 ----
 50	49
 
 query I
-SELECT count(*) FROM glob('${OPENDAL_EXTERNAL_BASE}/*');
+SELECT count(*) FROM glob('{OPENDAL_EXTERNAL_BASE}/*');
 ----
 3

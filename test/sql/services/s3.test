@@ -77,7 +77,7 @@ RESET opendal_io_config;
 statement ok
 CREATE SECRET s3_tuned (
     TYPE s3, SCOPE 's3://warehouse/svc/perssecret',
-    config MAP{'access_key_id':'${OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'${OPENDAL_S3_SECRET_ACCESS_KEY}','region':'${OPENDAL_S3_REGION}','endpoint':'${OPENDAL_S3_ENDPOINT}','enable_virtual_host_style':'false'},
+    config MAP{'access_key_id':'{OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'{OPENDAL_S3_SECRET_ACCESS_KEY}','region':'{OPENDAL_S3_REGION}','endpoint':'{OPENDAL_S3_ENDPOINT}','enable_virtual_host_style':'false'},
     io_config MAP{'write.concurrent':'4','write.chunk_size':'8 MiB'}
 );
 
@@ -94,7 +94,7 @@ SELECT count(*) FROM read_parquet('s3://warehouse/svc/perssecret/out.parquet');
 statement ok
 CREATE SECRET s3_disk_cache (
     TYPE s3, SCOPE 's3://warehouse/svc/foyerdisk',
-    config MAP{'access_key_id':'${OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'${OPENDAL_S3_SECRET_ACCESS_KEY}','region':'${OPENDAL_S3_REGION}','endpoint':'${OPENDAL_S3_ENDPOINT}'},
+    config MAP{'access_key_id':'{OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'{OPENDAL_S3_SECRET_ACCESS_KEY}','region':'{OPENDAL_S3_REGION}','endpoint':'{OPENDAL_S3_ENDPOINT}'},
     cache_config MAP{'memory_size':'16 MiB','disk_path':'__TEST_DIR__/opendal_cache','disk_size':'128 MiB'}
 );
 
@@ -111,7 +111,7 @@ SELECT count(*) FROM read_parquet('s3://warehouse/svc/foyerdisk/f.parquet');
 statement ok
 CREATE SECRET s3_vault (
     TYPE s3, SCOPE 's3://vault',
-    config MAP{'access_key_id':'${OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'${OPENDAL_S3_SECRET_ACCESS_KEY}','region':'${OPENDAL_S3_REGION}','endpoint':'${OPENDAL_S3_ENDPOINT}','enable_virtual_host_style':'false'},
+    config MAP{'access_key_id':'{OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'{OPENDAL_S3_SECRET_ACCESS_KEY}','region':'{OPENDAL_S3_REGION}','endpoint':'{OPENDAL_S3_ENDPOINT}','enable_virtual_host_style':'false'},
     retry_config MAP{'max_times':'3'},
     timeout_config MAP{'operation_timeout':'30s'}
 );
@@ -170,7 +170,7 @@ failed to deserialize config
 statement ok
 CREATE SECRET s3_abort_test (
     TYPE s3, SCOPE 's3://warehouse/abort-test',
-    config MAP{'access_key_id':'${OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'${OPENDAL_S3_SECRET_ACCESS_KEY}','region':'${OPENDAL_S3_REGION}','endpoint':'${OPENDAL_PROXY}','enable_virtual_host_style':'false'},
+    config MAP{'access_key_id':'{OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'{OPENDAL_S3_SECRET_ACCESS_KEY}','region':'{OPENDAL_S3_REGION}','endpoint':'{OPENDAL_PROXY}','enable_virtual_host_style':'false'},
     io_config MAP{'write.chunk_size':'5 MiB'}
 );
 
@@ -187,7 +187,7 @@ forced completion failure
 statement ok
 CREATE SECRET s3_counted (
     TYPE s3, SCOPE 's3://warehouse/counted',
-    config MAP{'access_key_id':'${OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'${OPENDAL_S3_SECRET_ACCESS_KEY}','region':'${OPENDAL_S3_REGION}','endpoint':'${OPENDAL_PROXY}','enable_virtual_host_style':'false'}
+    config MAP{'access_key_id':'{OPENDAL_S3_ACCESS_KEY_ID}','secret_access_key':'{OPENDAL_S3_SECRET_ACCESS_KEY}','region':'{OPENDAL_S3_REGION}','endpoint':'{OPENDAL_PROXY}','enable_virtual_host_style':'false'}
 );
 
 statement ok
@@ -196,14 +196,14 @@ SET opendal_override_schemes = 'http';
 statement ok
 CREATE MACRO proxy_count(m) AS (
     SELECT coalesce(max(count), 0)
-    FROM read_csv('${OPENDAL_PROXY}/__counts', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
+    FROM read_csv('{OPENDAL_PROXY}/__counts', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
     WHERE method = m
 );
 
 statement ok
 CREATE MACRO proxy_reset() AS (
     SELECT count(*)
-    FROM read_csv('${OPENDAL_PROXY}/__counts/reset', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
+    FROM read_csv('{OPENDAL_PROXY}/__counts/reset', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
 );
 
 # Seed a partitioned dataset: 8 files under 8 partitions. OVERWRITE so the

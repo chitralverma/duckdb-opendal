@@ -72,7 +72,7 @@ make rust-test
 
 The test suite is **functionality-first**: one common suite in `test/sql/common/`
 runs against **every service**. Each service has a `test/configs/<name>.json`
-that binds `${OPENDAL_BASE}` (and any service params) and creates its secret via
+that binds `{OPENDAL_BASE}` (and any service params) and creates its secret via
 `init_script` (`auth_<name>.sql`). Service-specific quirks live in
 `test/sql/services/<name>.test`.
 
@@ -86,7 +86,7 @@ make test-common-memory
 ```
 
 > Note: plain `make test` (from extension-ci-tools) runs `test/*` with no config,
-> so the common tests **skip** (they require `${OPENDAL_BASE}`). Use
+> so the common tests **skip** (they require `{OPENDAL_BASE}`). Use
 > `make test-local` / `make test-common-<name>` for the real suite.
 
 ### Service tiers
@@ -135,7 +135,7 @@ In CI those come from a single repository secret, `OPENDAL_TEST_ENV`, holding
 `KEY=value` lines for every such service; the workflow masks each value and
 exports it. Adding a service means editing that secret, not the workflow.
 
-The runner only substitutes `${...}` in an `init_script` from the config's own
+The runner only substitutes `{...}` in an `init_script` from the config's own
 `test_env` (materialized *before* `on_init` runs) — never from the process
 environment. So a credential-gated service ships two files and `test-common-<svc>`
 picks between them via `test/services/render_config.py`:
@@ -143,7 +143,8 @@ picks between them via `test/services/render_config.py`:
 - `test/configs/<svc>.json` — tracked stub: no `OPENDAL_BASE`, no `init_script`,
   so every common test skips cleanly;
 - `test/services/<svc>/config.template.json` — the real config with `${VAR}`
-  placeholders, rendered `0600` to `build/test-configs/<svc>.json` (gitignored)
+  placeholders (filled in by `render_config.py`, not the runner, so they keep
+  the `$`), rendered `0600` to `build/test-configs/<svc>.json` (gitignored)
   when every referenced var is set.
 
 A skipped tier looks exactly like a passing one, so an expired secret would
@@ -167,14 +168,15 @@ sets `OPENDAL_EXTERNAL_BASE` in its config, which makes
 
 `test/services/proxy.py` runs as a tier's `proxy` compose service. It forwards
 to the emulator and counts requests per method, plus `GET_BYTES`, the object
-data served by GET. Tests read `${OPENDAL_PROXY}/__counts` and zero it with
+data served by GET. Tests read `{OPENDAL_PROXY}/__counts` and zero it with
 `/__counts/reset`. A tier that also sets `OPENDAL_CACHED_FILE` (and a cached
 secret for it, through the proxy) runs `common/cache.test`.
 
 ### How env substitution works
 
-The SQLLogicTest runner substitutes `${VAR}`/`{VAR}` anywhere in a test body from
-its env map. A variable is only substituted if the file registers it with
+The SQLLogicTest runner substitutes `{VAR}` anywhere in a test body from
+its env map. (`${VAR}` still works but is deprecated and logs a warning per
+use, so don't use it in tests or `auth_*.sql`.) A variable is only substituted if the file registers it with
 `require-env VAR` (skips the test when unset — the availability gate) or
 `test-env VAR <default>`. Config-JSON `test_env` values feed these. This is why
 common tests `require-env OPENDAL_BASE` and skip cleanly when run without a config.
@@ -194,7 +196,7 @@ its own PR — see [issue #6](https://github.com/chitralverma/duckdb-opendal/iss
    `test_env`, `init_script: test/configs/auth_<svc>.sql`,
    `statically_loaded_extensions: ["core_functions", "parquet", "opendal"]`.
 3. **Secret** — `test/configs/auth_<svc>.sql`: one `CREATE SECRET (TYPE <svc>, …)`
-   referencing `${…}` from `test_env` (pure SQL).
+   referencing `{…}` from `test_env` (pure SQL).
 4. **Tier** — a `test/services/<svc>/` directory following the conventions in
    [Service tiers](#service-tiers): a compose file for an emulator, or a
    `requires-secrets` marker plus `config.template.json` for a real-cloud service.
