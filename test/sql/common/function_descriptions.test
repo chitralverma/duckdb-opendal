@@ -29,8 +29,9 @@ WHERE function_name = 'opendal_copy';
 ----
 opendal_copy	[source, destination]
 
-# Naming a parameter does not make it a keyword: calls stay positional.
+# Naming a parameter does not make it a keyword: calls stay positional. Use a
+# scheme OpenDAL never serves, so the result does not depend on the test config.
 query I
-SELECT opendal_is_manually_set('https://example.com/file');
+SELECT opendal_is_manually_set('unknown-scheme://example/file');
 ----
 false
