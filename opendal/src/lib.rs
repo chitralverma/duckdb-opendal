@@ -34,8 +34,9 @@ pub use error::{OdError, OdErrorCode};
 pub use lister::{od_list, od_list_entry, od_list_free, od_list_len, OdEntry, OdEntryList};
 pub use mutate::{od_copy, od_create_dir, od_remove, od_rename};
 pub use operator::{
-    od_operator_free, od_operator_new, od_operator_root, od_operator_warning, od_scheme_supported,
-    od_schemes, od_schemes_entry, od_schemes_free, od_schemes_len, OdOperator, OdSchemeList,
+    od_operator_cached, od_operator_free, od_operator_new, od_operator_root, od_operator_warning,
+    od_scheme_supported, od_schemes, od_schemes_entry, od_schemes_free, od_schemes_len, OdOperator,
+    OdSchemeList,
 };
 pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
 pub use stat::{od_dir_exists, od_exists, od_stat, OdMetadata};
@@ -153,9 +154,10 @@ const OPENDAL_VERSION: &str = env!("OPENDAL_VERSION");
 /// operator is built.
 ///
 /// Populates OpenDAL's service registry (we link opendal as a `staticlib`, so
-/// its `#[ctor]` init can be dropped by the linker) and installs the rustls
-/// `ring` crypto provider + reqwest HTTP transport (the `rustls-no-provider`
-/// feature auto-installs neither). Idempotent (guarded by a `Once`).
+/// its `#[ctor]` init can be dropped by the linker) and installs the Tokio
+/// executor, the rustls `ring` crypto provider and the reqwest HTTP transport
+/// (the `rustls-no-provider` feature auto-installs neither). Idempotent
+/// (guarded by a `Once`).
 ///
 /// `worker_threads` sizes the shared Tokio runtime (0 = Tokio default); it is
 /// honoured only on the call that first initializes the runtime.
@@ -170,6 +172,7 @@ pub unsafe extern "C" fn od_init(worker_threads: usize, err: *mut OdError) -> i3
         crate::runtime::configure(worker_threads);
         match INIT.get_or_init(|| {
             opendal::init_default_registry();
+            opendal::Executor::install_default(opendal::executors::TokioExecutor::default());
             // Another extension may already have installed a process provider.
             if rustls::crypto::CryptoProvider::get_default().is_none()
                 && rustls::crypto::ring::default_provider()
@@ -575,17 +578,51 @@ mod tests {
 
     #[test]
     fn memory_operator_with_cache() {
-        let scheme = CString::new("memory").unwrap();
-        // Section presence enables the cache; no implementation-specific
-        // `enable` key is required.
-        let lk: Vec<CString> = ["cache.memory_size"]
-            .iter()
-            .map(|s| CString::new(*s).unwrap())
-            .collect();
-        let lv: Vec<CString> = ["16"].iter().map(|s| CString::new(*s).unwrap()).collect();
-        let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
-        let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
+        // Section presence enables the cache; no `enable` key is required.
+        let op = cached_operator(&[("cache.memory_size", "16 MiB")], None).unwrap();
+        assert_eq!(unsafe { crate::od_operator_cached(op) }, 1);
+        // Spans two 256 KiB chunks; ranged reads cross chunk boundaries.
+        let payload: Vec<u8> = (0..600 * 1024).map(|i| (i % 251) as u8).collect();
+        crate::runtime::block_on(unsafe { &(*op).op }.write("cached.bin", payload.clone()))
+            .unwrap();
+        for (offset, len) in [
+            (0, 8),
+            (250_000, 20_000),
+            (0, payload.len()),
+            (590_000, 4096),
+        ] {
+            assert_eq!(
+                read_range(op, "cached.bin", offset, len),
+                payload[offset..][..len]
+            );
+        }
+        // Writes through the operator invalidate cached chunks.
+        crate::runtime::block_on(unsafe { &(*op).op }.write("cached.bin", vec![9u8; 16])).unwrap();
+        assert_eq!(read_range(op, "cached.bin", 0, 16), vec![9u8; 16]);
+        unsafe { od_operator_free(op) };
 
+        let plain = cached_operator(&[], None).unwrap();
+        assert_eq!(unsafe { crate::od_operator_cached(plain) }, 0);
+        unsafe { od_operator_free(plain) };
+    }
+
+    fn cached_operator(
+        options: &[(&str, &str)],
+        namespace: Option<&str>,
+    ) -> Result<*mut OdOperator, String> {
+        init(); // install the executor the cache layer runs fills on
+        let scheme = CString::new("memory").unwrap();
+        let keys: Vec<CString> = options
+            .iter()
+            .map(|(k, _)| CString::new(*k).unwrap())
+            .collect();
+        let vals: Vec<CString> = options
+            .iter()
+            .map(|(_, v)| CString::new(*v).unwrap())
+            .collect();
+        let key_ptrs: Vec<*const c_char> = keys.iter().map(|c| c.as_ptr()).collect();
+        let val_ptrs: Vec<*const c_char> = vals.iter().map(|c| c.as_ptr()).collect();
+        let namespace = namespace.map(|n| CString::new(n).unwrap());
         let mut err = OdError::ok();
         let op = unsafe {
             od_operator_new(
@@ -593,37 +630,36 @@ mod tests {
                 std::ptr::null(),
                 std::ptr::null(),
                 0,
-                lk_ptrs.as_ptr(),
-                lv_ptrs.as_ptr(),
-                lk_ptrs.len(),
-                std::ptr::null(),
+                key_ptrs.as_ptr(),
+                val_ptrs.as_ptr(),
+                key_ptrs.len(),
+                namespace.as_ref().map_or(std::ptr::null(), |n| n.as_ptr()),
                 &mut err,
             )
         };
-        assert!(
-            !op.is_null(),
-            "foyer operator_new failed: code {}",
-            err.code as i32
-        );
-
-        {
-            let inner = unsafe { &(*op).op };
-            crate::runtime::block_on(inner.write("cached.txt", b"cache me".to_vec())).unwrap();
+        if op.is_null() {
+            let message = unsafe { CStr::from_ptr(err.message) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { od_string_free(err.message) };
+            return Err(message);
         }
-        let path = CString::new("cached.txt").unwrap();
-        // Read twice — second read should be served from the cache.
-        for _ in 0..2 {
-            let mut serr = OdError::ok();
-            let r = unsafe { od_reader_open(op, path.as_ptr(), &mut serr) };
-            assert!(!r.is_null());
-            let mut buf = vec![0u8; 8];
-            let n = unsafe { od_reader_read(r, 0, 8, buf.as_mut_ptr(), &mut serr) };
-            assert_eq!(n, 8);
-            assert_eq!(&buf, b"cache me");
-            unsafe { od_reader_free(r) };
-        }
+        Ok(op)
+    }
 
-        unsafe { od_operator_free(op) };
+    fn read_range(op: *mut OdOperator, path: &str, offset: usize, len: usize) -> Vec<u8> {
+        let path = CString::new(path).unwrap();
+        let mut err = OdError::ok();
+        let r = unsafe { od_reader_open(op, path.as_ptr(), &mut err) };
+        assert!(!r.is_null());
+        let mut buf = vec![0u8; len];
+        let n = unsafe { od_reader_read(r, offset as u64, len as u64, buf.as_mut_ptr(), &mut err) };
+        assert!(n >= 0, "read failed: {:?}", unsafe {
+            CStr::from_ptr(err.message)
+        });
+        assert_eq!(n as usize, len);
+        unsafe { od_reader_free(r) };
+        buf
     }
 
     #[test]
@@ -674,64 +710,65 @@ mod tests {
     fn memory_operator_with_disk_cache() {
         let dir = tempfile::tempdir().unwrap();
         let disk_path = dir.path().to_str().unwrap().to_string();
-
-        let scheme = CString::new("memory").unwrap();
-        let keys = [
-            "cache.memory_size",
-            "cache.disk_path",
-            "cache.disk_size",
-            "cache.block_size",
+        let options = [
+            ("cache.memory_size", "16 MiB"),
+            ("cache.disk_path", disk_path.as_str()),
+            ("cache.disk_size", "128 MiB"),
         ];
-        let vals = ["16 MiB", disk_path.as_str(), "64 MiB", "1 MiB"];
-        let lk: Vec<CString> = keys.iter().map(|s| CString::new(*s).unwrap()).collect();
-        let lv: Vec<CString> = vals.iter().map(|s| CString::new(*s).unwrap()).collect();
-        let lk_ptrs: Vec<*const c_char> = lk.iter().map(|c| c.as_ptr()).collect();
-        let lv_ptrs: Vec<*const c_char> = lv.iter().map(|c| c.as_ptr()).collect();
-
-        let mut err = OdError::ok();
-        let op = unsafe {
-            od_operator_new(
-                scheme.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                0,
-                lk_ptrs.as_ptr(),
-                lv_ptrs.as_ptr(),
-                lk_ptrs.len(),
-                std::ptr::null(),
-                &mut err,
-            )
-        };
-        assert!(
-            !op.is_null(),
-            "foyer-disk operator_new failed: code {}",
-            err.code as i32
-        );
-
-        {
-            let inner = unsafe { &(*op).op };
-            crate::runtime::block_on(inner.write("disk_cached.txt", vec![7u8; 4096])).unwrap();
-        }
-        let path = CString::new("disk_cached.txt").unwrap();
+        let op = cached_operator(&options, Some("ns")).unwrap();
+        crate::runtime::block_on(unsafe { &(*op).op }.write("disk.bin", vec![7u8; 4096])).unwrap();
         for _ in 0..3 {
-            let mut serr = OdError::ok();
-            let r = unsafe { od_reader_open(op, path.as_ptr(), &mut serr) };
-            assert!(!r.is_null());
-            let mut buf = vec![0u8; 4096];
-            let n = unsafe { od_reader_read(r, 0, 4096, buf.as_mut_ptr(), &mut serr) };
-            assert_eq!(n, 4096);
-            assert_eq!(buf[0], 7);
-            unsafe { od_reader_free(r) };
+            assert_eq!(read_range(op, "disk.bin", 0, 4096), vec![7u8; 4096]);
         }
+        // A rebuilt operator with the same configuration shares the open cache;
+        // opening the directory a second time would fail its lock.
+        let again = cached_operator(&options, Some("ns")).unwrap();
+        assert_eq!(unsafe { crate::od_operator_cached(again) }, 1);
+        unsafe { od_operator_free(again) };
+
+        // Another process holding the directory disables the cache with a warning.
+        let other = dir.path().join("other");
+        std::fs::create_dir(&other).unwrap();
+        let lock = std::fs::File::create(other.join("LOCK")).unwrap();
+        lock.lock().unwrap();
+        let locked = cached_operator(&options, Some("other")).unwrap();
+        assert_eq!(unsafe { crate::od_operator_cached(locked) }, 0);
+        let warning = unsafe { CStr::from_ptr(crate::od_operator_warning(locked)) };
+        assert!(warning.to_str().unwrap().contains("in use"), "{warning:?}");
+        unsafe { od_operator_free(locked) };
+        drop(lock);
 
         unsafe { od_operator_free(op) };
+        // Closing the last operator releases the directory for the next one.
+        let reopened = cached_operator(&options, Some("ns")).unwrap();
+        assert_eq!(unsafe { crate::od_operator_cached(reopened) }, 1);
+        unsafe { od_operator_free(reopened) };
+        assert!(dir.path().join("ns").join("LOCK").exists());
+    }
 
-        // The on-disk cache directory should contain foyer's data files.
-        let entries: Vec<_> = std::fs::read_dir(dir.path())
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .collect();
-        assert!(!entries.is_empty(), "foyer disk cache dir is empty");
+    #[test]
+    fn cache_options_are_validated() {
+        for (key, value) in [
+            ("cache.chunk_size", "32 KiB"),
+            ("cache.chunk_size", "8 MiB"),
+            ("cache.disk_size", "64 MiB"),
+            ("cache.disk_path", "relative/dir"),
+            ("cache.disk_path", "/tmp/../etc"),
+            ("cache.memory_size", "512 KiB"),
+            ("cache.ttl", "soon"),
+        ] {
+            assert!(
+                cached_operator(&[(key, value)], None).is_err(),
+                "accepted {key}={value}"
+            );
+        }
+        for (key, value, message) in [
+            ("cache.chunk_size", "32 KiB", "between 64 KiB and 4 MiB"),
+            ("cache.disk_size", "64 MiB", "at least 128 MiB"),
+        ] {
+            let err = cached_operator(&[(key, value)], None).unwrap_err();
+            assert!(err.contains(message), "{key}={value}: {err}");
+        }
     }
 
     #[test]
@@ -876,6 +913,7 @@ mod tests {
     fn memory_operator_with_io_options() {
         // Set per-operator I/O tuning via the layers map (io.* keys) and confirm
         // read/write still work — the options are transparent to correctness.
+        init(); // concurrent reads need the executor
         let scheme = CString::new("memory").unwrap();
         let lk: Vec<CString> = [
             "io.write.concurrent",

@@ -31,4 +31,4 @@ SELECT count(*), max(id) FROM read_csv('${OPENDAL_EXTERNAL_BASE}/ext_seed.csv');
 query I
 SELECT count(*) FROM glob('${OPENDAL_EXTERNAL_BASE}/*');
 ----
-2
+3

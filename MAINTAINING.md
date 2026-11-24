@@ -14,7 +14,7 @@ matrix](README.md#compatibility) records them per release.
 | Axis | Pinned by | Moves when |
 | --- | --- | --- |
 | **A. DuckDB** (+ `extension-ci-tools`, together) | `duckdb_version` / `ci_tools_version` in `.github/workflows/MainDistributionPipeline.yml` + the `duckdb` / `extension-ci-tools` submodules — all pointed at the DuckDB **release-line branch** (`v2.0-cyanoptera`) | DuckDB ships a new **minor** (patches auto-tracked) |
-| **B. OpenDAL** | release version **or** git `rev` on the two OpenDAL deps in `opendal/Cargo.toml` + `opendal/Cargo.lock` | you want newer OpenDAL, a fix, or new-service support |
+| **B. OpenDAL** | release version **or** git `rev` on the OpenDAL deps in `opendal/Cargo.toml` + `opendal/Cargo.lock` | you want newer OpenDAL, a fix, or new-service support |
 | **C. The extension** | `version` in `opendal/Cargo.toml` (source of truth), mirrored to the `community-extensions` registry `description.yml`, plus the compiled-in service set (`opendal/Cargo.toml [features]`) | you ship features or fixes |
 
 > DuckDB extensions are version-locked to DuckDB; the registry hosts one binary
@@ -68,16 +68,16 @@ DuckDB patch broke us → fix, then cut a release.
 OpenDAL can be pinned to a **published release** (a crates.io version) or an
 `apache/opendal` **git commit** (a `main` revision). It is currently pinned to a
 `rev`. Move it when a target DuckDB upgrade requires a fix, or when a new service
-/ OpenDAL feature is needed. Keep the two OpenDAL deps in `opendal/Cargo.toml`
-(`[dependencies.opendal]` and `opendal-http-transport-reqwest`) on the **same**
-release/rev.
+/ OpenDAL feature is needed. Keep the three OpenDAL deps in `opendal/Cargo.toml`
+(`[dependencies.opendal]`, `opendal-http-transport-reqwest` and
+`opendal-service-foyer`) on the **same** release/rev, and `foyer` on the version
+`opendal-service-foyer` uses.
 
 1. **Choose the target** — a crates.io version (e.g. `0.56`) or an
    `apache/opendal` commit (`rev`).
-2. **Update both deps in `opendal/Cargo.toml`**, kept identical:
-   - Release → set `version = "X"` on both (drop the `git`/`rev` keys).
-   - Rev → set `rev = "<sha>"` on both (`[dependencies.opendal].rev` and
-     `opendal-http-transport-reqwest.rev`) with `git = "…/opendal.git"`.
+2. **Update all three deps in `opendal/Cargo.toml`**, kept identical:
+   - Release → set `version = "X"` on each (drop the `git`/`rev` keys).
+   - Rev → set `rev = "<sha>"` on each with `git = "…/opendal.git"`.
 3. **Refresh the lockfile**: `cargo update -p opendal` (from `opendal/`), which
    updates `opendal/Cargo.lock`.
 4. **Verify**: rebuild, then `make rust-test`, `make test-local`, and the S3 tier.

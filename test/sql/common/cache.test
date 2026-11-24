@@ -1,0 +1,93 @@
+# name: test/sql/common/cache.test
+# description: The data cache fetches the ranges a query reads, not whole objects
+# group: [common]
+
+#
+# ${OPENDAL_CACHED_FILE} is the 24 MB ext_big.parquet fixture behind a secret,
+# set up by the config's init script, that sends it through the data cache and
+# the tier's counting proxy at ${OPENDAL_PROXY} (test/services/proxy.py).
+# GET_BYTES counts the object data the proxy served.
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_CACHED_FILE
+
+require-env OPENDAL_PROXY
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+# The proxy counters are read over http://.
+statement ok
+SET opendal_override_schemes = 'http';
+
+# Count every path, so a second copy in DuckDB's external file cache would show
+# up for services DuckDB treats as local.
+statement ok
+SET cache_local_files = true;
+
+statement ok
+CREATE MACRO proxy_count(m) AS (
+    SELECT coalesce(max(count), 0)
+    FROM read_csv('${OPENDAL_PROXY}/__counts', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
+    WHERE method = m
+);
+
+statement ok
+CREATE MACRO proxy_reset() AS (
+    SELECT count(*)
+    FROM read_csv('${OPENDAL_PROXY}/__counts/reset', columns={'method':'VARCHAR','count':'BIGINT'}, header=false)
+);
+
+# Reading the footer fetches the chunks at the end of the object: one fill, not
+# the whole 24 MB file.
+statement ok
+SELECT proxy_reset();
+
+query I
+SELECT num_rows FROM parquet_file_metadata('${OPENDAL_CACHED_FILE}');
+----
+250000
+
+query II
+SELECT proxy_count('GET') > 0, proxy_count('GET_BYTES') < 2 * 1024 * 1024;
+----
+true	true
+
+# Reading it again is served from the cache. Metadata requests still go out, so
+# this counts object bytes, not requests.
+statement ok
+SELECT proxy_reset();
+
+query I
+SELECT num_rows FROM parquet_file_metadata('${OPENDAL_CACHED_FILE}');
+----
+250000
+
+query I
+SELECT proxy_count('GET_BYTES');
+----
+0
+
+# One narrow column fetches its own pages and a little around them, not the
+# wide column beside it.
+statement ok
+SELECT proxy_reset();
+
+query II
+SELECT count(*), sum(id) FROM read_parquet('${OPENDAL_CACHED_FILE}');
+----
+250000	31249875000
+
+query I
+SELECT proxy_count('GET_BYTES') < 8 * 1024 * 1024;
+----
+true
+
+# DuckDB's external file cache keeps no second copy of the cached object.
+query I
+SELECT count(*) FROM duckdb_external_file_cache() WHERE path = '${OPENDAL_CACHED_FILE}';
+----
+0

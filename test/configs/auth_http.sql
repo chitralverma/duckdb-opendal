@@ -19,3 +19,10 @@ CREATE SECRET http_protected (
         'password': '${OPENDAL_HTTP_PASSWORD}'
     }
 );
+
+-- test/sql/common/cache.test reads one object through the data cache and the
+-- counting proxy.
+CREATE SECRET http_cached (
+    TYPE http, SCOPE '${OPENDAL_CACHED_FILE}',
+    cache_config MAP{'memory_size': '64 MiB'}
+);

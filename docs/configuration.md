@@ -82,7 +82,7 @@ The four cross-service sections have matching global settings:
 SET GLOBAL opendal_io_config      = MAP{'read.concurrent':'4','read.chunk_size':'8 MiB'};
 SET GLOBAL opendal_retry_config   = MAP{'max_times':'5','jitter':'true'};
 SET GLOBAL opendal_timeout_config = MAP{'operation_timeout':'1m','io_timeout':'15s'};
-SET GLOBAL opendal_cache_config   = MAP{'memory_size':'256 MiB','shards':'4'};
+SET GLOBAL opendal_cache_config   = MAP{'memory_size':'256 MiB','ttl':'5m'};
 ```
 
 Secrets merge **over** the globals key by key, so a secret only has to state
@@ -193,22 +193,25 @@ errors such as "not found" or "access denied" fail immediately.
 
 See [caching](caching.md) for the full guide.
 
-| Key             | Default   | Meaning                             |
-| --------------- | --------- | ----------------------------------- |
-| `memory_size`   | `256 MiB` | In-memory cache size                |
-| `disk_path`     | unset     | Enables the persistent on-disk tier |
-| `disk_size`     | `1 GiB`   | On-disk cache size                  |
-| `block_size`    | `4 MiB`   | On-disk block size                  |
-| `min_file_size` | `0`       | Skip caching objects smaller than   |
-| `max_file_size` | unlimited | Skip caching objects larger than    |
-| `shards`        | `4`       | In-memory shards                    |
+| Key           | Default   | Meaning                                                            |
+| ------------- | --------- | ------------------------------------------------------------------ |
+| `memory_size` | `256 MiB` | In-memory cache size                                               |
+| `disk_path`   | unset     | Local directory that enables the persistent on-disk tier           |
+| `disk_size`   | `1 GiB`   | On-disk cache size, at least `128 MiB`                             |
+| `chunk_size`  | `256 KiB` | Size of the cached ranges of each object, `64 KiB` to `4 MiB`      |
+| `ttl`         | `1m`      | How long object metadata is trusted before it is checked again     |
+| `shards`      | `4`       | In-memory shards; `memory_size` must hold one chunk per shard      |
+
+Smaller chunks waste less on scattered reads; larger ones mean fewer cache
+entries for long scans. Disk blocks and admission by object size are managed
+for you, so `block_size`, `min_file_size` and `max_file_size` are rejected.
 
 ## Errors and validation
 
 The cross-service sections are strict: unknown keys, malformed values and
-impossible combinations (a `retry.factor` below 1, a minimum cache size above
-the maximum) are reported when the operator is built — that is, on your first
-query against a matching URL, not at `CREATE SECRET` time.
+impossible combinations (a `retry.factor` below 1, a `cache.chunk_size` larger
+than a memory shard) are reported when the operator is built — that is, on your
+first query against a matching URL, not at `CREATE SECRET` time.
 
 Service `config` is a passthrough. OpenDAL validates the keys it knows and may
 accept unknown ones, so a typo there usually surfaces as a connection or

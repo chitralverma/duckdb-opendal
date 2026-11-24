@@ -360,6 +360,21 @@ OdOperator *OpenDalFileSystem::BuildOperator(const std::string &scheme, const st
 	// chain (env -> shared profile -> IMDS) via DefaultCredentialProvider.
 	// Injecting a partial subset here would only shadow that richer resolution.
 	std::string secret_name = ApplySecret(context, db, scheme, CanonicalSchemeUrl(url, scheme), config, options);
+	// The disk cache writes under disk_path: resolve it like a local DuckDB path,
+	// and require a directory DuckDB may access.
+	auto disk_path = options.find("cache.disk_path");
+	if (db && disk_path != options.end() && !disk_path->second.empty()) {
+		auto &fs = db->GetFileSystem();
+		auto path = fs.ExpandPath(disk_path->second);
+		if (!fs.IsPathAbsolute(path)) {
+			path = fs.JoinPath(FileSystem::GetWorkingDirectory(), path);
+		}
+		path = fs.CanonicalizePath(path);
+		if (!db->config.CanAccessFile(path, FileType::FILE_TYPE_DIR)) {
+			throw PermissionException("opendal: cache.disk_path '%s' is not an allowed directory", path);
+		}
+		disk_path->second = path;
+	}
 	uint64_t config_hash;
 	std::string key = ConfigIdentity(scheme, authority, config, options, config_hash);
 	std::string cache_namespace = std::to_string(config_hash);
@@ -620,6 +635,7 @@ unique_ptr<FileHandle> OpenDalFileSystem::OpenFileExtended(const OpenFileInfo &f
 	auto handle = make_uniq<OpenDalFileHandle>(*this, path, flags, reader, static_cast<int64_t>(meta.content_length),
 	                                           meta.last_modified_ms);
 	handle->etag = std::move(known_etag);
+	handle->cached = od_operator_cached(op) != 0;
 	reader_guard.release();
 	handle->on_disk = false;
 	if (opener) {
@@ -759,6 +775,15 @@ string OpenDalFileSystem::GetVersionTag(FileHandle &handle) {
 	return handle.Cast<OpenDalFileHandle>().etag;
 }
 
+// Reads through the OpenDAL data cache are already cached, so DuckDB's external
+// file cache is told not to keep a second copy.
+optional<timestamp_t> OpenDalFileSystem::GetCacheValidUntil(FileHandle &handle) {
+	if (handle.Cast<OpenDalFileHandle>().cached) {
+		return timestamp_t::ninfinity();
+	}
+	return nullopt;
+}
+
 void OpenDalFileSystem::AbortFileWrite(FileHandle &handle) {
 	auto &h = handle.Cast<OpenDalFileHandle>();
 	h.write_committable = false;
@@ -785,8 +810,10 @@ bool OpenDalFileSystem::FileExists(const string &filename, optional_ptr<FileOpen
 
 FileMetadata OpenDalFileSystem::Stats(FileHandle &handle) {
 	auto &h = handle.Cast<OpenDalFileHandle>();
-	return ToFileMetadata(static_cast<uint64_t>(h.file_size), h.last_modified_ms, false,
-	                      h.etag.empty() ? nullptr : h.etag.c_str());
+	auto result = ToFileMetadata(static_cast<uint64_t>(h.file_size), h.last_modified_ms, false,
+	                             h.etag.empty() ? nullptr : h.etag.c_str());
+	result.cache_valid_until = GetCacheValidUntil(handle);
+	return result;
 }
 
 optional<FileMetadata> OpenDalFileSystem::GetStatsIfExists(const OpenFileInfo &file, optional_ptr<FileOpener> opener) {

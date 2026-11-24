@@ -10,6 +10,7 @@
     { "env_name": "OPENDAL_S3_ACCESS_KEY_ID", "env_value": "minioadmin" },
     { "env_name": "OPENDAL_S3_SECRET_ACCESS_KEY", "env_value": "minioadmin" },
     { "env_name": "OPENDAL_S3_REGION", "env_value": "us-east-1" },
-    { "env_name": "OPENDAL_S3_PROXY_ENDPOINT", "env_value": "http://127.0.0.1:19101" }
+    { "env_name": "OPENDAL_PROXY", "env_value": "http://127.0.0.1:19101" },
+    { "env_name": "OPENDAL_CACHED_FILE", "env_value": "s3://warehouse/external/ext_big.parquet" }
   ]
 }

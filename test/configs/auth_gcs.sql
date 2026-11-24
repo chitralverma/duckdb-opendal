@@ -11,3 +11,16 @@ CREATE SECRET gcs_common (
         'disable_vm_metadata': 'true'
     }
 );
+
+-- test/sql/common/cache.test reads one object through the data cache and the
+-- counting proxy.
+CREATE SECRET gcs_cached (
+    TYPE gcs, SCOPE '${OPENDAL_CACHED_FILE}',
+    config MAP{
+        'endpoint': '${OPENDAL_PROXY}',
+        'allow_anonymous': 'true',
+        'disable_config_load': 'true',
+        'disable_vm_metadata': 'true'
+    },
+    cache_config MAP{'memory_size': '64 MiB'}
+);

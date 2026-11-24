@@ -28,6 +28,9 @@ NEED_COMPOSE = test -f $(SERVICE_DIR)/docker-compose.yml || \
 fixtures: ## Generate the shared external-object test fixtures
 	mkdir -p $(FIXTURES_DIR)
 	./build/release/duckdb -c "COPY (SELECT range AS id, range * 2 AS d FROM range(100)) TO '$(FIXTURES_DIR)/ext_seed.parquet' (FORMAT parquet); COPY (SELECT range AS id, 'v' || range AS v FROM range(50)) TO '$(FIXTURES_DIR)/ext_seed.csv' (FORMAT csv, HEADER);"
+	@# ~24 MB of incompressible rows in several row groups, so a footer or
+	@# one-column read is far smaller than the object (test/sql/common/cache.test).
+	@test -f $(FIXTURES_DIR)/ext_big.parquet || ./build/release/duckdb -c "COPY (SELECT range AS id, md5(range::VARCHAR) || md5((range + 1)::VARCHAR) || md5((range + 2)::VARCHAR) AS pad FROM range(250000)) TO '$(FIXTURES_DIR)/ext_big.parquet' (FORMAT parquet, COMPRESSION uncompressed, ROW_GROUP_SIZE 50000);"
 
 # The recipe is @-silent because it has to resolve the config first (see
 # test/services/render_config.py), so it echoes each unittest invocation itself —
