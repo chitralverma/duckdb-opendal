@@ -13,48 +13,48 @@ set ignore_error_messages
 
 statement ok
 COPY (SELECT range AS id FROM range(1000))
-TO '${OPENDAL_BASE}/copy/src.parquet' (FORMAT parquet);
+TO '{OPENDAL_BASE}/copy/src.parquet' (FORMAT parquet);
 
 # Same-operator copy uses OpenDAL Copier where supported and falls back to a
 # Reader->Writer transfer otherwise. Success emits one row after commit.
 query II
 SELECT bytes_copied > 0, metadata.mode
 FROM opendal_copy(
-    '${OPENDAL_BASE}/copy/src.parquet',
-    '${OPENDAL_BASE}/copy/dst.parquet'
+    '{OPENDAL_BASE}/copy/src.parquet',
+    '{OPENDAL_BASE}/copy/dst.parquet'
 );
 ----
 true	file
 
 query I
-SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/copy/dst.parquet');
+SELECT count(*) FROM read_parquet('{OPENDAL_BASE}/copy/dst.parquet');
 ----
 1000
 
 # Mutation happens in the scan callback, not bind/init. LIMIT 0 must not copy.
 statement ok
 SELECT count(*) FROM opendal_copy(
-    '${OPENDAL_BASE}/copy/src.parquet',
-    '${OPENDAL_BASE}/copy/not_copied.parquet'
+    '{OPENDAL_BASE}/copy/src.parquet',
+    '{OPENDAL_BASE}/copy/not_copied.parquet'
 ) LIMIT 0;
 
 query I
-SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/copy/not_copied*.parquet');
+SELECT count(*) FROM opendal_ls('{OPENDAL_BASE}/copy/not_copied*.parquet');
 ----
 0
 
 # Content length is a validated planning hint and must never truncate transfer.
 statement error
 SELECT * FROM opendal_copy(
-    '${OPENDAL_BASE}/copy/src.parquet',
-    '${OPENDAL_BASE}/copy/hint.parquet',
+    '{OPENDAL_BASE}/copy/src.parquet',
+    '{OPENDAL_BASE}/copy/hint.parquet',
     source_content_length_hint := 1
 );
 ----
 does not match source size
 
 query I
-SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/copy/hint*.parquet');
+SELECT count(*) FROM opendal_ls('{OPENDAL_BASE}/copy/hint*.parquet');
 ----
 0
 
@@ -62,25 +62,25 @@ SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/copy/hint*.parquet');
 # path relative to the source directory under the destination prefix.
 statement ok
 COPY (SELECT range AS id, (range % 3) AS part FROM range(60))
-TO '${OPENDAL_BASE}/copy/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
+TO '{OPENDAL_BASE}/copy/tree' (FORMAT parquet, PARTITION_BY part, OVERWRITE_OR_IGNORE);
 
 query I
-SELECT count(*) FROM opendal_copy('${OPENDAL_BASE}/copy/tree/', '${OPENDAL_BASE}/copy/tree_dst/');
+SELECT count(*) FROM opendal_copy('{OPENDAL_BASE}/copy/tree/', '{OPENDAL_BASE}/copy/tree_dst/');
 ----
 3
 
 query I
-SELECT count(*) FROM opendal_ls('${OPENDAL_BASE}/copy/tree_dst/**/*.parquet') WHERE metadata.mode = 'file';
+SELECT count(*) FROM opendal_ls('{OPENDAL_BASE}/copy/tree_dst/**/*.parquet') WHERE metadata.mode = 'file';
 ----
 3
 
 # Glob copy: only matching files are copied, relative to the static prefix.
 query I
-SELECT count(*) FROM opendal_copy('${OPENDAL_BASE}/copy/tree/**/*.parquet', '${OPENDAL_BASE}/copy/glob_dst/');
+SELECT count(*) FROM opendal_copy('{OPENDAL_BASE}/copy/tree/**/*.parquet', '{OPENDAL_BASE}/copy/glob_dst/');
 ----
 3
 
 query I
-SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/copy/glob_dst/**/*.parquet');
+SELECT count(*) FROM read_parquet('{OPENDAL_BASE}/copy/glob_dst/**/*.parquet');
 ----
 60

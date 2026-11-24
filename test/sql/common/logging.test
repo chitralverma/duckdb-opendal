@@ -17,10 +17,10 @@ statement ok
 CALL enable_logging(level='trace', storage='memory');
 
 statement ok
-COPY (SELECT range AS id FROM range(200)) TO '${OPENDAL_BASE}/logging/f.parquet' (FORMAT parquet);
+COPY (SELECT range AS id FROM range(200)) TO '{OPENDAL_BASE}/logging/f.parquet' (FORMAT parquet);
 
 statement ok
-SELECT count(*) FROM read_parquet('${OPENDAL_BASE}/logging/f.parquet');
+SELECT count(*) FROM read_parquet('{OPENDAL_BASE}/logging/f.parquet');
 
 # We logged at least one OPEN, READ, WRITE and CLOSE against our filesystem.
 query I

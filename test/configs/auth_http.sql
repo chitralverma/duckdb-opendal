@@ -13,16 +13,16 @@ SET GLOBAL opendal_override_schemes = 'http,https';
 -- Anonymous reads need no secret at all: the endpoint comes from the URL. This
 -- one only exists for the Basic-auth prefix, matched by its narrower scope.
 CREATE SECRET http_protected (
-    TYPE http, SCOPE '${OPENDAL_HTTP_PROTECTED_BASE}',
+    TYPE http, SCOPE '{OPENDAL_HTTP_PROTECTED_BASE}',
     config MAP{
-        'username': '${OPENDAL_HTTP_USER}',
-        'password': '${OPENDAL_HTTP_PASSWORD}'
+        'username': '{OPENDAL_HTTP_USER}',
+        'password': '{OPENDAL_HTTP_PASSWORD}'
     }
 );
 
 -- test/sql/common/cache.test reads one object through the data cache and the
 -- counting proxy.
 CREATE SECRET http_cached (
-    TYPE http, SCOPE '${OPENDAL_CACHED_FILE}',
+    TYPE http, SCOPE '{OPENDAL_CACHED_FILE}',
     cache_config MAP{'memory_size': '64 MiB'}
 );
