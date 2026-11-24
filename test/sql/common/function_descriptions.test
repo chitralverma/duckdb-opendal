@@ -1,0 +1,37 @@
+# name: test/sql/common/function_descriptions.test
+# description: Every opendal function is documented in duckdb_functions()
+# group: [common]
+
+require opendal
+
+# Each scalar and table function has a description, an example, and real
+# parameter names (never DuckDB's col0 fallback).
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE function_name LIKE 'opendal\_%' ESCAPE '\'
+  AND function_type IN ('scalar', 'table');
+----
+8
+
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE function_name LIKE 'opendal\_%' ESCAPE '\'
+  AND function_type IN ('scalar', 'table')
+  AND (description IS NULL OR len(examples) = 0
+       OR list_contains(categories, 'opendal') IS NOT TRUE
+       OR len(list_filter(parameters, lambda p: regexp_matches(p, '^col[0-9]+$'))) > 0);
+----
+0
+
+query II
+SELECT function_name, parameters[1:2] FROM duckdb_functions()
+WHERE function_name = 'opendal_copy';
+----
+opendal_copy	[source, destination]
+
+# Naming a parameter does not make it a keyword: calls stay positional. Use a
+# scheme OpenDAL never serves, so the result does not depend on the test config.
+query I
+SELECT opendal_is_manually_set('unknown-scheme://example/file');
+----
+false

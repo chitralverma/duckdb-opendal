@@ -5,6 +5,7 @@
 #include "duckdb/common/error_data.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/timestamp.hpp"
+#include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 
 #include "rust.h"
 
@@ -657,18 +658,41 @@ static void InfoFunc(ClientContext &context, TableFunctionInput &data, DataChunk
 	output.CheckCardinality(1);
 }
 
+// Registers a table function with a FunctionDescription, so duckdb_functions()
+// shows a description, parameter names, and a runnable example.
+static void RegisterDescribed(ExtensionLoader &loader, TableFunction function, vector<string> parameter_names,
+                              string description, string example) {
+	// duckdb_functions() reads positional parameter names from the signature.
+	// SetName keeps the parameter positional-only, so calls do not change.
+	for (idx_t i = 0; i < parameter_names.size(); i++) {
+		function.GetSignature().GetParameter(i).SetName(Identifier(parameter_names[i]));
+	}
+	CreateTableFunctionInfo info(std::move(function));
+	FunctionDescription desc;
+	desc.parameter_names = std::move(parameter_names);
+	desc.description = std::move(description);
+	desc.examples = {std::move(example)};
+	desc.categories = {"opendal"};
+	info.descriptions.push_back(std::move(desc));
+	loader.RegisterFunction(std::move(info));
+}
+
 void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *fs) {
 	auto info = make_shared_ptr<OpenDalTableInfo>(fs);
 	TableFunction stat("opendal_stat", {LogicalType::VARCHAR}, EntryFunc, StatBind, EntryInit);
 	AddStatOptions(stat);
 	stat.function_info = info;
-	loader.RegisterFunction(stat);
+	RegisterDescribed(loader, std::move(stat), {"path"},
+	                  "Returns the metadata of one file or directory through OpenDAL.",
+	                  "SELECT * FROM opendal_stat('s3://bucket/data/file.parquet')");
 
 	// opendal_ls also handles glob patterns (wildcards in the path).
 	TableFunction list("opendal_ls", {LogicalType::VARCHAR}, EntryFunc, ListBind, EntryInit);
 	AddListOptions(list);
 	list.function_info = info;
-	loader.RegisterFunction(list);
+	RegisterDescribed(loader, std::move(list), {"path"},
+	                  "Lists the entries under a directory or matching a glob pattern, with their metadata.",
+	                  "SELECT * FROM opendal_ls('s3://bucket/data/', recursive := true)");
 
 	TableFunction du("opendal_du", {LogicalType::VARCHAR}, DuFunc, DuBind, DuInit);
 	du.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
@@ -677,7 +701,9 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 		    .Add("deleted", LogicalType::BOOLEAN);
 	});
 	du.function_info = info;
-	loader.RegisterFunction(du);
+	RegisterDescribed(loader, std::move(du), {"path"},
+	                  "Returns the file count and total size in bytes of all files under a directory.",
+	                  "SELECT * FROM opendal_du('s3://bucket/data/')");
 
 	TableFunction copy("opendal_copy", {LogicalType::VARCHAR, LogicalType::VARCHAR}, CopyFunc, CopyBind, CopyInit);
 	copy.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
@@ -692,16 +718,24 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 		    .Add("chunk_size", LogicalType::UBIGINT);
 	});
 	copy.function_info = info;
-	loader.RegisterFunction(copy);
+	RegisterDescribed(loader, std::move(copy), {"source", "destination"},
+	                  "Copies a file, a directory, or the files matching a glob pattern to another location, "
+	                  "across services if necessary.",
+	                  "SELECT * FROM opendal_copy('s3://bucket/data/', 'azblob://backup/data/')");
 
 	// opendal_schemes() lists compiled-in schemes; no filesystem/secret needed.
 	TableFunction schemes("opendal_schemes", {}, SchemesFunc, SchemesBind, SchemesInit);
-	loader.RegisterFunction(schemes);
+	RegisterDescribed(loader, std::move(schemes), {},
+	                  "Lists the URL schemes of the OpenDAL services compiled into this build.",
+	                  "SELECT * FROM opendal_schemes()");
 
 	// opendal_info(path) describes support/secret/operator/capabilities for a URL.
 	TableFunction info_function("opendal_info", {LogicalType::VARCHAR}, InfoFunc, InfoBind, InfoInit);
 	info_function.function_info = info;
-	loader.RegisterFunction(info_function);
+	RegisterDescribed(loader, std::move(info_function), {"path"},
+	                  "Shows how OpenDAL serves a URL: scheme support, matched secret, operator root, and "
+	                  "service capabilities.",
+	                  "SELECT * FROM opendal_info('s3://bucket/data/')");
 }
 
 } // namespace duckdb
