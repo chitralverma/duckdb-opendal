@@ -12,9 +12,10 @@ requires-python = ">=3.12"
 dev = [
   # Pins mandated by duckdb/scripts/format.py (make format):
   "clang-format==11.0.1", # C++ (.cpp/.hpp) — exact 11.x the script checks for
-  # Same line DuckDB pins (duckdb/Makefile, extension-ci-tools code-quality CI):
-  # keeps local `make format` output identical to CI's.
-  "black==24.*",          # Python (.py)
+  # Patched release (GHSA-3936-cmfr-pm3m, GHSA-cg8m-r9f2-5wm2). DuckDB's CI
+  # code-quality job installs `black==24.*` on its own; both format this repo's
+  # Python files identically with DuckDB's flags.
+  "black>=26.10.1,<27",   # Python (.py)
   "cmake-format",         # CMakeLists.txt
 ]
 
