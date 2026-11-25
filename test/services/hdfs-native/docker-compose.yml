@@ -1,0 +1,37 @@
+# MiniDFS, the test cluster of the hdfs-native client, for the hdfs-native://
+# test tier, in `kms` mode: a namenode on 127.0.0.1:9000, four datanodes, a
+# KMS, and the encryption zone /ezone that holds /ezone/file.
+#
+# Host networking: the datanodes and the KMS bind random ports on 127.0.0.1.
+
+name: opendal-hdfs-native-test
+
+services:
+  minidfs:
+    build: https://github.com/Kimahriman/hdfs-native.git#9f0d0489ff923000f92b966d1243a60f8a977fd4:rust/hdfs-native/minidfs
+    image: opendal-hdfs-native-minidfs:9f0d048
+    network_mode: host
+    command: ["kms"]
+    environment:
+      # Without this the KMS binds only IPv6 loopback, which the client cannot reach.
+      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
+
+  init:
+    image: opendal-hdfs-native-minidfs:9f0d048
+    profiles: ["init"]
+    network_mode: host
+    depends_on:
+      minidfs:
+        condition: service_healthy
+    volumes:
+      - ../fixtures:/fixtures:ro
+      # The client config that ready.sh copies out of the cluster.
+      - ../../../build/test-services/hdfs-native:/conf:ro
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        hdfs() { java -cp "/conf:classes:lib/*" org.apache.hadoop.fs.FsShell "$$@"; }
+        hdfs -mkdir -p /odfs /external
+        hdfs -put -f /fixtures/* /external/

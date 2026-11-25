@@ -123,6 +123,7 @@ make s3-down          # stop and remove
 | `docker-compose.yml` | Required. `<svc>-up` runs `up -d --wait`, so long-running services need healthchecks. |
 | service named `init` | Optional one-shot provisioning (buckets, fixtures). Put it behind `profiles: ["init"]`; `<svc>-up` runs it after the rest is healthy. |
 | `ready.sh`           | Optional readiness gate for images compose cannot healthcheck (no shell). Runs after `up`, before `init`. |
+| `client.env`         | Optional `KEY=value` lines that `test-common-<svc>` exports to the test process, for clients that read environment variables. |
 | `verify.sh`          | Optional post-test assertion; `<svc>-verify` runs it, CI runs it after the suite. |
 
 Both hooks are run as `sh <script>` (POSIX sh, no exec bit required), so a

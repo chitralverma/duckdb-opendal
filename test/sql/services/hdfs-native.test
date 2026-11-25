@@ -1,0 +1,116 @@
+# name: test/sql/services/hdfs-native.test
+# description: hdfs-native://-specific behavior (directories, rename, nameservice, encryption zone)
+# group: [services]
+
+require opendal
+
+require parquet
+
+require-env OPENDAL_HDFS_NATIVE_AUTHORITY
+
+# Do not skip service (HTTP/connection) errors.
+set ignore_error_messages
+
+statement ok
+COPY (SELECT range AS id FROM range(20))
+TO 'hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/file.parquet' (FORMAT parquet);
+
+query I
+SELECT metadata.mode FROM opendal_stat('hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/');
+----
+directory
+
+# An overwrite writes a temporary file and renames it over the target.
+statement ok
+COPY (SELECT range AS id FROM range(35))
+TO 'hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/file.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/file.parquet');
+----
+35
+
+query I
+SELECT count(*) FROM opendal_ls('hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/');
+----
+1
+
+query II
+SELECT capabilities['write_can_multi'], capabilities['write_can_empty']
+FROM opendal_info('hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/file.parquet');
+----
+true	true
+
+statement ok
+COPY (SELECT 1 AS id LIMIT 0)
+TO 'hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/empty.csv' (FORMAT csv, HEADER false);
+
+query I
+SELECT metadata.content_length FROM opendal_stat('hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/odfs/svc/dir/empty.csv');
+----
+0
+
+# A URL authority cannot hold a comma, so a list of namenode addresses goes in
+# the secret.
+statement ok
+CREATE SECRET hdfs_native_ha (
+    TYPE "hdfs-native", SCOPE 'hdfs-native://',
+    config MAP{
+        'name_node': 'hdfs://{OPENDAL_HDFS_NATIVE_AUTHORITY},{OPENDAL_HDFS_NATIVE_AUTHORITY}'
+    }
+);
+
+query I
+SELECT count(*) FROM read_parquet('hdfs-native:///external/ext_seed.parquet');
+----
+100
+
+statement ok
+DROP SECRET hdfs_native_ha;
+
+# odfs-ns is a logical nameservice in the tier's hdfs-site.xml.
+statement ok
+COPY (SELECT range AS id FROM range(12))
+TO 'hdfs-native://odfs-ns/odfs/svc/view/data.parquet' (FORMAT parquet);
+
+query I
+SELECT count(*) FROM read_parquet('hdfs-native://odfs-ns/odfs/svc/view/data.parquet');
+----
+12
+
+# name_node 'default' uses fs.defaultFS: the ViewFS mount table odfs-view.
+statement ok
+CREATE SECRET hdfs_native_default (
+    TYPE "hdfs-native", SCOPE 'hdfs-native://',
+    config MAP{'name_node': 'default'}
+);
+
+# The link /view points to /odfs/svc/view.
+query I
+SELECT count(*) FROM read_parquet('hdfs-native:///view/data.parquet');
+----
+12
+
+# Other paths go to the fallback link, the root of odfs-ns.
+query I
+SELECT count(*) FROM read_parquet('hdfs-native:///external/ext_seed.parquet');
+----
+100
+
+statement ok
+DROP SECRET hdfs_native_default;
+
+# The tier's KMS holds the key of the encryption zone /ezone.
+query I
+SELECT content FROM read_text('hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/ezone/file');
+----
+hdfs-native TDE round-trip test payload
+
+statement ok
+COPY (SELECT range AS id FROM range(50))
+TO 'hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/ezone/odfs.parquet' (FORMAT parquet);
+
+query I
+SELECT sum(id) FROM read_parquet('hdfs-native://{OPENDAL_HDFS_NATIVE_AUTHORITY}/ezone/odfs.parquet');
+----
+1225

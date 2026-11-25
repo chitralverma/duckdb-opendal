@@ -37,6 +37,8 @@ fixtures: ## Generate the shared external-object test fixtures
 # copy-pasteable to rerun a failing tier directly.
 test-common-%: ## Run the common suite for a service (e.g. test-common-fs)
 	@cfg=$$(python3 $(SERVICES_DIR)/render_config.py $*) || exit $$?; \
+	  env_file=$(SERVICE_DIR)/client.env; \
+	  if [ -f "$$env_file" ]; then echo "set -a; . ./$$env_file; set +a"; set -a; . "./$$env_file"; set +a; fi; \
 	  run() { echo "DUCKDB_TEST_CONFIG=$$cfg $(UNITTEST_BIN) '$$1'"; \
 	          DUCKDB_TEST_CONFIG=$$cfg $(UNITTEST_BIN) "$$1"; }; \
 	  run "test/sql/common/*" || exit $$?; \

@@ -68,14 +68,13 @@ DuckDB patch broke us → fix, then cut a release.
 OpenDAL can be pinned to a **published release** (a crates.io version) or an
 `apache/opendal` **git commit** (a `main` revision). It is currently pinned to a
 `rev`. Move it when a target DuckDB upgrade requires a fix, or when a new service
-/ OpenDAL feature is needed. Keep the three OpenDAL deps in `opendal/Cargo.toml`
-(`[dependencies.opendal]`, `opendal-http-transport-reqwest` and
-`opendal-service-foyer`) on the **same** release/rev, and `foyer` on the version
-`opendal-service-foyer` uses.
+/ OpenDAL feature is needed. Keep every OpenDAL dep in `opendal/Cargo.toml`
+(`[dependencies.opendal]` and each `opendal-*` crate) on the **same**
+release/rev, and `foyer` on the version `opendal-service-foyer` uses.
 
 1. **Choose the target** — a crates.io version (e.g. `0.56`) or an
    `apache/opendal` commit (`rev`).
-2. **Update all three deps in `opendal/Cargo.toml`**, kept identical:
+2. **Update every OpenDAL dep in `opendal/Cargo.toml`**, kept identical:
    - Release → set `version = "X"` on each (drop the `git`/`rev` keys).
    - Rev → set `rev = "<sha>"` on each with `git = "…/opendal.git"`.
 3. **Refresh the lockfile**: `cargo update -p opendal` (from `opendal/`), which

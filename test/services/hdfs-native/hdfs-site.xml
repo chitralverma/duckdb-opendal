@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!--
+  Client settings for the hdfs-native:// test tier. ready.sh copies this file
+  next to the core-site.xml that MiniDFS writes. Clients read hdfs-site.xml
+  after core-site.xml, so the fs.defaultFS here wins.
+-->
+<configuration>
+  <!-- odfs-ns: a logical nameservice with the one MiniDFS namenode. -->
+  <property>
+    <name>dfs.nameservices</name>
+    <value>odfs-ns</value>
+  </property>
+  <property>
+    <name>dfs.ha.namenodes.odfs-ns</name>
+    <value>nn1</value>
+  </property>
+  <property>
+    <name>dfs.namenode.rpc-address.odfs-ns.nn1</name>
+    <value>127.0.0.1:9000</value>
+  </property>
+  <property>
+    <name>dfs.client.failover.proxy.provider.odfs-ns</name>
+    <value>org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider</value>
+  </property>
+
+  <!-- odfs-view: a ViewFS mount table over odfs-ns, and the default file system. -->
+  <property>
+    <name>fs.defaultFS</name>
+    <value>viewfs://odfs-view</value>
+  </property>
+  <property>
+    <name>fs.viewfs.mounttable.odfs-view.link./view</name>
+    <value>hdfs://odfs-ns/odfs/svc/view</value>
+  </property>
+  <property>
+    <name>fs.viewfs.mounttable.odfs-view.linkFallback</name>
+    <value>hdfs://odfs-ns/</value>
+  </property>
+</configuration>

@@ -1,0 +1,9 @@
+{
+  "description": "opendal common suite over hdfs-native:// (MiniDFS emulator with KMS)",
+  "statically_loaded_extensions": ["core_functions", "parquet", "opendal"],
+  "test_env": [
+    { "env_name": "OPENDAL_BASE", "env_value": "hdfs-native://127.0.0.1:9000/odfs" },
+    { "env_name": "OPENDAL_EXTERNAL_BASE", "env_value": "hdfs-native://127.0.0.1:9000/external" },
+    { "env_name": "OPENDAL_HDFS_NATIVE_AUTHORITY", "env_value": "127.0.0.1:9000" }
+  ]
+}
