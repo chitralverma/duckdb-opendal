@@ -24,16 +24,16 @@ CREATE SECRET local_root (
 SELECT * FROM read_parquet('fs:///events/2026.parquet');   -- /var/data/events/2026.parquet
 ```
 
-| Key                | Meaning                                                  |
-| ------------------ | -------------------------------------------------------- |
-| `root`             | Base directory every path is resolved against. Required. |
-| `atomic_write_dir` | Staging directory for atomic writes (same filesystem).   |
-
-Use `'root': '.'` to work relative to DuckDB's current working directory.
+`root` is required. Every path is resolved against it. Use `'root': '.'` to
+work relative to DuckDB's current working directory. For all `config` keys, see
+the OpenDAL
+[`fs` configuration reference](https://opendal.apache.org/services/fs/#configuration-reference).
 
 ## Notes
 
+- **Counterpart:** [DuckDB core](../coexistence.md#claimed-schemes). `file://`
+  is a [shared scheme](../coexistence.md#terms). After `LOAD opendal`, a
+  `file://` URL needs a `TYPE file` secret. Paths without a scheme stay with
+  DuckDB core.
 - The root confines access: paths cannot escape it.
 - Writes create parent directories as needed.
-- DuckDB's own paths (no scheme) are unaffected — only `fs://` and `file://`
-  URLs go through this extension.

@@ -52,6 +52,11 @@ git ls-remote --heads https://github.com/duckdb/extension-ci-tools "vX.Y*"
 4. **Update docs**:
    - The submodule-pin note in `CONTRIBUTING.md`.
    - The DuckDB column of the compatibility matrix in `README.md`.
+   - The [claimed schemes](../../../docs/coexistence.md#claimed-schemes) table.
+     Compare it with `EXTENSION_FILE_PREFIXES` in
+     `duckdb/src/include/duckdb/main/extension_entries.hpp`, and with the
+     `CanHandleFile` overrides of each extension in
+     `duckdb/.github/config/extensions/*.cmake`, at the pinned `GIT_TAG`.
 5. **Format**: `uv run make format-all`.
 6. **Build**: `GEN=ninja make` (static + loadable targets must link).
 7. **Test**:

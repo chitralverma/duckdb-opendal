@@ -24,19 +24,8 @@ CREATE SECRET warehouse (
 SELECT * FROM read_parquet('gcs://warehouse/events/2026.parquet');
 ```
 
-| Key                     | Meaning                                                        |
-| ----------------------- | -------------------------------------------------------------- |
-| `credential`            | Service-account JSON, base64-encoded.                          |
-| `credential_path`       | Path to a service-account JSON file.                           |
-| `service_account`       | Service-account name to impersonate.                           |
-| `token`                 | OAuth2 access token, used directly.                            |
-| `scope`                 | OAuth2 scope; defaults to full control.                        |
-| `endpoint`              | Custom endpoint, e.g. an emulator.                             |
-| `allow_anonymous`       | Allow unsigned access to public buckets and emulators.         |
-| `disable_config_load`   | Skip credential discovery from the environment and gcloud.     |
-| `disable_vm_metadata`   | Skip the GCE metadata server (avoids a hang off-GCE).          |
-| `predefined_acl`        | Predefined ACL applied to written objects.                     |
-| `default_storage_class` | Storage class for written objects, e.g. `NEARLINE`.            |
+For all `config` keys, see the OpenDAL
+[`gcs` configuration reference](https://opendal.apache.org/services/gcs/#configuration-reference).
 
 With no credential keys the service falls back to application default
 credentials, so on GCE or with `gcloud auth application-default login` an empty
@@ -62,10 +51,10 @@ CREATE SECRET gcs_emulator (
 
 ## Notes
 
-- `gcs://` is also claimed by DuckDB's native `httpfs` extension. If both are
-  loaded, say which one you want:
-  `SET opendal_override_schemes = 'gcs';` — see
-  [coexistence](../coexistence.md).
+- **Counterpart:** [`httpfs`](../coexistence.md#claimed-schemes). `gcs://` is a
+  [shared scheme](../coexistence.md#terms). `httpfs` also serves `gs://`. It
+  uses the S3-compatible XML API with HMAC keys or a bearer token. This service
+  uses the JSON API with the credentials above.
 - There is no server-side rename. Overwriting an existing object copies and
   deletes, and `opendal_copy(..., if_not_exists := true)` is rejected because
   the service does not support that precondition.

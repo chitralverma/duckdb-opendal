@@ -57,9 +57,9 @@ Things that hold for all of them:
 
 - **One bucket/container per secret.** Create several, each with its own
   `SCOPE`; the most specific match wins.
-- **`config` is passed straight to OpenDAL.** Each guide lists the keys you
-  normally need; the full set is in the
-  [OpenDAL service reference](https://opendal.apache.org/services/).
+- **`config` is passed straight to OpenDAL.** Each guide shows the keys you
+  normally need in its example, and links to the OpenDAL configuration
+  reference for that service, which lists all keys.
 - **Tuning is service-independent.** `io_config`, `retry_config`,
   `timeout_config` and `cache_config` work the same everywhere — see
   [configuration](../configuration.md).
@@ -78,10 +78,17 @@ current:
 ```text
 # `<scheme>://` — <service name>      one-line description
 ## URL                                URL form + what the authority means
-## Secret                             a working CREATE SECRET + key table
+## Secret                             a working CREATE SECRET + link to the
+                                      OpenDAL configuration reference
 ## Emulator                           optional: local/emulated setup
 ## Notes                              gotchas, limits, scheme conflicts
 ```
 
 Add extra sections where a service earns them (`s3-like` has one per compatible
 provider), but keep the order and the names above.
+
+If the service has a [counterpart](../coexistence.md#terms) in DuckDB core or a
+core extension, the first bullet in **Notes** is `**Counterpart:**`, linked to
+[claimed schemes](../coexistence.md#claimed-schemes). It lists only the
+differences from that counterpart that a user can see. Do not list community
+extensions there.

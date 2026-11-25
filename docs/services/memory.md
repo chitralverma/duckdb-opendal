@@ -34,6 +34,9 @@ CREATE SECRET mem (
 );
 ```
 
+For all `config` keys, see the OpenDAL
+[`memory` configuration reference](https://opendal.apache.org/services/memory/#configuration-reference).
+
 ## Notes
 
 - Contents are lost when the DuckDB process exits.

@@ -37,17 +37,9 @@ CREATE SECRET r2 (
 );
 ```
 
-| Key                 | Service | Meaning                                                  |
-| ------------------- | ------- | -------------------------------------------------------- |
-| `access_key_id`     | both    | Access key.                                              |
-| `secret_access_key` | both    | Secret key.                                              |
-| `session_token`     | both    | Session token for temporary credentials.                 |
-| `endpoint`          | minio   | Deployment endpoint. Required.                           |
-| `region`            | minio   | Signing region. Default `auto`.                          |
-| `skip_signature`    | minio   | Send unsigned requests; not with credentials.            |
-| `account_id`        | r2      | Derives `https://<account_id>.r2.cloudflarestorage.com`. |
-| `jurisdiction`      | r2      | `eu` or `fedramp`; needs `account_id`.                   |
-| `endpoint`          | r2      | Explicit endpoint instead of `account_id`.               |
+For all `config` keys, see the OpenDAL configuration reference for
+[`minio`](https://opendal.apache.org/services/minio/#configuration-reference)
+and [`r2`](https://opendal.apache.org/services/r2/#configuration-reference).
 
 Without credentials, both read `AWS_*` env vars and the shared AWS credentials
 file.
@@ -77,8 +69,9 @@ requests addressed to `localhost` or `127.0.0.1`. The `r2` test tier runs on it
 
 ## Notes
 
-- `r2://` is also claimed by `httpfs`:
-  `SET opendal_override_schemes = 'r2';` — see [coexistence](../coexistence.md).
+- **Counterpart:** [`httpfs`](../coexistence.md#claimed-schemes) for both.
+  `r2://` is a [shared scheme](../coexistence.md#terms). `httpfs` serves MinIO
+  through `s3://`. `minio://` is not a claimed scheme.
 - R2 multipart uploads need equal-size parts, so `r2://` writes use 8 MiB parts
   unless `io_config` sets `write.chunk_size`. Through `s3://` pointed at R2, set
   `write.chunk_size` yourself: without it, large writes fail at completion.

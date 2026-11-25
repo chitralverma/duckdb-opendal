@@ -27,7 +27,7 @@ LOAD opendal;
 - **Scoped Secrets**: Configure credentials, custom endpoints, and regions with bucket/path specificity using DuckDB's native secret manager.
 - **Configurable Layers**: Tuning of retry behavior, timeout ceilings, concurrent request limits, and data caching per secret or globally.
 - **Built-in Data Caching**: In-memory and on-disk caching of the byte ranges queries actually read, for every service, without any query changes. See [Caching](docs/caching.md).
-- **Coexistence Layer**: Dynamically delegate specific schemes (like `s3://`) to `opendal` instead of other extensions (like `httpfs`) using `opendal_override_schemes`.
+- **Coexistence**: Use `opendal` next to `httpfs`, `azure` and DuckDB core. See [Coexistence](docs/coexistence.md).
 
 ---
 
@@ -105,21 +105,6 @@ SELECT * FROM opendal_copy(
 );
 ```
 
-### 4. Coexistence
-
-By default, DuckDB routes `s3://` and `gcs://` to its built-in `httpfs` extension. You can instruct `opendal` to take precedence for specific schemes, whichever extension also claims them, using:
-
-```sql
--- Let opendal handle s3:// and gcs:// queries
-SET opendal_override_schemes = 's3,gcs';
-
--- Queries under these schemes now run through opendal's filesystem registry
-SELECT * FROM read_parquet('s3://my-bucket/dataset.parquet');
-
--- Revert back to httpfs handling
-SET opendal_override_schemes = '';
-```
-
 ---
 
 ## Compatibility
@@ -157,8 +142,8 @@ User guides live in [docs/](docs/README.md):
 - [Caching](docs/caching.md) — in-memory and on-disk read caching.
 - [Table functions](docs/table-functions.md) — `opendal_ls`, `opendal_du`,
   `opendal_copy`, and friends.
-- [Coexistence](docs/coexistence.md) — sharing schemes such as `s3://` with
-  `httpfs`.
+- [Coexistence](docs/coexistence.md) — schemes that DuckDB core and its core
+  extensions also serve.
 
 ---
 

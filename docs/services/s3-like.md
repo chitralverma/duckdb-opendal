@@ -29,17 +29,8 @@ CREATE SECRET warehouse (
 SELECT * FROM read_parquet('s3://warehouse/events/2026.parquet');
 ```
 
-| Key                         | Meaning                                                     |
-| --------------------------- | ----------------------------------------------------------- |
-| `access_key_id`             | Access key.                                                 |
-| `secret_access_key`         | Secret key.                                                 |
-| `session_token`             | Session token for temporary credentials.                    |
-| `region`                    | Bucket region.                                              |
-| `endpoint`                  | Custom endpoint for S3-compatible services.                 |
-| `enable_virtual_host_style` | `true` for virtual-host addressing; `false` for path style. |
-| `allow_anonymous`           | Allow unsigned access to public buckets.                    |
-| `server_side_encryption`    | e.g. `AES256`, or `aws:kms` with the KMS key id keys.       |
-| `enable_versioning`         | Enable version-aware stat, list and reads.                  |
+For all `config` keys, see the OpenDAL
+[`s3` configuration reference](https://opendal.apache.org/services/s3/#configuration-reference).
 
 ## S3-compatible services
 
@@ -78,9 +69,9 @@ region and `enable_virtual_host_style`.
 
 ## Notes
 
-- `s3://` is also claimed by DuckDB's native `httpfs` extension. If both are
-  loaded, say which one you want:
-  `SET opendal_override_schemes = 's3';` — see
-  [coexistence](../coexistence.md).
+- **Counterpart:** [`httpfs`](../coexistence.md#claimed-schemes). `s3://` is a
+  [shared scheme](../coexistence.md#terms). `httpfs` also serves `s3a://` and
+  `s3n://`, and URLs with query parameters such as `versionId` or a pre-signed
+  signature. This service rejects query strings.
 - Large writes use multipart uploads; tune concurrency and part size with
   `io_config` (see [configuration](../configuration.md)).

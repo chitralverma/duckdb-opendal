@@ -53,25 +53,12 @@ CREATE SECRET az_file (
 SELECT * FROM read_parquet('azblob://warehouse/events/2026.parquet');
 ```
 
-Shared by all three:
-
-| Key            | Meaning                                            |
-| -------------- | -------------------------------------------------- |
-| `account_name` | Storage account. Derived from the URL for dls/file. |
-| `account_key`  | Shared key.                                         |
-| `sas_token`    | Shared access signature, instead of `account_key`.  |
-
-Per service:
-
-| Key                                       | Service  | Meaning                                    |
-| ----------------------------------------- | -------- | ------------------------------------------ |
-| `endpoint`                                | azblob   | `https://<account>.blob.core.windows.net`. |
-| `skip_signature`                          | azblob   | `true` for public containers.              |
-| `filesystem`                              | azdls    | Container ("filesystem") name. Required.   |
-| `enable_hns`                              | azdls    | `true` if the account has an HNS.          |
-| `client_id`, `client_secret`, `tenant_id` | azdls    | Service-principal credentials.             |
-| `authority_host`                          | azdls    | Login host, for sovereign clouds.          |
-| `share_name`                              | azfile   | File share name. Required.                 |
+For all `config` keys, see the OpenDAL configuration reference for
+[`azblob`](https://opendal.apache.org/services/azblob/#configuration-reference),
+[`azdls`](https://opendal.apache.org/services/azdls/#configuration-reference)
+and [`azfile`](https://opendal.apache.org/services/azfile/#configuration-reference).
+For `azdls` and `azfile`, this extension sets `endpoint` and `account_name` from
+the URL, as [URL](#url) describes.
 
 One container, filesystem or share per secret — give each its own `SCOPE`.
 
@@ -96,7 +83,10 @@ for the Data Lake or Files endpoints — `azdls` and `azfile` need a real accoun
 
 ## Notes
 
-- These schemes are distinct from DuckDB's native `azure` extension
-  (`azure://` / `abfss://`), so the two never collide.
+- **Counterpart:** [`azure`](../coexistence.md#claimed-schemes) for `azblob`
+  (`az://`, `azure://`) and `azdls` (`abfss://`, `abfs://`). `azfile` has none
+  in DuckDB core or a core extension. The schemes differ, so a URL goes to one
+  of these two extensions only. A community extension can still claim
+  `azblob://`, `azdls://` or `azfile://`.
 - On a hierarchical-namespace account, prefer `azdls://` over `azblob://`: it
   exposes real directories, directory rename and recursive delete.
