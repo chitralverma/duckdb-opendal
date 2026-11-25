@@ -86,7 +86,8 @@ current:
 Add extra sections where a service earns them (`s3-like` has one per compatible
 provider), but keep the order and the names above.
 
-If the service has a [counterpart](../coexistence.md#terms), the first bullet in
-**Notes** is `**Counterpart:**`, linked to
+If the service has a [counterpart](../coexistence.md#terms) in DuckDB core or a
+core extension, the first bullet in **Notes** is `**Counterpart:**`, linked to
 [claimed schemes](../coexistence.md#claimed-schemes). It lists only the
-differences from the counterpart that a user can see.
+differences from that counterpart that a user can see. Do not list community
+extensions there.
