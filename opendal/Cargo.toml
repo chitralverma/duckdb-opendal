@@ -19,9 +19,9 @@ strip = true
 
 [features]
 # Compiled-in OpenDAL services; each maps to opendal/services-<name>. Build a
-# subset with `--no-default-features --features services-<name>`.
+# subset with `--no-default-features --features services-<name>`. OpenDAL always
+# builds `memory`, so it has no feature.
 default = [
-  "services-memory",
   "services-fs",
   "services-s3",
   "services-gcs",
@@ -38,7 +38,6 @@ services-azfile = ["opendal/services-azfile"]
 services-fs = ["opendal/services-fs"]
 services-gcs = ["opendal/services-gcs"]
 services-http = ["opendal/services-http"]
-services-memory = ["opendal/services-memory"]
 services-minio = ["opendal/services-minio"]
 services-r2 = ["opendal/services-r2"]
 services-s3 = ["opendal/services-s3"]
