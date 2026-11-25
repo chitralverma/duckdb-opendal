@@ -491,6 +491,83 @@ static void AddListOptions(TableFunction &function) {
 	});
 }
 
+// ── opendal_presign(path) — a presigned request for one object ────────────────
+static constexpr uint64_t DEFAULT_PRESIGN_EXPIRE_SECS = 3600;
+
+struct PresignBindData : public TableFunctionData {
+	OpenDalFileSystem *fs;
+	std::string url;
+	std::string operation = "read";
+	std::string version;
+	uint64_t expire_secs = DEFAULT_PRESIGN_EXPIRE_SECS;
+};
+
+struct PresignGlobalState : public GlobalTableFunctionState {
+	bool done = false;
+};
+
+static unique_ptr<FunctionData> PresignBind(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
+                                            vector<Identifier> &names) {
+	auto result = make_uniq<PresignBindData>();
+	result->fs = input.info->Cast<OpenDalTableInfo>().fs;
+	result->url = input.inputs[0].GetValue<string>();
+	auto operation = input.named_parameters.find(Identifier("operation"));
+	if (operation != input.named_parameters.end() && !operation->second.IsNull()) {
+		result->operation = operation->second.ToString();
+	}
+	result->version = StringParameter(input.named_parameters, "version");
+	auto expire = input.named_parameters.find(Identifier("expire"));
+	if (expire != input.named_parameters.end() && !expire->second.IsNull()) {
+		int64_t micros = 0;
+		if (!Interval::TryGetMicro(IntervalValue::Get(expire->second), micros)) {
+			throw InvalidInputException("opendal presign: expire is out of range");
+		}
+		result->expire_secs = micros > 0 ? static_cast<uint64_t>(micros / Interval::MICROS_PER_SEC) : 0;
+	}
+	names = {"method", "url", "headers"};
+	types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR)};
+	return std::move(result);
+}
+
+static unique_ptr<GlobalTableFunctionState> PresignInit(ClientContext &, TableFunctionInitInput &) {
+	return make_uniq<PresignGlobalState>();
+}
+
+static void PresignFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+	auto &state = data.global_state->Cast<PresignGlobalState>();
+	if (state.done) {
+		output.CheckCardinality(0);
+		return;
+	}
+	state.done = true;
+	auto &bind = data.bind_data->Cast<PresignBindData>();
+	std::string scheme, authority, path;
+	if (!bind.fs || !bind.fs->ParsePublic(bind.url, scheme, authority, path)) {
+		throw InvalidInputException("opendal presign: unsupported or invalid URL: " + bind.url);
+	}
+	auto *op = bind.fs->OperatorForPublic(scheme, authority, bind.url, &context);
+	OdPresignedRequest request = {};
+	OdError err = {};
+	std::unique_ptr<OdPresigned, void (*)(OdPresigned *)> presigned(
+	    od_presign(op, path.c_str(), bind.operation.c_str(), bind.expire_secs,
+	               bind.version.empty() ? nullptr : bind.version.c_str(), &request, &err),
+	    od_presigned_free);
+	if (!presigned) {
+		ThrowIfError(err, "presign", bind.url);
+		throw IOException("opendal presign: null request for '" + bind.url + "'");
+	}
+	ClearError(err);
+	vector<Value> keys, values;
+	for (idx_t index = 0; index < request.header_len; index++) {
+		keys.emplace_back(request.header_keys[index]);
+		values.emplace_back(request.header_values[index]);
+	}
+	output.data[0].Append(Value(request.method));
+	output.data[1].Append(Value(request.url));
+	output.data[2].Append(Value::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR, std::move(keys), std::move(values)));
+	output.CheckCardinality(1);
+}
+
 // ── opendal_schemes() — schemes compiled into this build ─────────────────────
 struct SchemesBindData : public TableFunctionData {};
 
@@ -722,6 +799,18 @@ void RegisterOpenDalTableFunctions(ExtensionLoader &loader, OpenDalFileSystem *f
 	                  "Copies a file, a directory, or the files matching a glob pattern to another location, "
 	                  "across services if necessary.",
 	                  "SELECT * FROM opendal_copy('s3://bucket/data/', 'azblob://backup/data/')");
+
+	TableFunction presign("opendal_presign", {LogicalType::VARCHAR}, PresignFunc, PresignBind, PresignInit);
+	presign.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
+		options.Add("operation", LogicalType::VARCHAR)
+		    .Add("expire", LogicalType::INTERVAL)
+		    .Add("version", LogicalType::VARCHAR);
+	});
+	presign.function_info = info;
+	RegisterDescribed(loader, std::move(presign), {"path"},
+	                  "Returns a presigned HTTP request (method, URL and headers) for one object, which a client "
+	                  "without credentials can send until it expires.",
+	                  "SELECT url FROM opendal_presign('s3://bucket/data/file.parquet', expire := INTERVAL 15 MINUTE)");
 
 	// opendal_schemes() lists compiled-in schemes; no filesystem/secret needed.
 	TableFunction schemes("opendal_schemes", {}, SchemesFunc, SchemesBind, SchemesInit);

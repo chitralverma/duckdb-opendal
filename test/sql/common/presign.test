@@ -1,0 +1,41 @@
+# name: test/sql/common/presign.test
+# description: opendal_presign defaults, expire conversion and header output
+# group: [common]
+
+#
+# Self-contained: S3 signs requests locally, so the secret needs no server.
+
+require opendal
+
+statement ok
+CREATE SECRET presign_s3 (
+    TYPE s3, SCOPE 's3://presign-bucket',
+    config MAP{
+        'access_key_id': 'key', 'secret_access_key': 'secret', 'region': 'us-east-1',
+        'endpoint': 'http://127.0.0.1:1', 'disable_config_load': 'true', 'disable_ec2_metadata': 'true',
+        'server_side_encryption': 'AES256'
+    }
+);
+
+query III
+SELECT method, url LIKE 'http://127.0.0.1:1/presign-bucket/dir/a.parquet?%X-Amz-Expires=3600%', cardinality(headers)
+FROM opendal_presign('s3://presign-bucket/dir/a.parquet');
+----
+GET	true	0
+
+query II
+SELECT method, regexp_extract(url, 'X-Amz-Expires=([0-9]+)', 1)
+FROM opendal_presign('s3://presign-bucket/a', operation := 'write', expire := INTERVAL 15 MINUTE);
+----
+PUT	900
+
+query I
+SELECT headers['x-amz-server-side-encryption']
+FROM opendal_presign('s3://presign-bucket/a', operation := 'write');
+----
+AES256
+
+statement error
+SELECT * FROM opendal_presign('s3://presign-bucket/a', expire := INTERVAL 500 MILLISECOND);
+----
+expire must be at least 1 second

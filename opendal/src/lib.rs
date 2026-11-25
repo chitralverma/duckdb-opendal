@@ -18,6 +18,7 @@ mod ffi;
 mod lister;
 mod mutate;
 mod operator;
+mod presign;
 mod reader;
 mod runtime;
 mod stat;
@@ -38,6 +39,7 @@ pub use operator::{
     od_scheme_supported, od_schemes, od_schemes_entry, od_schemes_free, od_schemes_len, OdOperator,
     OdSchemeList,
 };
+pub use presign::{od_presign, od_presigned_free, OdPresigned, OdPresignedRequest};
 pub use reader::{od_reader_free, od_reader_open, od_reader_read, OdReader};
 pub use stat::{od_dir_exists, od_exists, od_stat, OdMetadata};
 pub use table::{
