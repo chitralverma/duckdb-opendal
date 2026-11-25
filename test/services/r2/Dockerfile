@@ -1,5 +1,5 @@
 # Miniflare (local Cloudflare R2) for the r2:// test tier. See server.mjs.
-FROM node:24-slim@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530
+FROM node:25-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370
 
 WORKDIR /app
 COPY package.json package-lock.json ./
