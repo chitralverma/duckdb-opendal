@@ -75,3 +75,6 @@ requests addressed to `localhost` or `127.0.0.1`. The `r2` test tier runs on it
 - R2 multipart uploads need equal-size parts, so `r2://` writes use 8 MiB parts
   unless `io_config` sets `write.chunk_size`. Through `s3://` pointed at R2, set
   `write.chunk_size` yourself: without it, large writes fail at completion.
+- R2 has no object versioning, so do not set `version` on `r2://`.
+  [`opendal_presign`](../table-functions.md#opendal_presign) works as on
+  [`s3://`](s3-like.md#notes).

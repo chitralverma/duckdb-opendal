@@ -9,6 +9,7 @@ Inspect and manage storage from SQL. Every function takes URLs in the usual
 | [`opendal_stat`](#opendal_stat)       | Get metadata for one object                        |
 | [`opendal_du`](#opendal_du)           | Total up sizes per directory                       |
 | [`opendal_copy`](#opendal_copy)       | Copy files within or across services               |
+| [`opendal_presign`](#opendal_presign) | Share one object through a presigned URL           |
 | [`opendal_info`](#opendal_info)       | Check whether a URL is usable                      |
 | [`opendal_schemes`](#opendal_schemes) | See which services this build supports             |
 | `opendal_version()`                   | Extension and OpenDAL versions (a scalar function) |
@@ -96,6 +97,47 @@ Good to know:
 - A copy is a side effect, not part of the transaction: rolling back the query
   does not undo it. Nothing is copied until the function is actually scanned, so
   `LIMIT 0` copies nothing.
+
+## `opendal_presign`
+
+```sql
+-- A URL that reads the object for 15 minutes
+SELECT url FROM opendal_presign('s3://warehouse/data/file.parquet', expire := INTERVAL 15 MINUTE);
+
+-- An upload
+SELECT method, url, headers
+FROM opendal_presign('s3://warehouse/upload/file.parquet', operation := 'write');
+```
+
+Returns one row with a presigned HTTP request: `method`, `url` and `headers`
+(`MAP(VARCHAR, VARCHAR)`). A client without credentials can send it until it
+expires. Send all of `headers` with the request, because the signature can
+include them.
+
+| Option      | Meaning                                                                               |
+| ----------- | ------------------------------------------------------------------------------------- |
+| `operation` | `read` (default), `stat`, `write` or `delete`.                                        |
+| `expire`    | How long the request stays valid, as an `INTERVAL`. Default 1 hour, minimum 1 second. |
+| `version`   | The object version to `read`, `stat` or `delete`.                                     |
+
+The function does not send a request to the object, so it does not check that
+the object exists.
+
+| Service           | Operations                        | `version` |
+| ----------------- | --------------------------------- | --------- |
+| `s3`, `minio`     | `read`, `stat`, `write`, `delete` | yes       |
+| `r2`              | `read`, `stat`, `write`, `delete` | no        |
+| `gcs`             | `read`, `stat`, `write`           | yes       |
+| `azblob`          | `read`, `stat`, `write`           | no        |
+| `http`, `https`   | `read`, `stat`                    | no        |
+
+The [service guides](services/README.md) give the conditions for each service.
+Other services fail with
+`service '<x>' does not support presign_<operation>`. The `presign_*` entries
+of `opendal_info` show what a URL supports.
+
+A presigned URL gives access to anyone who has it. Keep it secret, and use the
+shortest `expire` that works.
 
 ## `opendal_info`
 

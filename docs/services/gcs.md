@@ -60,3 +60,8 @@ CREATE SECRET gcs_emulator (
   the service does not support that precondition.
 - Large writes are resumable uploads; tune concurrency and chunk size with
   `io_config` (see [configuration](../configuration.md)).
+- [`opendal_presign`](../table-functions.md#opendal_presign) signs with a
+  service-account key (`credential` or `credential_path`). Other credentials
+  fail with `service account or token + signer identity required for query
+  signing`. With `allow_anonymous`, it returns the URL with no signature. The
+  URL uses the XML API host (`storage.googleapis.com`), not the JSON API.
