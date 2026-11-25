@@ -96,7 +96,8 @@ for the Data Lake or Files endpoints — `azdls` and `azfile` need a real accoun
 
 ## Notes
 
-- These schemes are distinct from DuckDB's native `azure` extension
-  (`azure://` / `abfss://`), so the two never collide.
+- **Counterpart:** [`azure`](../coexistence.md#claimed-schemes) for `azblob`
+  (`az://`, `azure://`) and `azdls` (`abfss://`, `abfs://`). `azfile` has none.
+  The schemes differ, so a URL goes to one extension only.
 - On a hierarchical-namespace account, prefer `azdls://` over `azblob://`: it
   exposes real directories, directory rename and recursive delete.

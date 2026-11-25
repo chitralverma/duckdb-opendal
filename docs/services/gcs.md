@@ -62,10 +62,10 @@ CREATE SECRET gcs_emulator (
 
 ## Notes
 
-- `gcs://` is also claimed by DuckDB's native `httpfs` extension. If both are
-  loaded, say which one you want:
-  `SET opendal_override_schemes = 'gcs';` — see
-  [coexistence](../coexistence.md).
+- **Counterpart:** [`httpfs`](../coexistence.md#claimed-schemes). `gcs://` is a
+  [shared scheme](../coexistence.md#terms). `httpfs` also serves `gs://`. It
+  uses the S3-compatible XML API with HMAC keys or a bearer token. This service
+  uses the JSON API with the credentials above.
 - There is no server-side rename. Overwriting an existing object copies and
   deletes, and `opendal_copy(..., if_not_exists := true)` is rejected because
   the service does not support that precondition.

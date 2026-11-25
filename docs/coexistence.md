@@ -1,85 +1,142 @@
-# Coexistence with other filesystem extensions
+# Coexistence with DuckDB filesystems
 
-Some URL schemes are claimed by more than one extension: `s3://` by both
-`opendal` and DuckDB's built-in `httpfs`, for example. This page shows how to
-decide which one serves a query.
+DuckDB and its core extensions serve some URL schemes that `opendal` also
+serves. This page lists those schemes, explains which filesystem serves a URL,
+and shows how to choose `opendal`.
 
-Only contested schemes are affected: with DuckDB's core extensions that is
-`s3://`, `gcs://`, `r2://`, `http://` and `https://`, all also claimed by `httpfs`
-(the `azure` extension uses `az://`/`abfss://`, which `opendal` does not serve). A
-third-party extension can claim any scheme, including ones such as `azblob://`
-that only `opendal` serves today; the same switch resolves that clash.
+## Terms
 
-## The symptom
+| Term           | Meaning                                                                                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claimed scheme | A URL scheme that DuckDB core or a core extension serves. [Claimed schemes](#claimed-schemes) lists them.                                                                 |
+| Shared scheme  | A claimed scheme that `opendal` also serves: `file://`, `http://`, `https://`, `s3://`, `gcs://` and `r2://`.                                                             |
+| Counterpart    | The filesystem in DuckDB core or a core extension that serves the same storage service as an `opendal` service. Its schemes can differ, for example `az://` for `azblob`. |
 
-If both extensions are loaded, `s3://` may be handled by either — DuckDB
-generally gives it to whichever registered last, and it auto-loads `httpfs` the
-moment you touch a reserved scheme. So the same query can behave differently
-depending on load order: your `CREATE SECRET (TYPE s3, …)` options, retry
-settings and caching are only applied if `opendal` is the one serving the URL.
+The **Notes** section of each [service guide](services/README.md) names the
+counterpart of that service and the differences from it.
 
-Check who would serve it:
+## Claimed schemes
+
+DuckDB v2.0 and its core extensions:
+
+| Component                                           | Filesystem                   | Claimed schemes                   | Storage service              | `opendal` service                                                                     |
+| --------------------------------------------------- | ---------------------------- | --------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------- |
+| DuckDB core                                         | `LocalFileSystem`            | `file://`, paths without a scheme | Local files                  | [`fs`](services/fs.md): `fs://`, **`file://`**                                        |
+| [`httpfs`](https://github.com/duckdb/duckdb-httpfs) | `HTTPFileSystem`             | `http://`, `https://`             | HTTP servers                 | [`http`](services/http.md): **`http://`**, **`https://`**                             |
+| `httpfs`                                            | `S3FileSystem`               | `s3://`, `s3a://`, `s3n://`       | S3 and S3-compatible stores  | [`s3`](services/s3-like.md): **`s3://`**, [`minio`](services/minio-r2.md): `minio://` |
+| `httpfs`                                            | `S3FileSystem`               | `gcs://`, `gs://`                 | Google Cloud Storage         | [`gcs`](services/gcs.md): **`gcs://`**                                                |
+| `httpfs`                                            | `S3FileSystem`               | `r2://`                           | Cloudflare R2                | [`r2`](services/minio-r2.md): **`r2://`**                                             |
+| `httpfs`                                            | `HuggingFaceFileSystem`      | `hf://`                           | Hugging Face Hub             | none                                                                                  |
+| [`azure`](https://github.com/duckdb/duckdb-azure)   | `AzureBlobStorageFileSystem` | `azure://`, `az://`               | Azure Blob Storage           | [`azblob`](services/azure.md): `azblob://`                                            |
+| `azure`                                             | `AzureDfsStorageFileSystem`  | `abfss://`, `abfs://`             | Azure Data Lake Storage Gen2 | [`azdls`](services/azure.md): `azdls://`                                              |
+
+- Shared schemes are in bold.
+- `memory` and `azfile` have no counterpart.
+- **Filesystem** is the name that `disabled_filesystems` and the DuckDB
+  `FileSystem` log use. `opendal` is `OpenDalFileSystem`.
+- No other core extension registers a filesystem.
+- `httpfs` also serves each scheme in its `s3_url_scheme_aliases` setting.
+- A community extension can serve any scheme. To see which filesystem serves a
+  URL, use the query in [Which filesystem serves a URL](#which-filesystem-serves-a-url).
+
+## Which filesystem serves a URL
+
+For each URL, DuckDB asks every loaded filesystem if it can serve the URL:
+
+1. If one or more of them report that they are _manually set_, DuckDB uses the
+   one that was loaded first.
+2. If not, DuckDB uses the one that was loaded last.
+3. If none can serve the URL and its scheme is a claimed scheme other than
+   `file://` or `abfs://`, DuckDB autoloads the extension and asks again.
+4. If none can serve the URL, DuckDB uses `LocalFileSystem`.
+
+`opendal` can serve every URL whose scheme `FROM opendal_schemes();` lists,
+except a URL with a query string or a fragment (`?`, `#`). It reports that it is
+manually set only for the schemes in
+[`opendal_override_schemes`](#choose-opendal-for-a-scheme).
+
+The results:
+
+- **Shared schemes go to `opendal`** when it is loaded after `httpfs`. You do
+  not need the override for this.
+- **A URL with a query string or a fragment goes to `httpfs`**, for example a
+  pre-signed URL. If `httpfs` is not loaded, DuckDB tries to autoload it, which
+  fails (see [Load order](#load-order)).
+- **`file://` goes to `opendal`**, because `LocalFileSystem` serves only the
+  URLs that no other filesystem can serve. A `file://` URL then needs a
+  `TYPE file` secret, or it fails with `root is not specified`. Paths without a
+  scheme stay with DuckDB core. Set `root` to the narrowest directory that the
+  queries need, because a URL cannot leave it:
+
+  ```sql
+  CREATE SECRET local_files (TYPE file, SCOPE 'file://', config MAP{'root': '/srv/data'});
+  ```
+
+  `'root': '/'` gives `file://` the same access as DuckDB core.
+
+- **A filesystem that reports that it is manually set wins over `opendal`**, if
+  it was loaded first, even for a scheme in the override list. The filesystems
+  that `cache_httpfs` wraps work like this.
+
+To see which filesystem served a URL, read the `FileSystem` log:
 
 ```sql
-SELECT scheme, supported, secret_name, usable FROM opendal_info('s3://warehouse/a.parquet');
+CALL enable_logging('FileSystem', storage = 'memory');
+
+SELECT * FROM read_parquet('s3://warehouse/a.parquet');
+
+SELECT DISTINCT message->>'path' AS url, message->>'fs' AS filesystem
+FROM duckdb_logs
+WHERE type = 'FileSystem';
 ```
 
-## Choosing `opendal` for a scheme
+## Choose `opendal` for a scheme
 
-`opendal_override_schemes` is a comma-separated list of schemes where
-`opendal` takes precedence:
+`opendal_override_schemes` is a comma-separated list of schemes for which
+`opendal` reports that it is manually set:
 
 ```sql
-SET opendal_override_schemes = 's3';
+SET opendal_override_schemes = 's3,gcs';
 
--- Now served by opendal, using its secrets, retries and caching:
-SELECT * FROM read_parquet('s3://warehouse/data.parquet');
+SELECT opendal_is_manually_set('s3://warehouse/a.parquet');   -- true
 
--- Hand it back to httpfs:
-SET opendal_override_schemes = '';
+SET opendal_override_schemes = '';   -- remove all overrides
 ```
 
-- Empty by default — nothing is overridden.
-- Per scheme: list several with `'s3,gcs'`. Any scheme `opendal` serves can be
-  listed; schemes it does not support are never taken over, whatever you list.
-- Removing a scheme from the list hands it back to the other extension.
-- It is a session/global setting; set it before the queries it should affect.
+- The default is empty.
+- A scheme that `opendal` does not serve has no effect.
+- The setting applies to every connection and every database in the process.
+- It changes rule 1 only. A filesystem that was loaded before `opendal` and
+  that reports that it is manually set still wins.
 
-You can mix handlers in one session:
-
-```sql
-LOAD opendal;
-LOAD httpfs;
-SET opendal_override_schemes = 's3';
-
-SELECT * FROM read_parquet('s3://warehouse/a.parquet');    -- opendal
-SELECT * FROM read_parquet('s3n://warehouse/b.parquet');   -- httpfs
-```
-
-The blunter alternative is DuckDB's `SET disabled_filesystems = '<name>';`, which
-switches a filesystem off entirely by name (`SELECT * FROM duckdb_settings()` and
-DuckDB's docs list the names).
+`SET disabled_filesystems = '<Filesystem>'` does not send a URL to a different
+filesystem. A URL that the disabled filesystem would serve fails with a
+permission error.
 
 ## Load order
 
-**Load `httpfs` before `opendal`.** Both register a `TYPE s3` secret; `opendal`
-tolerates the type already existing, but `httpfs` loaded *after* `opendal` can
-fail on it — and because extension loading is not transactional, retrying that
-load may then complain that `HTTPFileSystem` is already registered.
+**Load `httpfs` before `opendal`.** Both register the `s3`, `gcs` and `r2`
+secret types. `opendal` accepts a type that is already registered. `httpfs` does
+not, so after `opendal` is loaded, `LOAD httpfs` fails with
+`Attempted to register an already registered secret type`. Every autoload of
+`httpfs` fails in the same way, for example on a `gs://`, `s3a://` or `hf://` URL
+or on `SET s3_region`. Extensions that load `httpfs`, such as `cache_httpfs`,
+fail too.
+
+The `azure` extension shares no secret type with `opendal` and loads in either
+order.
 
 ## Secrets
 
-There is one `TYPE s3` secret type, shared. Whichever extension serves the URL
-reads it, so keep the options valid for the one you intend to win. When
-`opendal` serves it, scope matching works as described in
-[configuration](configuration.md).
+`opendal` replaces the `CREATE SECRET` syntax of the secret types it shares:
+`s3`, `gcs` and `r2` from `httpfs`, and `http` from DuckDB core. After
+`LOAD opendal`, the default provider of these types takes the parameters in
+[configuration](configuration.md), and parameters such as `KEY_ID`, `SECRET` or
+`BEARER_TOKEN` fail with `Unknown parameter`. Other providers, such as
+`PROVIDER credential_chain`, keep their syntax.
 
-A secret type your build does *not* include can quietly belong to another
-extension: `TYPE gcs` maps to `httpfs`, and with
-`autoload_known_extensions = true` DuckDB will try to load `httpfs` rather than
-report an unknown type. To see only this extension's types:
-
-```sql
-SET autoload_known_extensions = false;
-CREATE SECRET gcs_not_compiled (TYPE gcs, config MAP{});   -- fails if not compiled in
-```
+A secret works only for the extension whose syntax created it. Both extensions
+find a secret by its `SCOPE`, but `httpfs` ignores the `opendal` parameters, and
+`opendal` rejects a secret that `httpfs` created. To use both extensions, create
+the `httpfs` secrets before `LOAD opendal`, and give each secret a `SCOPE` that
+only one extension serves.

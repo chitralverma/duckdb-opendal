@@ -218,8 +218,7 @@ accept unknown ones, so a typo there usually surfaces as a connection or
 permission error rather than a config error — `opendal_info` (above) reports
 what the URL actually resolved to.
 
-## Sharing schemes with other extensions
+## Secret types shared with other extensions
 
-Some secret types (`s3`, for example) are also registered by DuckDB's native
-extensions. See [coexistence](coexistence.md) for load order and how to choose
-which extension serves a scheme.
+`httpfs` and DuckDB core also register some of these secret types. See
+[coexistence](coexistence.md#secrets).

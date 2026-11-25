@@ -11,7 +11,7 @@ tour, start with the [README](../README.md).
 | [Configuration](configuration.md)     | Understand secrets and scopes, set global defaults, tune concurrency, retries and timeouts. |
 | [Caching](caching.md)                 | Speed up repeated reads, or add a persistent on-disk cache.                                 |
 | [Table functions](table-functions.md) | List, stat, measure or copy objects from SQL.                                               |
-| [Coexistence](coexistence.md)         | Share a scheme such as `s3://` with DuckDB's `httpfs` extension.                            |
+| [Coexistence](coexistence.md)         | Use `opendal` with `httpfs`, `azure` or DuckDB core on the same storage.                    |
 
 ## Quick orientation
 

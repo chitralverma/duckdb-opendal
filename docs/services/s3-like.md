@@ -78,9 +78,9 @@ region and `enable_virtual_host_style`.
 
 ## Notes
 
-- `s3://` is also claimed by DuckDB's native `httpfs` extension. If both are
-  loaded, say which one you want:
-  `SET opendal_override_schemes = 's3';` — see
-  [coexistence](../coexistence.md).
+- **Counterpart:** [`httpfs`](../coexistence.md#claimed-schemes). `s3://` is a
+  [shared scheme](../coexistence.md#terms). `httpfs` also serves `s3a://` and
+  `s3n://`, and URLs with query parameters such as `versionId` or a pre-signed
+  signature. This service rejects query strings.
 - Large writes use multipart uploads; tune concurrency and part size with
   `io_config` (see [configuration](../configuration.md)).

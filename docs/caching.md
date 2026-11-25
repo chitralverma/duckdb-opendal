@@ -20,11 +20,11 @@ when you need its extra features (metadata caching, profiling).
 ## 1. DuckDB's external file cache (default)
 
 DuckDB caches byte ranges of remote files in its buffer pool. It is on by
-default, and decides what is remote from the URL alone: `s3://`, `s3a://`,
-`s3n://`, `gcs://`, `gs://`, `r2://`, `http://` and `https://` qualify. The
-`azblob`, `azdls`, `azfile`, `minio` and `fs` schemes do not, so their reads are
-not cached unless you `SET cache_local_files = true`, which also caches every
-local file.
+default, and decides what is remote from the URL alone: the
+[claimed schemes](coexistence.md#claimed-schemes) of `httpfs` and `azure`
+qualify, except `abfs://`. The `azblob`, `azdls`, `azfile`, `minio` and `fs`
+schemes do not, so their reads are not cached unless you
+`SET cache_local_files = true`, which also caches every local file.
 
 ```sql
 SELECT current_setting('enable_external_file_cache');   -- true
@@ -117,8 +117,7 @@ SELECT * FROM read_parquet('fs:///data/big.parquet');   -- now cached by cache_h
   metadata caching are also available.
 - It disables DuckDB's external file cache by default; re-enable with
   `SET enable_external_file_cache = true;` if you want both.
-- **`s3://` caveat:** loading `cache_httpfs` pulls in DuckDB's native `httpfs`,
-  which also claims `s3://` and may take precedence. Either wrap `opendal` for
-  schemes `httpfs` does not own (`fs://`, the Azure schemes, …), or force
-  `opendal` to win with `SET opendal_override_schemes = 's3';` and use
-  option 1 or 2 instead. See [coexistence](coexistence.md).
+- `cache_httpfs` loads `httpfs`, so load it before `opendal`. The filesystems it
+  wraps win over `opendal` on [shared schemes](coexistence.md#terms), even with
+  `opendal_override_schemes`. See
+  [which filesystem serves a URL](coexistence.md#which-filesystem-serves-a-url).

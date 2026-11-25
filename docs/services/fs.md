@@ -33,7 +33,9 @@ Use `'root': '.'` to work relative to DuckDB's current working directory.
 
 ## Notes
 
+- **Counterpart:** [DuckDB core](../coexistence.md#claimed-schemes). `file://`
+  is a [shared scheme](../coexistence.md#terms). After `LOAD opendal`, a
+  `file://` URL needs a `TYPE file` secret. Paths without a scheme stay with
+  DuckDB core.
 - The root confines access: paths cannot escape it.
 - Writes create parent directories as needed.
-- DuckDB's own paths (no scheme) are unaffected — only `fs://` and `file://`
-  URLs go through this extension.

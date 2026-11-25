@@ -79,11 +79,9 @@ plain HTTP.
 - **Query strings are rejected** (`?token=…`), so pre-signed URLs do not work
   here. Use the service's own scheme (`s3://`, `azblob://`, …) with a secret
   instead — see [configuration](../configuration.md) for the URL rules.
-- **`http://` and `https://` are DuckDB's most contested schemes** — `httpfs`
-  claims them and DuckDB auto-loads it. To route them through this extension:
-  `SET opendal_override_schemes = 'http,https';` — see
-  [coexistence](../coexistence.md). Without it you are almost certainly using
-  `httpfs`, and none of the settings here apply.
+- **Counterpart:** [`httpfs`](../coexistence.md#claimed-schemes). `http://` and
+  `https://` are [shared schemes](../coexistence.md#terms). A URL with a query
+  string goes to `httpfs`.
 - Range requests drive projection and filter pushdown, so reading a few columns
   from a large remote Parquet file does not download all of it. The server must
   honour `Range`: a ranged read answered with `200 OK` instead of
