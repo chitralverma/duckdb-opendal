@@ -53,25 +53,12 @@ CREATE SECRET az_file (
 SELECT * FROM read_parquet('azblob://warehouse/events/2026.parquet');
 ```
 
-Shared by all three:
-
-| Key            | Meaning                                            |
-| -------------- | -------------------------------------------------- |
-| `account_name` | Storage account. Derived from the URL for dls/file. |
-| `account_key`  | Shared key.                                         |
-| `sas_token`    | Shared access signature, instead of `account_key`.  |
-
-Per service:
-
-| Key                                       | Service  | Meaning                                    |
-| ----------------------------------------- | -------- | ------------------------------------------ |
-| `endpoint`                                | azblob   | `https://<account>.blob.core.windows.net`. |
-| `skip_signature`                          | azblob   | `true` for public containers.              |
-| `filesystem`                              | azdls    | Container ("filesystem") name. Required.   |
-| `enable_hns`                              | azdls    | `true` if the account has an HNS.          |
-| `client_id`, `client_secret`, `tenant_id` | azdls    | Service-principal credentials.             |
-| `authority_host`                          | azdls    | Login host, for sovereign clouds.          |
-| `share_name`                              | azfile   | File share name. Required.                 |
+For all `config` keys, see the OpenDAL configuration reference for
+[`azblob`](https://opendal.apache.org/services/azblob/#configuration-reference),
+[`azdls`](https://opendal.apache.org/services/azdls/#configuration-reference)
+and [`azfile`](https://opendal.apache.org/services/azfile/#configuration-reference).
+For `azdls` and `azfile`, this extension sets `endpoint` and `account_name` from
+the URL, as [URL](#url) describes.
 
 One container, filesystem or share per secret — give each its own `SCOPE`.
 

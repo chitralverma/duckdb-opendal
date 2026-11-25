@@ -24,19 +24,8 @@ CREATE SECRET warehouse (
 SELECT * FROM read_parquet('gcs://warehouse/events/2026.parquet');
 ```
 
-| Key                     | Meaning                                                        |
-| ----------------------- | -------------------------------------------------------------- |
-| `credential`            | Service-account JSON, base64-encoded.                          |
-| `credential_path`       | Path to a service-account JSON file.                           |
-| `service_account`       | Service-account name to impersonate.                           |
-| `token`                 | OAuth2 access token, used directly.                            |
-| `scope`                 | OAuth2 scope; defaults to full control.                        |
-| `endpoint`              | Custom endpoint, e.g. an emulator.                             |
-| `allow_anonymous`       | Allow unsigned access to public buckets and emulators.         |
-| `disable_config_load`   | Skip credential discovery from the environment and gcloud.     |
-| `disable_vm_metadata`   | Skip the GCE metadata server (avoids a hang off-GCE).          |
-| `predefined_acl`        | Predefined ACL applied to written objects.                     |
-| `default_storage_class` | Storage class for written objects, e.g. `NEARLINE`.            |
+For all `config` keys, see the OpenDAL
+[`gcs` configuration reference](https://opendal.apache.org/services/gcs/#configuration-reference).
 
 With no credential keys the service falls back to application default
 credentials, so on GCE or with `gcloud auth application-default login` an empty

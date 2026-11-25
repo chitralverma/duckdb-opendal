@@ -36,12 +36,8 @@ CREATE SECRET web (
 SELECT * FROM read_parquet('https://example.com/private/events.parquet');
 ```
 
-| Key        | Meaning                                      |
-| ---------- | -------------------------------------------- |
-| `username` | Basic-auth user.                             |
-| `password` | Basic-auth password.                         |
-| `token`    | Bearer token; sent instead of Basic auth.    |
-| `endpoint` | Overrides the endpoint derived from the URL. |
+For all `config` keys, see the OpenDAL
+[`http` configuration reference](https://opendal.apache.org/services/http/#configuration-reference).
 
 Scope the secret to the prefix that needs it — URLs outside it stay anonymous.
 `TYPE http` and `TYPE https` are separate secret types; use the one matching the

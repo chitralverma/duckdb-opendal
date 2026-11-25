@@ -29,17 +29,8 @@ CREATE SECRET warehouse (
 SELECT * FROM read_parquet('s3://warehouse/events/2026.parquet');
 ```
 
-| Key                         | Meaning                                                     |
-| --------------------------- | ----------------------------------------------------------- |
-| `access_key_id`             | Access key.                                                 |
-| `secret_access_key`         | Secret key.                                                 |
-| `session_token`             | Session token for temporary credentials.                    |
-| `region`                    | Bucket region.                                              |
-| `endpoint`                  | Custom endpoint for S3-compatible services.                 |
-| `enable_virtual_host_style` | `true` for virtual-host addressing; `false` for path style. |
-| `allow_anonymous`           | Allow unsigned access to public buckets.                    |
-| `server_side_encryption`    | e.g. `AES256`, or `aws:kms` with the KMS key id keys.       |
-| `enable_versioning`         | Enable version-aware stat, list and reads.                  |
+For all `config` keys, see the OpenDAL
+[`s3` configuration reference](https://opendal.apache.org/services/s3/#configuration-reference).
 
 ## S3-compatible services
 
