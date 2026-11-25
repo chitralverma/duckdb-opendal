@@ -259,10 +259,10 @@ pub unsafe extern "C" fn od_presigned_free(presigned: *mut OdPresigned) {
 mod tests {
     use super::{presign, PresignOperation};
     use crate::error::OdErrorCode;
-    use crate::operator::{od_operator_free, od_operator_new};
+    use crate::operator::{od_operator_new, OdOperator};
     use std::ffi::CString;
 
-    fn operator(uri: &str, config: &[(&str, &str)]) -> *mut crate::operator::OdOperator {
+    fn operator(uri: &str, config: &[(&str, &str)]) -> Box<OdOperator> {
         let mut err = crate::error::OdError::ok();
         assert_eq!(unsafe { crate::od_init(0, &mut err) }, 0);
         let uri = CString::new(uri).unwrap();
@@ -290,10 +290,10 @@ mod tests {
             )
         };
         assert!(!op.is_null());
-        op
+        unsafe { Box::from_raw(op) }
     }
 
-    fn s3() -> *mut crate::operator::OdOperator {
+    fn s3() -> Box<OdOperator> {
         operator(
             "s3://bucket",
             &[
@@ -317,18 +317,15 @@ mod tests {
 
     #[test]
     fn rejects_version_for_write() {
-        let op = s3();
-        let Err(error) = presign(unsafe { &*op }, "a", "write", 60, Some("v1".into())) else {
+        let Err(error) = presign(&s3(), "a", "write", 60, Some("v1".into())) else {
             panic!("presign must fail");
         };
         assert_eq!(error.0 as i32, OdErrorCode::InvalidInput as i32);
-        unsafe { od_operator_free(op) };
     }
 
     #[test]
     fn rejects_service_without_capability() {
-        let op = operator("memory://", &[]);
-        let Err(error) = presign(unsafe { &*op }, "a", "read", 60, None) else {
+        let Err(error) = presign(&operator("memory://", &[]), "a", "read", 60, None) else {
             panic!("presign must fail");
         };
         assert_eq!(error.0 as i32, OdErrorCode::Unsupported as i32);
@@ -337,23 +334,21 @@ mod tests {
             "{}",
             error.1
         );
-        unsafe { od_operator_free(op) };
     }
 
     #[test]
     fn signs_each_operation_with_version() {
         let op = s3();
         for (operation, method) in [("stat", "HEAD"), ("read", "GET"), ("delete", "DELETE")] {
-            let request = presign(unsafe { &*op }, "a", operation, 900, Some("v1".into()))
+            let request = presign(&op, "a", operation, 900, Some("v1".into()))
                 .unwrap_or_else(|(_, message)| panic!("{message}"));
             let url = request.uri().to_string();
             assert_eq!(request.method().as_str(), method);
             assert!(url.contains("versionId=v1"), "{url}");
             assert!(url.contains("X-Amz-Expires=900"), "{url}");
         }
-        let request = presign(unsafe { &*op }, "a", "write", 900, None)
+        let request = presign(&op, "a", "write", 900, None)
             .unwrap_or_else(|(_, message)| panic!("{message}"));
         assert_eq!(request.method().as_str(), "PUT");
-        unsafe { od_operator_free(op) };
     }
 }
