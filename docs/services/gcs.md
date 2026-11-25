@@ -53,7 +53,7 @@ CREATE SECRET gcs_emulator (
     SCOPE 'gcs://warehouse',
     config MAP{
         'endpoint': 'http://127.0.0.1:4443',
-        'allow_anonymous': 'true',
+        'skip_signature': 'true',
         'disable_config_load': 'true',
         'disable_vm_metadata': 'true'
     }
