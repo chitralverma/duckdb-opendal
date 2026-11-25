@@ -11,7 +11,7 @@ SELECT count(*) FROM duckdb_functions()
 WHERE function_name LIKE 'opendal\_%' ESCAPE '\'
   AND function_type IN ('scalar', 'table');
 ----
-8
+9
 
 query I
 SELECT count(*) FROM duckdb_functions()

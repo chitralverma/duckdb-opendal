@@ -90,3 +90,7 @@ for the Data Lake or Files endpoints — `azdls` and `azfile` need a real accoun
   `azblob://`, `azdls://` or `azfile://`.
 - On a hierarchical-namespace account, prefer `azdls://` over `azblob://`: it
   exposes real directories, directory rename and recursive delete.
+- [`opendal_presign`](../table-functions.md#opendal_presign) works on
+  `azblob://` only. It needs `sas_token`, or `account_key` with a host-style
+  `endpoint` (`https://<account>.blob.core.windows.net`). A path-style endpoint,
+  such as Azurite, needs `sas_token`.

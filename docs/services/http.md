@@ -72,9 +72,9 @@ plain HTTP.
 
 ## Notes
 
-- **Query strings are rejected** (`?token=…`), so pre-signed URLs do not work
-  here. Use the service's own scheme (`s3://`, `azblob://`, …) with a secret
-  instead — see [configuration](../configuration.md) for the URL rules.
+- **Query strings are rejected** (`?token=…`), so this scheme cannot read a
+  pre-signed URL. Use the service's own scheme (`s3://`, `azblob://`, …) with a
+  secret instead — see [configuration](../configuration.md) for the URL rules.
 - **Counterpart:** [`httpfs`](../coexistence.md#claimed-schemes). `http://` and
   `https://` are [shared schemes](../coexistence.md#terms). A URL with a query
   string goes to `httpfs`.
@@ -83,3 +83,6 @@ plain HTTP.
   honour `Range`: a ranged read answered with `200 OK` instead of
   `206 Partial Content` fails rather than return the wrong bytes.
 - Caching helps most here; see [caching](../caching.md).
+- [`opendal_presign`](../table-functions.md#opendal_presign) has nothing to
+  sign here. It returns the plain URL, and fails for a URL that a secret with
+  credentials serves.

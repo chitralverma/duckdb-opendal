@@ -75,3 +75,6 @@ region and `enable_virtual_host_style`.
   signature. This service rejects query strings.
 - Large writes use multipart uploads; tune concurrency and part size with
   `io_config` (see [configuration](../configuration.md)).
+- [`opendal_presign`](../table-functions.md#opendal_presign) signs with the
+  secret's credentials. Without credentials (`allow_anonymous`), it returns the
+  URL with no signature. Amazon S3 rejects an `expire` longer than 7 days.
